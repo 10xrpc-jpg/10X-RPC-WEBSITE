@@ -66,7 +66,7 @@ export function LandingPage() {
             disabled={loading}
             className="bg-white text-black font-bold rounded-xl px-8 py-3.5 text-base shadow-xl hover:opacity-90 active:scale-[0.98] transition-all min-w-[180px]"
           >
-            {loading ? 'Loading...' : 'Start 3 Days Free'}
+            {loading ? 'Loading...' : 'Start 30 Days Free'}
           </button>
           <GhostButton
             onClick={() => { const el = document.getElementById('pricing'); el?.scrollIntoView({ behavior: 'smooth' }) }}
@@ -110,7 +110,7 @@ export function LandingPage() {
           <div className="text-center mb-10">
             <h2 className="text-3xl sm:text-5xl font-black text-white mb-4">Simple Pricing</h2>
             <p className="text-sm sm:text-base text-white/60 max-w-md mx-auto">
-              Just covering our cloud server bills. But hey, try the 3 day trial first — only buy if you love it.
+              Just covering our cloud server bills. But hey, try the 30 day trial first — only buy if you love it.
             </p>
           </div>
 
@@ -119,8 +119,8 @@ export function LandingPage() {
             <PricingCard
               name="Trial"
               price="$0"
-              period="/ 3 Days"
-              features={['Full feature access', '3 Days validity']}
+              period="/ 30 Days"
+              features={['Full feature access', '30 Days validity']}
               cta="Try Now"
               ctaStyle="ghost"
               onCta={onStart}

@@ -24,7 +24,7 @@ export const CONFIG = {
     // On Render: set NEXT_PUBLIC_APP_URL to the Vercel frontend URL (so callback redirects to Vercel).
     // On Vercel: NEXT_PUBLIC_APP_URL = the Vercel URL itself (default).
     url: process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
-    trialDays: 3,
+    trialDays: 30,
   },
   weather: {
     geocodeUrl: 'https://geocoding-api.open-meteo.com/v1/search',
