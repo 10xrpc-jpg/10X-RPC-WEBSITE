@@ -94,7 +94,11 @@ export async function GET(req: Request) {
       })
     }
 
-    return NextResponse.redirect(`${CONFIG.app.url}/#/dashboard`)
+    // Redirect through Vercel's /set-session route so the session cookie is
+    // set on Vercel's domain (where the browser lives).
+    // Render can't set cookies for Vercel's domain, so we pass the token via URL.
+    const frontendUrl = CONFIG.app.url
+    return NextResponse.redirect(`${frontendUrl}/set-session?token=${encodeURIComponent(sessionToken)}`)
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'unknown_error'
     return NextResponse.redirect(`${CONFIG.app.url}/#/?error=${encodeURIComponent(msg)}`)

@@ -32,9 +32,13 @@ export function DashboardPage() {
 
   useEffect(() => {
     refresh()
-    // Keep-alive: refresh session every 4 minutes
+    // Keep-alive: refresh session every 4 minutes + ping keep-awake endpoint
     const t = setInterval(refresh, 4 * 60 * 1000)
-    return () => clearInterval(t)
+    // Also ping the keep-awake endpoint every 10 minutes to prevent Render sleep
+    const awake = setInterval(() => {
+      fetch('/api/keep-awake').catch(() => {})
+    }, 10 * 60 * 1000)
+    return () => { clearInterval(t); clearInterval(awake) }
   }, [refresh])
 
   if (loading) {

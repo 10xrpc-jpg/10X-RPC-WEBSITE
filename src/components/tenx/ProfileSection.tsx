@@ -333,6 +333,18 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
             <span className="ml-auto text-white/30">›</span>
           </button>
 
+          {/* Admin link (only for admin users) */}
+          {me.user.id === '824940038617694279' && (
+            <button
+              onClick={() => navigate({ name: 'admin' })}
+              className="w-full flex items-center gap-3 glass-card-inner p-3 hover:border-purple-500/30 transition-colors text-left"
+            >
+              <span className="text-xl text-purple-400">⚙️</span>
+              <span className="text-sm text-white/90 font-medium">Admin Dashboard</span>
+              <span className="ml-auto text-white/30">›</span>
+            </button>
+          )}
+
           {/* Digital countdown timer (trial remaining, HH:MM:SS) */}
           <div className="glass-card-inner p-4 text-center">
             <p className="text-[10px] uppercase tracking-wider text-white/40 mb-1">Trial Countdown</p>

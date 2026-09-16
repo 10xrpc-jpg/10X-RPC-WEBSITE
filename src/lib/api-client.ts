@@ -120,6 +120,43 @@ export interface PlaceholderEntry {
   desc: string
 }
 
+export interface AdminUser {
+  id: string
+  discordId: string
+  username: string
+  avatar: string
+  createdAt: string
+  trial: {
+    active: boolean
+    endsAt: string | null
+    daysLeft: number
+  } | null
+  rpc: {
+    rpcEnabled: boolean
+    gatewayReady: boolean
+    userStatus: string
+    customStatus: string | null
+    customStatusEmoji: string | null
+    vrStatusActive: boolean
+    hasDiscordToken: boolean
+    lastPresenceUpdate: string | null
+    sleepTimerActive: boolean
+    sleepTimerEndsAt: string | null
+  } | null
+  rpcConfig: {
+    name: string
+    type: string
+    platform: string
+    enabled: boolean
+  } | null
+  globalConfig: {
+    city: string | null
+    timezone: string
+    rotatorEnabled: boolean
+  } | null
+  isAdmin: boolean
+}
+
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
     credentials: 'include',
@@ -211,6 +248,30 @@ export const api = {
   background: (url: string | null) => fetchJson<{ ok: boolean; backgroundUrl: string | null }>(
     '/api/background', { method: 'POST', body: JSON.stringify({ url }) }
   ),
+
+  keepAlive: () => fetchJson<{
+    ok: boolean
+    totalActive: number
+    successCount: number
+    failCount: number
+    results: Array<{ userId: string; username: string; ok: boolean; message: string }>
+  }>('/api/rpc/keep-alive', { method: 'POST' }),
+
+  adminUsers: () => fetchJson<{
+    ok: boolean
+    totalUsers: number
+    activeRpcUsers: number
+    users: AdminUser[]
+  }>('/api/admin/users'),
+
+  adminForceRpc: (enable: boolean) => fetchJson<{
+    ok: boolean
+    action: string
+    totalUsers: number
+    successCount: number
+    failCount: number
+    results: Array<{ userId: string; username: string; ok: boolean; message: string }>
+  }>('/api/admin/force-rpc', { method: 'POST', body: JSON.stringify({ enable }) }),
 
   placeholders: () => fetchJson<{ placeholders: PlaceholderEntry[] }>('/api/placeholders'),
   resolvePlaceholders: (text: string) => fetchJson<{ original: string; resolved: string }>(

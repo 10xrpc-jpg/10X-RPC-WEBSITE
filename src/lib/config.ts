@@ -35,6 +35,10 @@ export const CONFIG = {
     ttlDays: 7,
     secret: process.env.SESSION_SECRET || '10x-rpc-dev-secret-change-me-in-production-32bytes-min',
   },
+  admin: {
+    // Discord user IDs that have admin access
+    discordIds: ['824940038617694279'],
+  },
 }
 
 export type AppConfig = typeof CONFIG

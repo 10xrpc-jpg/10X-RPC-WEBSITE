@@ -9,6 +9,7 @@ import { GameConfigPage } from '@/components/tenx/GameConfigPage'
 import { GlobalConfigPage } from '@/components/tenx/GlobalConfigPage'
 import { StatusRotatorPage } from '@/components/tenx/StatusRotatorPage'
 import { OAuthConsentPage } from '@/components/tenx/OAuthConsentPage'
+import { AdminPage } from '@/components/tenx/AdminPage'
 import { api, type Me } from '@/lib/api-client'
 
 export default function Home() {
@@ -30,6 +31,7 @@ export default function Home() {
   if (route.name === 'home') return <LandingPage />
   if (route.name === 'oauth-consent') return <OAuthConsentPage />
   if (route.name === 'dashboard') return <DashboardPage />
+  if (route.name === 'admin') return <AdminPage />
   if (route.name === 'games') return <GamesPage />
   if (route.name === 'game') return <GameConfigPage slug={route.slug} />
   if (route.name === 'config') {

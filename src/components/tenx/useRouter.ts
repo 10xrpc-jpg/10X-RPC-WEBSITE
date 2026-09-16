@@ -10,6 +10,7 @@ export type Route =
   | { name: 'config' }
   | { name: 'rotator' }
   | { name: 'oauth-consent' }
+  | { name: 'admin' }
 
 export function parseHash(hash: string): Route {
   const clean = hash.replace(/^#\/?/, '').trim()
@@ -23,6 +24,7 @@ export function parseHash(hash: string): Route {
   if (parts[0] === 'config') return { name: 'config' }
   if (parts[0] === 'rotator') return { name: 'rotator' }
   if (parts[0] === 'oauth-consent' || parts[0] === 'login') return { name: 'oauth-consent' }
+  if (parts[0] === 'admin') return { name: 'admin' }
   return { name: 'home' }
 }
 
@@ -35,6 +37,7 @@ export function toHash(route: Route): string {
     case 'config': return '#/config'
     case 'rotator': return '#/rotator'
     case 'oauth-consent': return '#/oauth-consent'
+    case 'admin': return '#/admin'
   }
 }
 
