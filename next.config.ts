@@ -15,6 +15,10 @@ const nextConfig: NextConfig = {
     if (!RENDER_API_URL) return [];
     return [
       {
+        source: "/api/cron/:path*",
+        destination: "/api/cron/:path*",
+      },
+      {
         source: "/api/:path*",
         destination: `${RENDER_API_URL}/api/:path*`,
       },
