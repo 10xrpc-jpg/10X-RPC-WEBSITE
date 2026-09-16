@@ -179,7 +179,7 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 export const api = {
   me: () => fetchJson<Me>('/api/me'),
   logout: () => fetchJson<{ ok: boolean; redirect: string }>('/api/logout', { method: 'POST' }),
-  demoLogin: () => fetchJson<{ ok: boolean; demo: boolean }>('/api/demo-login', { method: 'POST' }),
+  demoLogin: () => fetchJson<{ ok: boolean; demo: boolean; sessionToken?: string; redirect?: string }>('/api/demo-login', { method: 'POST' }),
 
   rpcSave: (data: RpcConfig) => fetchJson<{ ok: boolean; rpcConfig: RpcConfig }>('/api/rpc', {
     method: 'POST', body: JSON.stringify(data),

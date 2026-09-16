@@ -1,4 +1,7 @@
 // 10X RPC — /api/demo-login — create a demo user + session for preview
+// Returns the session token so the frontend can redirect to /set-session
+// to set the cookie on Vercel's domain (since the browser is on Vercel,
+// not Render, and cookies can't be set cross-domain).
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { setSessionCookie } from '@/lib/session'
@@ -60,6 +63,15 @@ export async function POST() {
     })
   }
 
-  await setSessionCookie(user.id)
-  return NextResponse.json({ ok: true, demo: true })
+  // Create session — setSessionCookie() also tries to set the cookie on Render's
+  // domain (which won't reach the browser on Vercel), but we capture the token
+  // and return it so the frontend can redirect to /set-session.
+  const sessionToken = await setSessionCookie(user.id)
+
+  return NextResponse.json({
+    ok: true,
+    demo: true,
+    sessionToken, // Frontend will redirect to /set-session?token=xxx
+    redirect: `/set-session?token=${encodeURIComponent(sessionToken)}`,
+  })
 }

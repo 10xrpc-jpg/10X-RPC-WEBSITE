@@ -32,8 +32,13 @@ export function OAuthConsentPage() {
   const handleDemo = async () => {
     setLoading('demo')
     try {
-      await api.demoLogin()
-      navigate({ name: 'dashboard' })
+      const r = await api.demoLogin()
+      if (r.redirect) {
+        // Redirect to /set-session to set the cookie on Vercel's domain
+        window.location.href = r.redirect
+      } else {
+        navigate({ name: 'dashboard' })
+      }
     } catch (e) {
       console.error(e)
       setLoading(null)

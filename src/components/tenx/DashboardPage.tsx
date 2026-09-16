@@ -89,8 +89,13 @@ export function DashboardPage() {
             <button
               onClick={async () => {
                 try {
-                  await api.demoLogin()
-                  refresh()
+                  const r = await api.demoLogin()
+                  if (r.redirect) {
+                    // Redirect to /set-session to set the cookie on Vercel's domain
+                    window.location.href = r.redirect
+                  } else {
+                    refresh()
+                  }
                 } catch (e) { console.error(e) }
               }}
               className="bg-white/5 border border-white/10 text-white font-medium rounded-xl px-4 py-3 hover:bg-white/10 active:scale-[0.98] transition-all"
