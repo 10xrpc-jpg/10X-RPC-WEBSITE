@@ -21,7 +21,8 @@ export function DashboardPage() {
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'Failed to load'
       if (msg.includes('not_authenticated') || msg.includes('401')) {
-        window.location.href = '/auth/discord'
+        // Don't redirect to OAuth — just show the Welcome gate with Demo option
+        setMe({ authenticated: false })
         return
       }
       setError(msg)
