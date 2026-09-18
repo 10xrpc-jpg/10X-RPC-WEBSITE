@@ -1,17 +1,15 @@
-// 10X RPC — /api/rotator/tick — advance to next preset (called by cron or self-ping)
+// 10X RPC — /api/rotator/tick — advance to next preset and push to Discord via 24/7 Gateway
 // Logic:
 //   1. Find all users with rotatorEnabled=true
 //   2. For each user, check the currently-active preset's duration
-//   3. If duration elapsed, advance to the next preset (cyclically) and apply it as custom status
+//   3. Advance to active preset, update DB session, and push directly to Gateway
 //   4. Returns summary of how many users were ticked
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { ensureDaemonRunning } from '@/lib/rpc-daemon'
 
 export const dynamic = 'force-dynamic'
 
-// To prevent abuse, this endpoint requires a secret token in the header
-// Set ROTATOR_TICK_SECRET env var on Render/Vercel to enable protection.
-// If env var is not set, the endpoint is open (for dev/demo).
 export async function POST(req: Request) {
   const secret = process.env.ROTATOR_TICK_SECRET
   if (secret) {
@@ -25,6 +23,7 @@ export async function POST(req: Request) {
   const ticked: string[] = []
   const errors: string[] = []
   const now = new Date()
+  const daemon = ensureDaemonRunning()
 
   // Find all users with rotator enabled
   const enabledUsers = await db.globalConfig.findMany({
@@ -44,15 +43,11 @@ export async function POST(req: Request) {
       const presets = gc.user.rotatorPresets.filter(p => p.enabled)
       if (presets.length === 0) continue
 
-      // Determine which preset should be active right now.
-      // Strategy: compute total cycle duration, find where we are in the cycle,
-      // based on a fixed reference (createdAt of the first preset).
       const totalDurationSecs = presets.reduce((sum, p) => sum + Math.max(1, p.durationMins * 60), 0)
       const referenceTime = presets[0].createdAt.getTime()
       const elapsedSecs = Math.floor((now.getTime() - referenceTime) / 1000)
-      const positionInCycle = elapsedSecs % totalDurationSecs
+      const positionInCycle = ((elapsedSecs % totalDurationSecs) + totalDurationSecs) % totalDurationSecs
 
-      // Walk through presets to find the active one
       let accumulated = 0
       let activeIndex = 0
       for (let i = 0; i < presets.length; i++) {
@@ -68,7 +63,7 @@ export async function POST(req: Request) {
       const emoji = activePreset.emoji || null
       const text = activePreset.text
 
-      // Apply as custom status to all active sessions for this user
+      // Apply as custom status to active sessions for this user
       for (const session of gc.user.sessions) {
         await db.session.update({
           where: { id: session.id },
@@ -78,6 +73,9 @@ export async function POST(req: Request) {
           },
         })
       }
+
+      // Push to Discord Gateway in real-time
+      await daemon.syncUser(gc.user.id)
       ticked.push(gc.user.username)
     } catch (e) {
       errors.push(`${gc.user.username}: ${e instanceof Error ? e.message : 'unknown'}`)

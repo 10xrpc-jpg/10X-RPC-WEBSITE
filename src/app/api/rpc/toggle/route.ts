@@ -1,108 +1,126 @@
-// 10X RPC — /api/rpc/toggle — enable/disable RPC
-// When enabling: same as /api/rpc/update (sends presence to Discord)
-// When disabling: clears presence from Discord + disables RPC config
+// 10X RPC — /api/rpc/toggle — Enable/Disable RPC (Database as Single Source of Truth)
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
-import { applyPresence, clearPresence } from '@/lib/rpc-manager'
+import { ensureDaemonRunning } from '@/lib/rpc-daemon'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
 export async function POST(req: Request) {
-  const session = await getSession()
-  if (!session) {
-    return NextResponse.json(
-      { ok: false, error: 'not_authenticated' },
-      { status: 401 }
-    )
-  }
-
-  const body = await req.json() as { enabled?: boolean }
-  const enabled = !!body.enabled
-
-  if (enabled) {
-    // Enable: send presence to Discord
-    const rpcConfig = await db.rpcConfig.findFirst({ where: { userId: session.userId } })
-    const globalConfig = await db.globalConfig.findUnique({ where: { userId: session.userId } })
-
-    const placeholderCtx = {
-      timezone: globalConfig?.timezone || 'UTC',
-      city: globalConfig?.city || undefined,
-      rpcStartedAt: session.createdAt.getTime(),
+  try {
+    const session = await getSession()
+    if (!session) {
+      return NextResponse.json(
+        { ok: false, error: 'not_authenticated' },
+        { status: 401 }
+      )
     }
 
-    const result = await applyPresence(
-      {
-        id: session.id,
-        userId: session.userId,
-        discordAccessToken: session.discordAccessToken,
-        discordRefreshToken: session.discordRefreshToken,
-        discordTokenExpiresAt: session.discordTokenExpiresAt,
-        userStatus: session.userStatus,
-        customStatus: session.customStatus,
-        customStatusEmoji: session.customStatusEmoji,
-      },
-      rpcConfig ? {
-        id: rpcConfig.id,
-        name: rpcConfig.name,
-        type: rpcConfig.type,
-        platform: rpcConfig.platform,
-        state: rpcConfig.state,
-        details: rpcConfig.details,
-        largeImage: rpcConfig.largeImage,
-        largeText: rpcConfig.largeText,
-        smallImage: rpcConfig.smallImage,
-        smallText: rpcConfig.smallText,
-        button1Label: rpcConfig.button1Label,
-        button1Url: rpcConfig.button1Url,
-        button2Label: rpcConfig.button2Label,
-        button2Url: rpcConfig.button2Url,
-        partyCurrent: rpcConfig.partyCurrent,
-        partyMax: rpcConfig.partyMax,
-        partyId: rpcConfig.partyId,
-        partySecret: rpcConfig.partySecret,
-        startMinsAgo: rpcConfig.startMinsAgo,
-        endTotalMins: rpcConfig.endTotalMins,
+    const body = await req.json() as { enabled?: boolean }
+    const enabled = !!body.enabled
+
+    if (enabled) {
+      // 1. Check trial
+      const trial = await db.trial.findUnique({ where: { userId: session.userId } })
+      if (!trial || !trial.active || trial.endsAt < new Date()) {
+        return NextResponse.json(
+          { ok: false, error: 'trial_expired', message: 'Your 3-day trial has expired.' },
+          { status: 403 }
+        )
+      }
+
+      // 2. Load latest saved DB config and mark enabled with fresh timestamp
+      let rpcConfig = await db.rpcConfig.findFirst({ where: { userId: session.userId } })
+      if (rpcConfig) {
+        rpcConfig = await db.rpcConfig.update({
+          where: { id: rpcConfig.id },
+          data: { enabled: true },
+        })
+      } else {
+        rpcConfig = await db.rpcConfig.create({
+          data: {
+            userId: session.userId,
+            name: '10X RPC',
+            type: 'PLAYING',
+            platform: 'desktop',
+            enabled: true,
+            startMinsAgo: 0,
+          },
+        })
+      }
+
+      // 3. Update session in DB
+      await db.session.updateMany({
+        where: { userId: session.userId },
+        data: {
+          rpcEnabled: true,
+          gatewayReady: true,
+          lastPresenceUpdate: new Date(),
+        },
+      })
+
+      // 4. Start RPC via single managed Gateway daemon using the latest saved DB config
+      if (session.discordAccessToken) {
+        const daemon = ensureDaemonRunning()
+        await daemon.syncUser(session.userId)
+      }
+
+      return NextResponse.json({
+        ok: true,
         enabled: true,
-      } : null,
-      placeholderCtx
-    )
+        rpcConfig,
+        message: 'RPC enabled & live on Discord',
+      })
+    } else {
+      // 1. Stop RPC completely in DB (strictly preserves statusEnabled and status fields).
+      //    The gateway is kept alive only if the user's Status feature is still active
+      //    on ANY of their sessions — never because of RPC.
+      const statusSession = await db.session.findFirst({
+        where: {
+          userId: session.userId,
+          statusEnabled: true,
+        },
+      })
+      const keepGateway = !!statusSession
 
-    if (rpcConfig) {
-      await db.rpcConfig.update({
-        where: { id: rpcConfig.id },
-        data: { enabled: result.ok },
+      await db.session.updateMany({
+        where: { userId: session.userId },
+        data: {
+          rpcEnabled: false,
+          gatewayReady: keepGateway,
+          lastPresenceUpdate: new Date(),
+        },
+      })
+
+      const rpcConfig = await db.rpcConfig.findFirst({ where: { userId: session.userId } })
+      let updatedRpcConfig = rpcConfig
+      if (rpcConfig) {
+        updatedRpcConfig = await db.rpcConfig.update({
+          where: { id: rpcConfig.id },
+          data: { enabled: false },
+        })
+      }
+
+      // 2. Clear Discord Rich Presence completely via daemon (stops all timers & background updates)
+      if (session.discordAccessToken) {
+        const daemon = ensureDaemonRunning()
+        await daemon.stopUserRpc(session.userId)
+      }
+
+      return NextResponse.json({
+        ok: true,
+        enabled: false,
+        rpcConfig: updatedRpcConfig,
+        message: 'RPC stopped & Rich Presence cleared from Discord',
       })
     }
-
+  } catch (e: any) {
+    console.error('Error in /api/rpc/toggle:', e)
     return NextResponse.json({
-      ok: result.ok,
-      enabled: result.ok,
-      message: result.message,
-    })
-  } else {
-    // Disable: clear presence from Discord
-    const result = await clearPresence({
-      id: session.id,
-      discordAccessToken: session.discordAccessToken,
-      discordRefreshToken: session.discordRefreshToken,
-      discordTokenExpiresAt: session.discordTokenExpiresAt,
-    })
-
-    // Also disable the RPC config
-    const rpcConfig = await db.rpcConfig.findFirst({ where: { userId: session.userId } })
-    if (rpcConfig) {
-      await db.rpcConfig.update({
-        where: { id: rpcConfig.id },
-        data: { enabled: false },
-      })
-    }
-
-    return NextResponse.json({
-      ok: true,
-      enabled: false,
-      message: result.ok ? 'RPC disabled and presence cleared' : 'RPC disabled (clear failed)',
-    })
+      ok: false,
+      error: 'toggle_failed',
+      message: e?.message || 'Failed to toggle RPC',
+    }, { status: 500 })
   }
 }

@@ -33,17 +33,36 @@ export function verifySessionToken(token: string): { userId: string; ok: boolean
 }
 
 export async function getSession() {
-  const cookieStore = await cookies()
-  const token = cookieStore.get(COOKIE_NAME)?.value
-  if (!token) return null
-  const { userId, ok } = verifySessionToken(token)
-  if (!ok || !userId) return null
-  const session = await db.session.findFirst({
-    where: { userId, token, expiresAt: { gt: new Date() } },
-    include: { user: true },
-  })
-  if (!session) return null
-  return session
+  try {
+    const cookieStore = await cookies()
+    const token = cookieStore.get(COOKIE_NAME)?.value
+    if (!token) return null
+    const { userId, ok } = verifySessionToken(token)
+    if (!ok || !userId) return null
+
+    // Retry up to 3 times in case Neon Postgres compute is waking up (P1001)
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const session = await db.session.findFirst({
+          where: { userId, token, expiresAt: { gt: new Date() } },
+          include: { user: true },
+        })
+        return session || null
+      } catch (err: any) {
+        const isConnectionError = err?.code === 'P1001' || err?.message?.includes('database') || err?.message?.includes('reach')
+        if (isConnectionError && attempt < 3) {
+          await new Promise(r => setTimeout(r, 600 * attempt))
+          continue
+        }
+        console.error('getSession error:', err)
+        return null
+      }
+    }
+    return null
+  } catch (e) {
+    console.error('getSession cookie error:', e)
+    return null
+  }
 }
 
 export async function setSessionCookie(userId: string) {

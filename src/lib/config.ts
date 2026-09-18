@@ -16,6 +16,8 @@ export const CONFIG = {
     apiBase: 'https://discord.com/api/v9',
     // Gaming SDK gateway — accepts OAuth2 user tokens with sdk.social_layer_presence scope.
     gatewayUrl: 'wss://gateway.gaming-sdk.com/?v=10&encoding=json',
+    serverId: process.env.DISCORD_SERVER_ID || '1549302358926823496',
+    inviteUrl: process.env.DISCORD_INVITE_URL || 'https://discord.gg/jr27qeCZU',
   },
   app: {
     name: '10X RPC',

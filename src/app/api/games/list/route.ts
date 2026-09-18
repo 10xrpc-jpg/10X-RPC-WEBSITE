@@ -22,6 +22,8 @@ export async function GET() {
       slug: preset.slug,
       name: preset.name,
       largeImage: preset.largeImage,
+      iconUrl: preset.iconUrl || '',
+      defaultDetails: preset.defaultDetails || '',
       enabled: saved?.enabled ?? false,
       saved: !!saved,
     }

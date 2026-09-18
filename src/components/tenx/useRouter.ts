@@ -42,11 +42,13 @@ export function toHash(route: Route): string {
 }
 
 export function useRouter() {
-  const [route, setRoute] = useState<Route>(() => parseHash(
-    typeof window === 'undefined' ? '' : window.location.hash
-  ))
+  const [route, setRoute] = useState<Route>({ name: 'home' })
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
+    setMounted(true)
+    setRoute(parseHash(window.location.hash))
+
     const onHashChange = () => setRoute(parseHash(window.location.hash))
     window.addEventListener('hashchange', onHashChange)
     return () => window.removeEventListener('hashchange', onHashChange)
@@ -56,5 +58,5 @@ export function useRouter() {
     window.location.hash = toHash(next)
   }, [])
 
-  return { route, navigate }
+  return { route, navigate, mounted }
 }

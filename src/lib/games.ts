@@ -6,6 +6,7 @@ export interface GamePreset {
   slug: string
   name: string
   largeImage: string
+  iconUrl?: string
   largeText: string
   defaultState: string
   defaultDetails: string
@@ -21,6 +22,7 @@ export const GAME_PRESETS: GamePreset[] = [
     slug: 'minecraft',
     name: 'Minecraft',
     largeImage: 'minecraft',
+    iconUrl: 'https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/minecraft.png',
     largeText: 'Minecraft',
     defaultState: 'Mining diamonds',
     defaultDetails: 'Survival Mode',
@@ -34,6 +36,7 @@ export const GAME_PRESETS: GamePreset[] = [
     slug: 'genshin-impact',
     name: 'Genshin Impact',
     largeImage: 'genshin',
+    iconUrl: 'https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/genshin-impact.png',
     largeText: 'Genshin Impact',
     defaultState: 'Exploring Teyvat',
     defaultDetails: 'Adventure Rank 55',
@@ -47,6 +50,7 @@ export const GAME_PRESETS: GamePreset[] = [
     slug: 'wuthering-waves',
     name: 'Wuthering Waves',
     largeImage: 'wuthering-waves',
+    iconUrl: 'https://cdn2.steamgriddb.com/icon/41c6999335f639a0fa578c772e0980c6/32/256x256.png',
     largeText: 'Wuthering Waves',
     defaultState: 'Echo hunting',
     defaultDetails: 'Union Level 40',
@@ -60,6 +64,7 @@ export const GAME_PRESETS: GamePreset[] = [
     slug: 'forza-horizon-5',
     name: 'Forza Horizon 5',
     largeImage: 'forza',
+    iconUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/1551360/header.jpg',
     largeText: 'Forza Horizon 5',
     defaultState: 'Racing in Mexico',
     defaultDetails: 'Online Adventure',
@@ -73,6 +78,7 @@ export const GAME_PRESETS: GamePreset[] = [
     slug: 'arknights',
     name: 'Arknights',
     largeImage: 'arknights',
+    iconUrl: 'https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/arknights.png',
     largeText: 'Arknights',
     defaultState: 'Farming Annihilation',
     defaultDetails: 'Sanity: 135/135',
@@ -86,6 +92,7 @@ export const GAME_PRESETS: GamePreset[] = [
     slug: 'valorant',
     name: 'Valorant',
     largeImage: 'valorant',
+    iconUrl: 'https://raw.githubusercontent.com/walkxcode/dashboard-icons/main/png/valorant.png',
     largeText: 'Valorant',
     defaultState: 'Competitive Match',
     defaultDetails: 'Rank: Diamond III',
@@ -99,6 +106,7 @@ export const GAME_PRESETS: GamePreset[] = [
     slug: 'gta-v',
     name: 'Grand Theft Auto V',
     largeImage: 'gtav',
+    iconUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/271590/header.jpg',
     largeText: 'GTA V',
     defaultState: 'Heisting in Los Santos',
     defaultDetails: 'Online',
@@ -112,6 +120,7 @@ export const GAME_PRESETS: GamePreset[] = [
     slug: 'gtaiii',
     name: 'GTAIII',
     largeImage: 'gtaiii',
+    iconUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/12100/header.jpg',
     largeText: 'GTAIII',
     defaultState: 'In a Match',
     defaultDetails: 'Ranked Mode',
@@ -125,6 +134,7 @@ export const GAME_PRESETS: GamePreset[] = [
     slug: 'vrchat',
     name: 'VRChat',
     largeImage: 'vrchat',
+    iconUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/438100/header.jpg',
     largeText: 'VRChat',
     defaultState: 'Hanging out',
     defaultDetails: 'Public World',
@@ -138,6 +148,7 @@ export const GAME_PRESETS: GamePreset[] = [
     slug: 'cs2',
     name: 'Counter-Strike 2',
     largeImage: 'cs2',
+    iconUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/730/header.jpg',
     largeText: 'CS2',
     defaultState: 'Competitive',
     defaultDetails: 'Premier Mode',
@@ -151,6 +162,7 @@ export const GAME_PRESETS: GamePreset[] = [
     slug: 'igtap',
     name: 'IGTAP: An Incremental Game That\'s Also a Platformer',
     largeImage: 'igtap',
+    iconUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/2346660/header.jpg',
     largeText: 'IGTAP',
     defaultState: 'Grinding XP',
     defaultDetails: 'Level 247',
@@ -164,6 +176,7 @@ export const GAME_PRESETS: GamePreset[] = [
     slug: 'ragtag-heroes',
     name: 'Ragtag Heroes: CO-OP Deckbuilder',
     largeImage: 'ragtag-heroes',
+    iconUrl: 'https://cdn.cloudflare.steamstatic.com/steam/apps/2346660/header.jpg',
     largeText: 'Ragtag Heroes',
     defaultState: 'Building deck',
     defaultDetails: 'CO-OP Mode',

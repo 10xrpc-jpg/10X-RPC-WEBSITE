@@ -1,8 +1,8 @@
-// 10X RPC — /api/rpc/custom-status — set custom Discord status via REST API
+// 10X RPC — /api/rpc/custom-status — set custom Discord status via 24/7 Gateway
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
-import { setCustomStatusViaRest } from '@/lib/rpc-manager'
+import { ensureDaemonRunning } from '@/lib/rpc-daemon'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 15
@@ -26,13 +26,15 @@ export async function POST(req: Request) {
     },
   })
 
-  // If we have a Discord access token, push to Discord via REST API
-  if (session.discordAccessToken) {
-    const result = await setCustomStatusViaRest(session.discordAccessToken, emoji, text)
+  // If we have a Discord access token and Status is enabled, push immediately to Gateway
+  if (session.statusEnabled && session.discordAccessToken) {
+    const daemon = ensureDaemonRunning()
+    await daemon.syncUser(session.userId)
+
     return NextResponse.json({
-      ok: result.ok,
+      ok: true,
       customStatus: { emoji, text },
-      message: result.message,
+      message: text ? `Custom status set: ${emoji || ''} ${text}` : 'Custom status cleared',
     })
   }
 

@@ -1,8 +1,8 @@
-// 10X RPC — /api/rpc/status — set user status (online/idle/dnd/invisible) via REST API
+// 10X RPC — /api/rpc/status — set user status (online/idle/dnd/invisible) via 24/7 Gateway
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
-import { setStatusViaRest } from '@/lib/rpc-manager'
+import { ensureDaemonRunning } from '@/lib/rpc-daemon'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 15
@@ -23,22 +23,28 @@ export async function POST(req: Request) {
     )
   }
 
-  // Persist to session
-  await db.session.update({
-    where: { id: session.id },
-    data: { userStatus: status },
+  // Persist to session (completely independent from rpcEnabled and rpcConfig)
+  await db.session.updateMany({
+    where: { userId: session.userId },
+    data: {
+      userStatus: status,
+      lastPresenceUpdate: new Date(),
+    },
   })
 
-  // If we have a Discord access token, push via REST API
-  if (session.discordAccessToken) {
-    const result = await setStatusViaRest(session.discordAccessToken, status)
+  // Push immediately via Gateway Daemon only if Status is currently enabled
+  if (session.statusEnabled && session.discordAccessToken) {
+    const daemon = ensureDaemonRunning()
+    await daemon.syncUser(session.userId)
+
     return NextResponse.json({
-      ok: result.ok,
+      ok: true,
       status,
-      message: result.message,
+      message: `Status set to ${status}`,
     })
   }
 
+  // Demo mode
   return NextResponse.json({
     ok: true,
     status,
