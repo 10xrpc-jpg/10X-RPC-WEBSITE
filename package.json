@@ -82,7 +82,8 @@
     "ws": "^8.21.3",
     "z-ai-web-dev-sdk": "^0.0.18",
     "zod": "^4.0.2",
-    "zustand": "^5.0.6"
+    "zustand": "^5.0.6",
+    "tsx": "^4.23.13"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -93,7 +94,6 @@
     "eslint": "^9",
     "eslint-config-next": "^16.1.1",
     "tailwindcss": "^4",
-    "tsx": "^4.23.13",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5"
   }
