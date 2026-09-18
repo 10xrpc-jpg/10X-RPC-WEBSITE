@@ -8,19 +8,65 @@ import { CONFIG } from '@/lib/config'
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  const session = await getSession()
-  if (!session) {
-    // Return 200 with authenticated:false — the dashboard handles this case gracefully
-    return NextResponse.json({ authenticated: false })
-  }
+  try {
+    const session = await getSession()
+    if (!session) {
+      // Return 200 with authenticated:false — the dashboard handles this case gracefully
+      return NextResponse.json({ authenticated: false })
+    }
 
-  const trial = await db.trial.findUnique({ where: { userId: session.userId } })
-  const globalConfig = await db.globalConfig.findUnique({ where: { userId: session.userId } })
-  const rpcConfig = await db.rpcConfig.findFirst({ where: { userId: session.userId } })
-  const rotatorPresets = await db.rotatorPreset.findMany({
-    where: { userId: session.userId },
-    orderBy: { order: 'asc' },
-  })
+    let trial: any = null
+    let globalConfig: any = null
+    let rpcConfig: any = null
+    let rotatorPresets: any[] = []
+
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        [trial, globalConfig, rpcConfig, rotatorPresets] = await Promise.all([
+          db.trial.findUnique({ where: { userId: session.userId } }),
+          db.globalConfig.findUnique({ where: { userId: session.userId } }),
+          db.rpcConfig.findFirst({ where: { userId: session.userId } }),
+          db.rotatorPreset.findMany({
+            where: { userId: session.userId },
+            orderBy: { order: 'asc' },
+          }),
+        ])
+        if (!rpcConfig) {
+          rpcConfig = await db.rpcConfig.create({
+            data: {
+              userId: session.userId,
+              name: '10X RPC',
+              type: 'PLAYING',
+              platform: 'desktop',
+              state: null,
+              details: null,
+              largeImage: null,
+              largeText: null,
+              smallImage: null,
+              smallText: null,
+              button1Label: null,
+              button1Url: null,
+              button2Label: null,
+              button2Url: null,
+              partyCurrent: null,
+              partyMax: null,
+              partyId: null,
+              partySecret: null,
+              startMinsAgo: 0,
+              endTotalMins: null,
+              enabled: false,
+            },
+          })
+        }
+        break
+      } catch (dbErr) {
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 600))
+          continue
+        }
+        console.error('Error fetching user data in /api/me:', dbErr)
+      }
+    }
 
   const now = new Date()
   const trialActive = trial?.active && trial.endsAt > now
@@ -43,11 +89,13 @@ export async function GET() {
       backgroundUrl: session.user.backgroundUrl,
     },
     session: {
-      rpcEnabled: session.rpcEnabled,
+      statusEnabled: session.statusEnabled ?? false,
+      rpcEnabled: rpcConfig ? (rpcConfig.enabled && session.rpcEnabled) : session.rpcEnabled,
       gatewayReady: session.gatewayReady,
       userStatus: session.userStatus,
       customStatus: session.customStatus,
       customStatusEmoji: session.customStatusEmoji,
+      statusPlatform: session.statusPlatform || 'mobile',
       vrStatusActive: session.vrStatusActive,
       sleepTimerActive,
       sleepTimerEndsAt: session.sleepTimerEndsAt,
@@ -87,7 +135,7 @@ export async function GET() {
       partySecret: rpcConfig.partySecret,
       startMinsAgo: rpcConfig.startMinsAgo,
       endTotalMins: rpcConfig.endTotalMins,
-      enabled: rpcConfig.enabled,
+      enabled: rpcConfig.enabled && session.rpcEnabled,
     } : null,
     rotatorPresets: rotatorPresets.map(p => ({
       id: p.id,
@@ -103,4 +151,8 @@ export async function GET() {
       tagline: CONFIG.app.tagline,
     },
   })
+  } catch (err) {
+    console.error('Unhandled error in /api/me:', err)
+    return NextResponse.json({ error: 'Failed to fetch session' }, { status: 500 })
+  }
 }

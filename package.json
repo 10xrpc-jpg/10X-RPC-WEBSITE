@@ -6,12 +6,14 @@
     "dev": "next dev -p 3000 2>&1 | tee dev.log",
     "build": "prisma generate || true && next build",
     "start": "next start -p ${PORT:-3000}",
+    "daemon": "npx tsx scripts/rpc-daemon-standalone.ts",
     "lint": "eslint .",
     "db:push": "prisma db push --accept-data-loss",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
     "db:reset": "prisma migrate reset",
-    "db:deploy": "prisma migrate deploy"
+    "db:deploy": "prisma migrate deploy",
+    "postinstall": "prisma generate"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
@@ -91,6 +93,7 @@
     "eslint": "^9",
     "eslint-config-next": "^16.1.1",
     "tailwindcss": "^4",
+    "tsx": "^4.23.13",
     "tw-animate-css": "^1.3.5",
     "typescript": "^5"
   }

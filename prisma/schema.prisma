@@ -9,8 +9,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
 }
 
 model User {
@@ -44,12 +45,14 @@ model Session {
   discordRefreshToken  String?
   discordTokenExpiresAt DateTime?
 
-  // RPC state
+  // Status & RPC state (completely independent)
+  statusEnabled   Boolean  @default(false)
   rpcEnabled      Boolean  @default(false)
   gatewayReady    Boolean  @default(false)
   userStatus      String   @default("online")
   customStatus    String?
   customStatusEmoji String?
+  statusPlatform  String   @default("mobile")
   lastPresenceUpdate DateTime?
 
   // VR / Meta Quest state

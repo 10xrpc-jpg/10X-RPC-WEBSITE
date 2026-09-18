@@ -9,11 +9,13 @@ export interface Me {
     backgroundUrl?: string | null
   }
   session?: {
+    statusEnabled?: boolean
     rpcEnabled: boolean
     gatewayReady: boolean
     userStatus: string
     customStatus: string | null
     customStatusEmoji: string | null
+    statusPlatform?: string
     vrStatusActive: boolean
     sleepTimerActive: boolean
     sleepTimerEndsAt: string | null
@@ -75,6 +77,8 @@ export interface GameListItem {
   slug: string
   name: string
   largeImage: string
+  iconUrl?: string
+  defaultDetails?: string
   enabled: boolean
   saved: boolean
 }
@@ -121,22 +125,44 @@ export interface PlaceholderEntry {
 }
 
 async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, {
-    credentials: 'include',
-    headers: { 'Content-Type': 'application/json' },
-    ...init,
-  })
-  if (!res.ok) {
-    // For 401s, return a normalized "not authenticated" shape — callers can handle this
-    if (res.status === 401) {
-      throw new Error('not_authenticated')
+  const isGet = !init?.method || init.method.toUpperCase() === 'GET'
+  const maxAttempts = isGet ? 3 : 1
+  let lastError: Error | null = null
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const res = await fetch(url, {
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        ...init,
+      })
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error('not_authenticated')
+        }
+        if (isGet && attempt < maxAttempts && (res.status === 500 || res.status === 503)) {
+          await new Promise(r => setTimeout(r, 600 * attempt))
+          continue
+        }
+        const text = await res.text().catch(() => '')
+        let msg = text
+        try { msg = JSON.parse(text).error || text } catch {}
+        throw new Error(msg || `Request failed: ${res.status}`)
+      }
+      return (await res.json()) as T
+    } catch (err: any) {
+      if (err?.message === 'not_authenticated') {
+        throw err
+      }
+      lastError = err
+      if (isGet && attempt < maxAttempts) {
+        await new Promise(r => setTimeout(r, 600 * attempt))
+        continue
+      }
+      throw err
     }
-    const text = await res.text().catch(() => '')
-    let msg = text
-    try { msg = JSON.parse(text).error || text } catch {}
-    throw new Error(msg || `Request failed: ${res.status}`)
   }
-  return res.json() as Promise<T>
+  throw lastError || new Error('Request failed')
 }
 
 export const api = {
@@ -173,6 +199,28 @@ export const api = {
 
   setStatus: (status: string) => fetchJson<{ ok: boolean; status: string }>('/api/rpc/status', {
     method: 'POST', body: JSON.stringify({ status }),
+  }),
+  statusUpdate: (data: {
+    userStatus?: string
+    customStatus?: string | null
+    customStatusEmoji?: string | null
+    statusPlatform?: string
+  }) =>
+    fetchJson<{
+      ok: boolean
+      statusEnabled: boolean
+      userStatus: string
+      customStatus: string | null
+      customStatusEmoji: string | null
+      statusPlatform: string
+      message?: string
+      error?: string
+    }>('/api/status/update', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  statusToggle: (enabled: boolean) => fetchJson<{ ok: boolean; statusEnabled: boolean; userStatus?: string }>('/api/status/toggle', {
+    method: 'POST', body: JSON.stringify({ enabled }),
   }),
 
   vrToggle: (active: boolean) => fetchJson<{ ok: boolean; vrStatusActive: boolean }>(

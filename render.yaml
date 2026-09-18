@@ -1,0 +1,34 @@
+services:
+  # 10X RPC Backend Web Service
+  - type: web
+    name: 10x-rpc-backend
+    runtime: node
+    plan: starter # Can be switched to 'free' or upgraded in Render dashboard
+    region: oregon
+    buildCommand: npm install && npx prisma generate && npm run build
+    startCommand: npm run start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATABASE_URL
+        sync: false
+      - key: DATABASE_URL_UNPOOLED
+        sync: false
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: DISCORD_CLIENT_ID
+        sync: false
+      - key: DISCORD_CLIENT_SECRET
+        sync: false
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: DISCORD_REDIRECT_URI
+        sync: false
+      - key: DISCORD_OAUTH_SCOPE
+        value: openid identify sdk.social_layer_presence
+      - key: ROTATOR_TICK_SECRET
+        generateValue: true

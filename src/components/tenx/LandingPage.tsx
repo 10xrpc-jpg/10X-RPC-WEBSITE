@@ -161,7 +161,7 @@ export function LandingPage() {
             <a href="#" className="hover:text-white">Terms of Service</a>
             <a href="#" className="hover:text-white">Privacy Policy</a>
             <a href="#" className="hover:text-white">Refund Policy</a>
-            <a href="#" className="hover:text-white">Join our Discord</a>
+            <a href="https://discord.gg/jr27qeCZU" target="_blank" rel="noopener noreferrer" className="hover:text-white">Join our Discord</a>
           </div>
           <p className="text-xs text-white/40">Copyright © 2026 10X RPC. All rights reserved.</p>
           <p className="text-xs text-white/30 max-w-md mx-auto">

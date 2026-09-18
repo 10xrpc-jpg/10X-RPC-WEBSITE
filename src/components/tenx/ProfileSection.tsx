@@ -1,75 +1,115 @@
-// 10X RPC — Profile card + action row (matches Roxy reference, with bg + live preview)
+// 10X RPC — Profile card + action row (matches Roxy reference exactly)
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
 import { api, type Me } from '@/lib/api-client'
 import { useRouter } from './useRouter'
-import { Card, GhostButton, PrimaryButton, PurpleSwitch, Badge } from './ui'
-import { DISCORD_STATUSES, PLATFORMS, PLATFORM_GROUPS } from '@/lib/constants'
+import { Card, PurpleSwitch } from './ui'
+import { DISCORD_STATUSES } from '@/lib/constants'
+import { Gamepad2, Globe, Monitor, Smartphone } from 'lucide-react'
 import { DiscordPreview } from './DiscordPreview'
-import { QuickStatusPanel } from './QuickStatusPanel'
+
+function VrIcon({ className = 'w-4 h-4' }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
+      <rect x="2" y="6" width="20" height="12" rx="4" />
+      <path d="M10 18a2 2 0 0 0 4 0" />
+      <circle cx="8" cy="12" r="2.2" />
+      <circle cx="16" cy="12" r="2.2" />
+    </svg>
+  )
+}
+
+const PLATFORM_ITEMS = [
+  { value: 'mobile', label: 'Mobile', icon: Smartphone },
+  { value: 'desktop', label: 'Desktop', icon: Monitor },
+  { value: 'console', label: 'Console', icon: Gamepad2 },
+  { value: 'web', label: 'Web', icon: Globe },
+  { value: 'meta_quest', label: 'VR', icon: VrIcon },
+]
 
 export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
   const { navigate } = useRouter()
   const [statusDropdown, setStatusDropdown] = useState(false)
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
   const [customMsg, setCustomMsg] = useState(me.session?.customStatus || '')
   const [customEmoji, setCustomEmoji] = useState(me.session?.customStatusEmoji || '')
+  const [statusEnabled, setStatusEnabled] = useState(me.session?.statusEnabled ?? false)
+  const [userStatus, setUserStatus] = useState(me.session?.userStatus || 'online')
   const [rpcEnabled, setRpcEnabled] = useState(me.session?.rpcEnabled ?? false)
   const [saving, setSaving] = useState(false)
-  const [vrActive, setVrActive] = useState(me.session?.vrStatusActive ?? false)
+  const [selectedPlatform, setSelectedPlatform] = useState(me.session?.statusPlatform || 'mobile')
+  const [platformOpen, setPlatformOpen] = useState(false)
   const [bgModalOpen, setBgModalOpen] = useState(false)
   const [bgUrl, setBgUrl] = useState(me.user?.backgroundUrl || '')
 
-  // Live tick — drives the digital countdown timer
+  const statusDropdownRef = useRef<HTMLDivElement>(null)
+  const userMenuRef = useRef<HTMLDivElement>(null)
+  const platformRef = useRef<HTMLDivElement>(null)
+
+  // Live tick for countdowns
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
   }, [])
 
-  // Sync local state when me changes (e.g. after refresh)
+  // Outside click handlers
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as Node
+      if (platformRef.current && !platformRef.current.contains(target)) {
+        setPlatformOpen(false)
+      }
+      if (statusDropdownRef.current && !statusDropdownRef.current.contains(target)) {
+        setStatusDropdown(false)
+      }
+      if (userMenuRef.current && !userMenuRef.current.contains(target)) {
+        setUserMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Sync local state when me changes
   useEffect(() => {
     setCustomMsg(me.session?.customStatus || '')
     setCustomEmoji(me.session?.customStatusEmoji || '')
+    setStatusEnabled(me.session?.statusEnabled ?? false)
+    setUserStatus(me.session?.userStatus || 'online')
     setRpcEnabled(me.session?.rpcEnabled ?? false)
-    setVrActive(me.session?.vrStatusActive ?? false)
+    setSelectedPlatform(me.session?.statusPlatform || 'mobile')
     setBgUrl(me.user?.backgroundUrl || '')
   }, [me])
 
   if (!me.user || !me.session || !me.trial) return null
 
-  const userStatus = me.session.userStatus
   const statusInfo = DISCORD_STATUSES.find(s => s.value === userStatus) || DISCORD_STATUSES[0]
   const trialMsLeft = Math.max(0, me.trial.endsAt ? new Date(me.trial.endsAt).getTime() - now : 0)
   const trialDaysLeft = Math.max(0, Math.ceil(trialMsLeft / (24 * 60 * 60 * 1000)))
 
-  // Sleep timer countdown
-  const sleepMsLeft = me.session.sleepTimerEndsAt
-    ? Math.max(0, new Date(me.session.sleepTimerEndsAt).getTime() - now)
-    : 0
-  const sleepActive = me.session.sleepTimerActive && sleepMsLeft > 0
-
-  const handleStatusSelect = async (status: string) => {
+  const handleStatusSelect = (status: string) => {
     setStatusDropdown(false)
-    try {
-      await api.setStatus(status)
+    setUserStatus(status)
+    // If status is currently enabled, save & sync immediately
+    if (statusEnabled) {
+      api.statusUpdate({ userStatus: status }).then(() => onRefresh()).catch(() => {})
       toast.success(`Status set to ${status}`, { duration: 2000 })
-      onRefresh()
-    } catch (e) {
-      console.error(e)
-      toast.error('Failed to update status')
+    } else {
+      toast.success(`Status set to ${status} (click UPDATE to save)`, { duration: 2000 })
     }
   }
 
-  const handleToggleRpc = async (v: boolean) => {
-    setRpcEnabled(v)
+  const handleToggleStatus = async (v: boolean) => {
+    setStatusEnabled(v)
     try {
-      await api.rpcToggle(v)
-      toast.success(v ? 'Status enabled' : 'Status disabled', { duration: 2000 })
+      await api.statusToggle(v)
+      toast.success(v ? 'Status enabled (Online on Discord)' : 'Status disabled (Offline)', { duration: 2000 })
       onRefresh()
     } catch (e) {
       console.error(e)
-      setRpcEnabled(!v)  // revert on error
+      setStatusEnabled(!v)
       toast.error('Failed to toggle status')
     }
   }
@@ -77,67 +117,27 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
   const handleUpdate = async () => {
     setSaving(true)
     try {
-      // Validate custom message length
       if (customMsg.length > 128) {
         toast.error('Custom message too long (max 128 chars)')
         return
       }
-      // Save custom status + RPC config first
-      await api.customStatus(customEmoji || null, customMsg || null)
-      if (me.rpcConfig) {
-        await api.rpcSave({ ...me.rpcConfig, enabled: rpcEnabled })
-      }
-      // Actually send presence to Discord via gateway
-      const result = await api.rpcUpdate()
+      const result = await api.statusUpdate({
+        userStatus,
+        customStatus: customMsg || null,
+        customStatusEmoji: customEmoji || null,
+        statusPlatform: selectedPlatform,
+      })
       if (result.ok) {
-        toast.success(`✓ ${result.message || 'Presence sent to Discord'}`, { duration: 3000 })
+        toast.success(statusEnabled ? '✓ Status updated & synced to Discord' : '✓ Status configuration saved (Status is OFF)', { duration: 3000 })
       } else {
-        // Show the actual error message from the gateway
-        const msg = result.message || result.error || 'Unknown error'
-        if (msg.includes('No Discord access token') || msg.includes('demo')) {
-          toast.warning(
-            'Demo mode — sign in with Discord to push RPC',
-            {
-              duration: 6000,
-              action: {
-                label: 'Sign in',
-                onClick: () => navigate({ name: 'oauth-consent' }),
-              },
-            }
-          )
-        } else if (msg.includes('trial')) {
-          toast.error('Trial expired — please upgrade to continue using RPC')
-        } else if (msg.includes('Authentication failed') || msg.includes('4004')) {
-          toast.error('Discord rejected the token. Sign out and sign in again.', {
-            duration: 5000,
-            action: {
-              label: 'Re-sign in',
-              onClick: () => navigate({ name: 'oauth-consent' }),
-            },
-          })
-        } else {
-          toast.error(`RPC failed: ${msg}`, { duration: 5000 })
-        }
+        toast.error('Failed to update status')
       }
       onRefresh()
     } catch (e) {
       console.error(e)
-      toast.error('Failed to update presence')
+      toast.error('Failed to update status')
     } finally {
       setSaving(false)
-    }
-  }
-
-  const handleVrToggle = async (v: boolean) => {
-    setVrActive(v)
-    try {
-      await api.vrToggle(v)
-      toast.success(v ? 'VR status enabled' : 'VR status disabled', { duration: 2000 })
-      onRefresh()
-    } catch (e) {
-      console.error(e)
-      setVrActive(!v)  // revert
-      toast.error('Failed to toggle VR status')
     }
   }
 
@@ -147,7 +147,6 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
   }
 
   const handleSaveBg = async () => {
-    // Validate URL
     const trimmed = bgUrl.trim()
     if (trimmed && !/^https?:\/\//i.test(trimmed)) {
       toast.error('Background URL must start with http:// or https://')
@@ -187,267 +186,277 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
     }
   }
 
+  const currentPlatformItem = PLATFORM_ITEMS.find(p => p.value === selectedPlatform) || PLATFORM_ITEMS[0]
+  const PlatformIcon = currentPlatformItem.icon
+
   return (
     <>
-      {/* === PROFILE CARD === */}
-      <Card className="relative overflow-hidden">
-        {/* Background image (if set) */}
+      {/* === MAIN PROFILE CARD (Matches roxydev.xyz/me reference screenshot) === */}
+      <div className="relative overflow-hidden bg-gradient-to-b from-[#13111d]/95 via-[#0e0d14]/95 to-[#0a0a0f] border border-white/10 rounded-[28px] p-6 shadow-2xl backdrop-blur-xl">
+        {/* Ambient violet glow at top left and top right */}
+        <div className="absolute -top-16 -left-12 w-56 h-56 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" />
+        <div className="absolute -top-16 -right-12 w-48 h-48 bg-purple-900/10 rounded-full blur-2xl pointer-events-none" />
+
+        {/* Custom background image if configured */}
         {me.user.backgroundUrl && (
           <>
-            { }
             <img
               src={me.user.backgroundUrl}
               alt=""
-              className="absolute inset-0 w-full h-full object-cover opacity-30 pointer-events-none"
+              className="absolute inset-0 w-full h-full object-cover opacity-25 pointer-events-none"
             />
-            <div className="absolute inset-0 bg-gradient-to-b from-black/50 via-[#0a0b0f]/70 to-[#0a0b0f] pointer-events-none" />
+            <div className="absolute inset-0 bg-gradient-to-b from-[#0e0d14]/75 via-[#0e0d14]/90 to-[#0a0a0f] pointer-events-none" />
           </>
         )}
 
-        {/* Watermark username behind the content */}
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-1/2 -translate-y-1/2 text-center text-7xl font-black text-white/[0.03] select-none"
-        >
-          {me.user.username}
+        {/* Top-Right Small Avatar + Dropdown Menu */}
+        <div className="relative flex items-center justify-end z-20">
+          <div className="relative" ref={userMenuRef}>
+            <button
+              type="button"
+              onClick={() => setUserMenuOpen(v => !v)}
+              className="relative rounded-full focus:outline-none ring-1 ring-white/20 hover:ring-purple-400/60 transition-all cursor-pointer"
+              title="Account options"
+            >
+              <img
+                src={me.user.avatar}
+                alt=""
+                className="w-8 h-8 rounded-full object-cover"
+              />
+            </button>
+
+            {/* Sleek User Settings Dropdown */}
+            {userMenuOpen && (
+              <div className="absolute right-0 top-full mt-2 w-52 bg-[#16171d]/95 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl z-50 space-y-1 text-xs">
+                <div className="px-3 py-2 border-b border-white/5">
+                  <div className="font-semibold text-white truncate">{me.user.username}</div>
+                  <div className="text-[10px] text-white/50 font-mono truncate">{me.user.id}</div>
+                  <div className="text-[10px] text-purple-300 mt-1">
+                    {trialDaysLeft} day{trialDaysLeft === 1 ? '' : 's'} trial remaining
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setUserMenuOpen(false); navigate({ name: 'config' }) }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-left transition-colors"
+                >
+                  <span>🌐</span>
+                  <span>Set Config</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setUserMenuOpen(false); setBgModalOpen(true) }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-left transition-colors"
+                >
+                  <span>🖼️</span>
+                  <span>Set Background</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handleLogout}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-500/10 text-left border-t border-white/5 mt-1 transition-colors"
+                >
+                  <span>🔴</span>
+                  <span>Logout</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="relative space-y-4">
-          {/* Avatar + "click here" hint + small thumb */}
-          <div className="flex items-start justify-between">
-            <div className="relative">
+        {/* Center: Large Circular Avatar + Status Dot + "click here" */}
+        <div className="relative flex flex-col items-center justify-center -mt-3 mb-5 z-20">
+          <div className="relative inline-block" ref={statusDropdownRef}>
+            {/* Avatar */}
+            <div className="w-28 h-28 rounded-full overflow-hidden border-2 border-white/10 shadow-2xl ring-1 ring-white/5">
               <img
                 src={me.user.avatar}
                 alt={me.user.username}
-                className="w-20 h-20 rounded-2xl object-cover ring-2 ring-purple-500/40"
-              />
-              <span className={`absolute -bottom-0.5 -right-0.5 w-4 h-4 rounded-full border-2 border-[#0a0b0f] ${statusInfo.color}`} />
-              <span
-                className="absolute -left-16 top-1/2 -translate-y-1/2 text-xs text-white/40 hidden sm:block"
-              >
-                ← click here
-              </span>
-            </div>
-            {/* Small avatar thumb in top-right corner */}
-            <img
-              src={me.user.avatar}
-              alt=""
-              className="w-8 h-8 rounded-lg object-cover opacity-60"
-            />
-          </div>
-
-          {/* Username + TRIAL ACTIVE badge */}
-          <div className="space-y-1.5">
-            <div className="text-2xl font-bold text-white">{me.user.username}</div>
-            {me.trial.active ? (
-              <Badge className="bg-orange-500/20 text-orange-300 border border-orange-500/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-green-400" />
-                TRIAL ACTIVE
-              </Badge>
-            ) : (
-              <Badge className="bg-red-500/20 text-red-300 border border-red-500/30">
-                <span className="w-1.5 h-1.5 rounded-full bg-red-400" />
-                TRIAL EXPIRED
-              </Badge>
-            )}
-          </div>
-
-          {/* User ID line */}
-          <div className="flex items-center gap-2 text-xs text-white/60">
-            <span>👤</span>
-            <span className="font-mono">{me.user.id}</span>
-          </div>
-
-          {/* "3 days remaining" line */}
-          <div className="flex items-center gap-2 text-sm text-white/80">
-            <span>🕐</span>
-            <span>{customEmoji || '😋'}</span>
-            <span>{trialDaysLeft} day{trialDaysLeft === 1 ? '' : 's'} remaining</span>
-          </div>
-
-          {/* Custom Msg input + status selector */}
-          <div className="flex items-center gap-2">
-            <div className="flex-1 flex items-center gap-2 bg-[#13141a] border border-white/8 rounded-xl px-3 py-2.5">
-              <span className="text-xl">{customEmoji || '😋'}</span>
-              <input
-                type="text"
-                value={customMsg}
-                onChange={e => setCustomMsg(e.target.value)}
-                placeholder="Custom Msg..."
-                className="bg-transparent flex-1 outline-none text-sm text-white placeholder:text-white/40"
-                maxLength={128}
-              />
-              <input
-                type="text"
-                value={customEmoji}
-                onChange={e => setCustomEmoji(e.target.value.slice(0, 2))}
-                placeholder="😀"
-                className="w-10 bg-transparent outline-none text-center text-sm"
-                maxLength={2}
+                className="w-full h-full object-cover"
               />
             </div>
-            <div className="relative">
-              <button
-                onClick={() => setStatusDropdown(v => !v)}
-                className="bg-[#13141a] border border-white/8 rounded-xl px-3 py-2.5 text-sm text-white hover:bg-white/5"
-                aria-label="Status"
-              >
-                {statusInfo.emoji}
-              </button>
-              {statusDropdown && (
-                <div className="absolute right-0 top-full mt-2 w-44 glass-card-inner p-1 z-20">
-                  {DISCORD_STATUSES.map(s => (
-                    <button
-                      key={s.value}
-                      onClick={() => handleStatusSelect(s.value)}
-                      className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-white/5 ${userStatus === s.value ? 'text-purple-300' : 'text-white'}`}
-                    >
-                      <span className={`w-2 h-2 rounded-full ${s.color}`} />
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          </div>
 
-          {/* Set Config menu item */}
-          <button
-            onClick={() => navigate({ name: 'config' })}
-            className="w-full flex items-center gap-3 glass-card-inner p-3 hover:border-purple-500/30 transition-colors text-left"
-          >
-            <span className="text-xl text-purple-400">🌐</span>
-            <span className="text-sm text-white/90 font-medium">Set Config</span>
-            <span className="ml-auto text-white/30">›</span>
-          </button>
-
-          {/* Set Background menu item */}
-          <button
-            onClick={() => setBgModalOpen(true)}
-            className="w-full flex items-center gap-3 glass-card-inner p-3 hover:border-purple-500/30 transition-colors text-left"
-          >
-            <span className="text-xl text-orange-400">🖼️</span>
-            <span className="text-sm text-white/90 font-medium">
-              Set Background {me.user.backgroundUrl && <span className="text-[10px] text-green-400">●</span>}
-            </span>
-            <span className="ml-auto text-white/30">›</span>
-          </button>
-
-          {/* Digital countdown timer (trial remaining, HH:MM:SS) */}
-          <div className="glass-card-inner p-4 text-center">
-            <p className="text-[10px] uppercase tracking-wider text-white/40 mb-1">Trial Countdown</p>
-            <p className="font-mono text-3xl font-bold text-purple-300 tabular-nums tracking-wider">
-              {formatCountdown(trialMsLeft)}
-            </p>
-          </div>
-
-          {/* Logout */}
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center justify-center gap-2 text-red-400 hover:text-red-300 py-2 text-sm"
-          >
-            <span>🔴</span>
-            <span>Logout</span>
-          </button>
-        </div>
-      </Card>
-
-      {/* === ENABLE STATUS toggle + action buttons row (below the card) === */}
-      <Card className="space-y-3">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <PurpleSwitch checked={rpcEnabled} onCheckedChange={handleToggleRpc} />
-            <span className="text-sm font-semibold text-purple-300">ENABLE STATUS</span>
-          </div>
-          {/* Status selector (compact) */}
-          <div className="relative">
+            {/* Status Dot at bottom-right of avatar */}
             <button
+              type="button"
               onClick={() => setStatusDropdown(v => !v)}
-              className="text-xs text-white/70 hover:text-white inline-flex items-center gap-1"
+              className={`absolute bottom-1 right-2 w-4 h-4 rounded-full border-2 border-[#13111d] ${statusInfo.color} shadow-lg cursor-pointer transition-transform hover:scale-125 active:scale-95`}
+              aria-label="Change status"
+              title="Click to change status"
+            />
+
+            {/* "click here" text */}
+            <button
+              type="button"
+              onClick={() => setStatusDropdown(v => !v)}
+              className="absolute left-[calc(100%-8px)] bottom-1.5 text-xs text-white/40 hover:text-white/70 transition-colors whitespace-nowrap pl-1.5 flex items-center cursor-pointer select-none"
             >
-              <span className={`w-2 h-2 rounded-full ${statusInfo.color}`} />
-              {statusInfo.label}
+              click here
             </button>
+
+            {/* Status Dropdown Popup (matches screenshot: Online, Idle, Do Not Disturb) */}
             {statusDropdown && (
-              <div className="absolute right-0 top-full mt-2 w-44 glass-card-inner p-1 z-20">
-                {DISCORD_STATUSES.map(s => (
-                  <button
-                    key={s.value}
-                    onClick={() => handleStatusSelect(s.value)}
-                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-sm hover:bg-white/5 ${userStatus === s.value ? 'text-purple-300' : 'text-white'}`}
-                  >
-                    <span className={`w-2 h-2 rounded-full ${s.color}`} />
-                    {s.label}
-                  </button>
-                ))}
+              <div className="absolute left-1/2 -translate-x-1/2 top-full mt-3 w-48 bg-[#181920]/95 backdrop-blur-xl border border-white/10 rounded-2xl p-1.5 shadow-2xl z-50 space-y-1">
+                <button
+                  type="button"
+                  onClick={() => handleStatusSelect('online')}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs transition-all text-left ${
+                    userStatus === 'online' ? 'bg-white/10 text-white font-medium' : 'text-white/80 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
+                  <span>Online</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleStatusSelect('idle')}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs transition-all text-left ${
+                    userStatus === 'idle' ? 'bg-white/10 text-white font-medium' : 'text-white/80 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-sm shadow-amber-500/50" />
+                  <span>Idle</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => handleStatusSelect('dnd')}
+                  className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs transition-all text-left ${
+                    userStatus === 'dnd' ? 'bg-white/10 text-white font-medium' : 'text-white/80 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50" />
+                  <span>Do Not Disturb</span>
+                </button>
               </div>
             )}
           </div>
         </div>
 
-        {/* Action buttons row: Mobile / ROTATOR / UPDATE */}
-        <div className="flex items-center gap-2">
-          <PlatformPicker />
-          <GhostButton onClick={() => navigate({ name: 'rotator' })} className="text-xs px-3 py-2 flex-1">
-            ROTATOR
-          </GhostButton>
-          <PrimaryButton onClick={handleUpdate} disabled={saving} className="text-xs px-3 py-2 flex-1">
-            {saving ? '...' : 'UPDATE'}
-          </PrimaryButton>
+        {/* Custom Msg Pill Input */}
+        <div className="relative z-10 w-full max-w-sm mx-auto bg-[#181922]/90 border border-white/8 hover:border-white/15 focus-within:border-purple-500/40 rounded-2xl px-4 py-2.5 flex items-center gap-3 transition-colors shadow-inner">
+          <button
+            type="button"
+            onClick={() => {
+              const emojis = ['😋', '🔥', '🎮', '✨', '⚡', '🎧', '🚀']
+              const next = emojis[(emojis.indexOf(customEmoji || '😋') + 1) % emojis.length]
+              setCustomEmoji(next)
+            }}
+            className="text-xl select-none hover:scale-110 active:scale-95 transition-transform"
+            title="Click to cycle emoji"
+          >
+            {customEmoji || '😋'}
+          </button>
+          <input
+            type="text"
+            value={customMsg}
+            onChange={e => setCustomMsg(e.target.value)}
+            placeholder="Custom Msg..."
+            className="bg-transparent flex-1 outline-none text-sm text-white placeholder:text-white/40"
+            maxLength={128}
+          />
         </div>
 
-        {/* Smart sleep timer (inline display when active) */}
-        {sleepActive && (
-          <div className="glass-card-inner p-3 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <span className="text-lg">⏰</span>
-              <div>
-                <p className="text-xs text-white/60">Smart Sleep Timer</p>
-                <p className="text-sm text-white font-medium tabular-nums">
-                  Sleeping in {formatCountdown(sleepMsLeft)}
-                </p>
-              </div>
-            </div>
+        {/* Centered Username & Status (OFFLINE / ONLINE) */}
+        <div className="relative z-10 text-center mt-5 mb-6 space-y-1">
+          <h2 className="text-xl sm:text-2xl font-bold text-white tracking-wide">
+            {me.user.username}
+          </h2>
+          <p className="text-xs sm:text-sm font-semibold tracking-widest text-white/50 uppercase">
+            {statusEnabled ? (userStatus.toUpperCase() || 'ONLINE') : 'OFFLINE'}
+          </p>
+        </div>
+
+        {/* ENABLE STATUS Toggle Row */}
+        <div className="relative z-10 flex items-center justify-between px-1 mb-4 pt-1">
+          <span className="text-xs sm:text-sm font-extrabold tracking-widest text-[#a855f7] uppercase">
+            ENABLE STATUS
+          </span>
+          <PurpleSwitch checked={statusEnabled} onCheckedChange={handleToggleStatus} />
+        </div>
+
+        {/* 3 Action Buttons: [ 📱 Mobile ] [ ROTATOR ] [ UPDATE ] */}
+        <div className="relative z-10 flex items-center gap-2 pt-1">
+          {/* Platform Picker Button */}
+          <div className="relative flex-1" ref={platformRef}>
             <button
-              onClick={() => api.sleepTimer(null).then(onRefresh)}
-              className="text-xs text-red-300 hover:text-red-200"
+              type="button"
+              onClick={() => setPlatformOpen(v => !v)}
+              className="w-full h-11 bg-[#181922] border border-white/10 rounded-xl px-3 text-xs text-white hover:bg-white/10 inline-flex items-center justify-center gap-2 font-medium transition-all active:scale-[0.98]"
             >
-              Cancel
+              <PlatformIcon className="w-4 h-4 text-white/90" />
+              <span>{currentPlatformItem.label}</span>
             </button>
-          </div>
-        )}
 
-        {/* VR toggle */}
-        <div className="flex items-center justify-between glass-card-inner p-3">
-          <div className="flex items-center gap-2">
-            <span className="text-lg">🥽</span>
-            <div>
-              <p className="text-sm font-medium text-white">VR Status (Meta Quest)</p>
-              <p className="text-xs text-white/50">Show the green VR headset icon</p>
-            </div>
+            {/* Platform Dropdown Popup (matches user reference screenshot exactly) */}
+            {platformOpen && (
+              <div className="absolute left-0 bottom-full mb-2 w-48 bg-[#161720]/95 backdrop-blur-xl border border-white/10 rounded-2xl p-1.5 shadow-2xl shadow-black/80 z-50 space-y-0.5">
+                {PLATFORM_ITEMS.map((item) => {
+                  const ItemIcon = item.icon
+                  const isSelected = selectedPlatform === item.value
+                  return (
+                    <button
+                      key={item.value}
+                      type="button"
+                      onClick={async () => {
+                        setSelectedPlatform(item.value)
+                        setPlatformOpen(false)
+                        try {
+                          await api.statusUpdate({ statusPlatform: item.value })
+                          toast.success(`Status platform set to ${item.label}`, { duration: 2000 })
+                          onRefresh()
+                        } catch (e: any) {
+                          console.error('Failed to update platform:', e)
+                          toast.error(e?.message || 'Failed to update platform')
+                        }
+                      }}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs transition-all text-left ${
+                        isSelected
+                          ? 'bg-[#6b21a8] text-white font-medium shadow-md shadow-purple-950/40'
+                          : 'text-white/80 hover:text-white hover:bg-white/5'
+                      }`}
+                    >
+                      <ItemIcon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : 'text-white/80'}`} />
+                      <span>{item.label}</span>
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </div>
-          <PurpleSwitch checked={vrActive} onCheckedChange={handleVrToggle} />
+
+          {/* ROTATOR Button */}
+          <button
+            type="button"
+            onClick={() => navigate({ name: 'rotator' })}
+            className="flex-1 h-11 bg-[#181922] border border-white/10 rounded-xl px-3 text-xs text-white hover:bg-white/10 inline-flex items-center justify-center font-medium transition-all active:scale-[0.98]"
+          >
+            ROTATOR
+          </button>
+
+          {/* UPDATE Button */}
+          <button
+            type="button"
+            onClick={handleUpdate}
+            disabled={saving}
+            className="flex-1 h-11 bg-[#181922] border border-white/10 rounded-xl px-3 text-xs text-white hover:bg-white/10 inline-flex items-center justify-center font-medium transition-all active:scale-[0.98] disabled:opacity-50"
+          >
+            {saving ? '...' : 'UPDATE'}
+          </button>
         </div>
-      </Card>
-
-      {/* === Quick Status panel === */}
-      <QuickStatusPanel
-        currentStatus={userStatus}
-        onStatusChange={() => onRefresh()}
-      />
+      </div>
 
       {/* === Live Discord RPC Preview === */}
-      <Card>
-        <DiscordPreview
-          config={me.rpcConfig}
-          username={me.user.username}
-          avatarUrl={me.user.avatar}
-          platform={me.rpcConfig?.platform}
-          rpcEnabled={rpcEnabled}
-          hasDiscordToken={me.session?.hasDiscordToken}
-          lastPresenceUpdate={me.session?.lastPresenceUpdate}
-        />
-      </Card>
+      <DiscordPreview
+        config={me.rpcConfig}
+        username={me.user.username}
+        avatarUrl={me.user.avatar}
+        platform={me.rpcConfig?.platform || 'desktop'}
+        rpcEnabled={!!(me.session?.rpcEnabled && me.rpcConfig?.enabled)}
+        hasDiscordToken={me.session?.hasDiscordToken}
+        lastPresenceUpdate={me.session?.lastPresenceUpdate}
+      />
 
       {/* === Set Background Modal === */}
       {bgModalOpen && (
@@ -478,7 +487,6 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
             {/* Preview */}
             {bgUrl && /^https?:\/\//.test(bgUrl) && (
               <div className="relative h-32 rounded-xl overflow-hidden bg-[#13141a]">
-                { }
                 <img src={bgUrl} alt="Preview" className="w-full h-full object-cover opacity-50" />
                 <div className="absolute inset-0 bg-gradient-to-b from-transparent to-[#0a0b0f]" />
               </div>
@@ -514,49 +522,4 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
       )}
     </>
   )
-}
-
-function PlatformPicker() {
-  const [open, setOpen] = useState(false)
-  const [selected, setSelected] = useState('mobile')
-  const platform = PLATFORMS.find(p => p.value === selected) || PLATFORMS[2]
-
-  return (
-    <div className="relative flex-1">
-      <button
-        onClick={() => setOpen(v => !v)}
-        className="w-full bg-white/5 border border-white/8 rounded-xl px-3 py-2 text-xs text-white hover:bg-white/10 inline-flex items-center justify-center gap-1.5"
-      >
-        <span>{platform.emoji}</span>
-        <span>{platform.label}</span>
-      </button>
-      {open && (
-        <div className="absolute left-0 top-full mt-2 w-52 glass-card-inner p-2 z-20 max-h-72 overflow-y-auto styled-scroll">
-          {PLATFORM_GROUPS.map(group => (
-            <div key={group} className="mb-1.5">
-              <p className="text-[10px] uppercase tracking-wider text-white/40 px-2 py-1">{group}</p>
-              {PLATFORMS.filter(p => p.group === group).map(p => (
-                <button
-                  key={p.value}
-                  onClick={() => { setSelected(p.value); setOpen(false) }}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs hover:bg-white/5 ${selected === p.value ? 'text-purple-300 bg-purple-500/10' : 'text-white'}`}
-                >
-                  <span>{p.emoji}</span>
-                  <span>{p.label}</span>
-                </button>
-              ))}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-function formatCountdown(ms: number): string {
-  const total = Math.floor(ms / 1000)
-  const h = Math.floor(total / 3600)
-  const m = Math.floor((total % 3600) / 60)
-  const s = total % 60
-  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
