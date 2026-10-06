@@ -31,11 +31,14 @@ interface ActiveUserSocket {
   connected: boolean
   lastConnectedAt?: Date
   isConnecting: boolean
+  connectingSince?: number
+  lastPushAt?: number
 }
 
 export class RpcDaemon {
   private sockets = new Map<string, ActiveUserSocket>()
   private tickTimer?: NodeJS.Timeout
+  private watchdogTimer?: NodeJS.Timeout
   private isRunning = false
   private startTime = Date.now()
   private lastTickAt: Date | null = null
@@ -63,7 +66,69 @@ export class RpcDaemon {
       }
     }, 30000)
 
+    // Watchdog every 60 seconds — 24/7 self-healing:
+    // recovers stalled tick loops, stuck/lost connections and silently-dead presence.
+    this.watchdogTimer = setInterval(() => {
+      this.watchdog().catch(err => {
+        console.error('[10X RPC Daemon] Watchdog error:', err)
+      })
+    }, 60000)
+
     console.log('[10X RPC Daemon] 24/7 daemon started successfully.')
+  }
+
+  /**
+   * 24/7 self-healing watchdog. Runs every 60s:
+   * 1. Tick-loop stall recovery (tick hasn't run for >90s → force one)
+   * 2. Socket stuck in "connecting" for >60s (TCP black hole) → reset & reconnect
+   * 3. Socket disconnected with NO reconnect pending → revive the reconnect chain
+   * 4. Socket connected but presence not pushed for >10 min → force refresh
+   */
+  private async watchdog(): Promise<void> {
+    const nowMs = Date.now()
+
+    // 1. Stalled tick loop recovery
+    if (this.isRunning && this.lastTickAt && nowMs - this.lastTickAt.getTime() > 90000) {
+      console.warn('[10X RPC Daemon] Watchdog: tick loop stalled (>90s). Forcing recovery tick...')
+      this.lastTickAt = new Date() // prevent re-trigger every 60s while the forced tick runs
+      await this.tick().catch(err => {
+        console.error('[10X RPC Daemon] Watchdog recovery tick failed:', err)
+      })
+    }
+
+    // 2-4. Per-socket liveness
+    for (const [userId, userSock] of this.sockets.entries()) {
+      // 2. Stuck connecting — the WS neither opened nor errored/closed
+      if (userSock.isConnecting && userSock.connectingSince && nowMs - userSock.connectingSince > 60000) {
+        console.warn(`[10X RPC Daemon] Watchdog: connection for user ${userId} stuck in connecting (>60s). Resetting...`)
+        this.cleanupSocket(userSock)
+        this.scheduleReconnect(userId, 1000)
+        continue
+      }
+
+      // 3. Disconnected with no reconnect pending — revive the chain
+      if (!userSock.connected && !userSock.isConnecting && !userSock.retryTimer) {
+        console.warn(`[10X RPC Daemon] Watchdog: user ${userId} disconnected with no reconnect pending. Reviving...`)
+        this.scheduleReconnect(userId, 1000)
+        continue
+      }
+
+      // 4. Connected but presence not pushed for >10 min — force refresh
+      if (userSock.connected && userSock.ws && userSock.ws.readyState === WebSocket.OPEN) {
+        const pushAge = userSock.lastPushAt ? nowMs - userSock.lastPushAt : Infinity
+        if (pushAge > 10 * 60 * 1000) {
+          console.log(`[10X RPC Daemon] Watchdog: forcing presence refresh for user ${userId} (last push ${Math.round(pushAge / 1000)}s ago)`)
+          try {
+            const session = await db.session.findFirst({ where: { userId } })
+            if (session) {
+              await this.pushPresenceForUser(userId, session, true)
+            }
+          } catch (err) {
+            console.error(`[10X RPC Daemon] Watchdog presence refresh failed for user ${userId}:`, err)
+          }
+        }
+      }
+    }
   }
 
   /**
@@ -75,6 +140,10 @@ export class RpcDaemon {
     if (this.tickTimer) {
       clearInterval(this.tickTimer)
       this.tickTimer = undefined
+    }
+    if (this.watchdogTimer) {
+      clearInterval(this.watchdogTimer)
+      this.watchdogTimer = undefined
     }
 
     for (const [userId, userSock] of this.sockets.entries()) {
@@ -229,23 +298,31 @@ export class RpcDaemon {
    */
   public async syncAllUsers(): Promise<void> {
     const now = new Date()
-    const activeSessions = await db.session.findMany({
-      where: {
-        expiresAt: { gt: now },
-        discordAccessToken: { not: null },
-      },
-      include: {
-        user: {
-          include: {
-            trial: true,
-            globalConfig: true,
-            rpcConfigs: true,
-            gameConfigs: true,
-            rotatorPresets: true,
+    let activeSessions
+    try {
+      activeSessions = await db.session.findMany({
+        where: {
+          expiresAt: { gt: now },
+          discordAccessToken: { not: null },
+        },
+        include: {
+          user: {
+            include: {
+              trial: true,
+              globalConfig: true,
+              rpcConfigs: true,
+              gameConfigs: true,
+              rotatorPresets: true,
+            },
           },
         },
-      },
-    })
+      })
+    } catch (err) {
+      // Transient DB outage (e.g. Neon cold start / pooled drop) — keep existing
+      // sockets alive and retry on the next tick. NEVER tear anything down here.
+      console.error('[10X RPC Daemon] syncAllUsers DB error (will retry next tick):', err)
+      return
+    }
 
     const activeUserIds = new Set<string>()
 
@@ -457,6 +534,7 @@ export class RpcDaemon {
     // Clean up previous socket cleanly before starting new connection
     this.cleanupSocket(userSock)
     userSock.isConnecting = true
+    userSock.connectingSince = Date.now()
 
     try {
       const session = await db.session.findFirst({
@@ -577,6 +655,7 @@ export class RpcDaemon {
             // Authenticated and ready! Only trigger initial presence push on READY (NOT on SESSIONS_REPLACE to avoid infinite loop)
             userSock.connected = true
             userSock.isConnecting = false
+            userSock.connectingSince = undefined
             userSock.retryCount = 0
             userSock.lastConnectedAt = new Date()
 
@@ -618,34 +697,44 @@ export class RpcDaemon {
         console.log(`[10X RPC Daemon] Gateway WS closed for user ${userId} (code: ${code}, reason: ${reason.toString() || 'none'})`)
         userSock.connected = false
         userSock.isConnecting = false
+        userSock.connectingSince = undefined
         this.cleanupSocket(userSock)
 
-        if (code === 4004) {
-          // Auth failed — try refreshing token
-          console.log(`[10X RPC Daemon] Auth failed (4004) for user ${userId}. Refreshing token...`)
-          if (session.discordRefreshToken) {
-            const refreshed = await refreshDiscordToken(session.discordRefreshToken)
-            if (refreshed) {
-              await db.session.update({
-                where: { id: session.id },
-                data: {
-                  discordAccessToken: refreshed.access_token,
-                  discordRefreshToken: refreshed.refresh_token,
-                  discordTokenExpiresAt: new Date(Date.now() + (refreshed.expires_in || 604800) * 1000),
-                },
-              })
-              this.scheduleReconnect(userId, 2000)
-              return
+        // CRITICAL 24/7 fix: this handler is async — an unhandled DB error here
+        // would crash the whole daemon process. Everything below is guarded.
+        try {
+          if (code === 4004) {
+            // Auth failed — RE-READ the session from the DB (the connect-time
+            // snapshot may hold an already-rotated refresh token) and refresh.
+            console.log(`[10X RPC Daemon] Auth failed (4004) for user ${userId}. Refreshing token...`)
+            const fresh = await db.session.findFirst({ where: { userId } })
+            if (fresh && fresh.discordRefreshToken) {
+              const refreshed = await refreshDiscordToken(fresh.discordRefreshToken)
+              if (refreshed) {
+                await db.session.update({
+                  where: { id: fresh.id },
+                  data: {
+                    discordAccessToken: refreshed.access_token,
+                    discordRefreshToken: refreshed.refresh_token,
+                    discordTokenExpiresAt: new Date(Date.now() + (refreshed.expires_in || 604800) * 1000),
+                  },
+                })
+                this.scheduleReconnect(userId, 2000)
+                return
+              }
             }
+          } else if (code === 4008) {
+            // Rate limited — back off for 60 seconds to allow rate limit window to clear
+            console.warn(`[10X RPC Daemon] Rate limited by Discord Gateway for user ${userId}. Backing off for 60s...`)
+            this.scheduleReconnect(userId, 60000)
+            return
           }
-        } else if (code === 4008) {
-          // Rate limited — back off for 60 seconds to allow rate limit window to clear
-          console.warn(`[10X RPC Daemon] Rate limited by Discord Gateway for user ${userId}. Backing off for 60s...`)
-          this.scheduleReconnect(userId, 60000)
-          return
-        }
 
-        this.scheduleReconnect(userId)
+          this.scheduleReconnect(userId)
+        } catch (closeErr) {
+          console.error(`[10X RPC Daemon] Error in close handler for user ${userId} (daemon stays alive):`, closeErr)
+          this.scheduleReconnect(userId)
+        }
       })
     } catch (err) {
       console.error(`[10X RPC Daemon] Failed to initialize connection for user ${userId}:`, err)
@@ -768,6 +857,7 @@ export class RpcDaemon {
       }))
       userSock.lastStatus = status
       userSock.lastActivitiesHash = activitiesHash
+      userSock.lastPushAt = Date.now()
     } catch (err) {
       console.error(`[10X RPC Daemon] Failed to send OP 3 for user ${userId}:`, err)
     }
@@ -797,6 +887,7 @@ export class RpcDaemon {
       clearTimeout(userSock.retryTimer)
       userSock.retryTimer = undefined
     }
+    userSock.connectingSince = undefined
     if (userSock.ws) {
       try {
         userSock.ws.removeAllListeners()

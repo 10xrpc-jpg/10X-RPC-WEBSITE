@@ -81,3 +81,7 @@ skills/
 CLAUDE.md
 AGENTS.md
 Caddyfile
+
+# Local-only tooling with credentials — NEVER commit
+scripts/panel-api.mjs
+scripts/panel-console.mjs
