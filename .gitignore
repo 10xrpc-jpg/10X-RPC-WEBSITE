@@ -75,3 +75,9 @@ scripts/set-render-env.py
 scripts/*.py
 .vercel
 .env*
+
+# Sandbox tooling (not part of the website)
+skills/
+CLAUDE.md
+AGENTS.md
+Caddyfile
