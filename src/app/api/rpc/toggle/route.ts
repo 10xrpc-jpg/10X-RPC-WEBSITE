@@ -30,7 +30,17 @@ export async function POST(req: Request) {
         )
       }
 
-      // 2. Load latest saved DB config and mark enabled with fresh timestamp
+      // 2. MUTUAL EXCLUSIVITY — NORMAL RPC ON → GAMER RPC OFF.
+      //    Disable every enabled GameConfig (Gamer RPC). Only the enabled
+      //    FLAG flips: each game's own saved configuration (state, details,
+      //    party, buttons, platform, timestamps…) is fully preserved, so
+      //    switching back to Gamer RPC later restores it untouched.
+      await db.gameConfig.updateMany({
+        where: { userId: session.userId },
+        data: { enabled: false },
+      })
+
+      // 3. Load latest saved DB config and mark enabled with fresh timestamp
       let rpcConfig = await db.rpcConfig.findFirst({ where: { userId: session.userId } })
       if (rpcConfig) {
         rpcConfig = await db.rpcConfig.update({
@@ -50,7 +60,7 @@ export async function POST(req: Request) {
         })
       }
 
-      // 3. Update session in DB
+      // 4. Update session in DB
       await db.session.updateMany({
         where: { userId: session.userId },
         data: {
@@ -60,7 +70,7 @@ export async function POST(req: Request) {
         },
       })
 
-      // 4. Start RPC via single managed Gateway daemon using the latest saved DB config
+      // 5. Start RPC via single managed Gateway daemon using the latest saved DB config
       if (session.discordAccessToken) {
         const daemon = ensureDaemonRunning()
         await daemon.syncUser(session.userId)
@@ -76,6 +86,8 @@ export async function POST(req: Request) {
       // 1. Stop RPC completely in DB (strictly preserves statusEnabled and status fields).
       //    The gateway is kept alive only if the user's Status feature is still active
       //    on ANY of their sessions — never because of RPC.
+      //    NOTE: this turns NORMAL RPC off only. Gamer RPC keeps its own saved
+      //    configuration; it is never started implicitly from here.
       const statusSession = await db.session.findFirst({
         where: {
           userId: session.userId,

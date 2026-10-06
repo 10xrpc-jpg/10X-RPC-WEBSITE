@@ -11,6 +11,8 @@ export interface Me {
   session?: {
     statusEnabled?: boolean
     rpcEnabled: boolean
+    /** Which RPC mode is active: 'normal' (RpcConfig) or 'game' (GameConfig). */
+    rpcMode?: 'normal' | 'game' | null
     gatewayReady: boolean
     userStatus: string
     customStatus: string | null
@@ -35,6 +37,10 @@ export interface Me {
     rotatorIntervalMins: number
   } | null
   rpcConfig?: RpcConfig | null
+  /** The ACTIVE RPC mode's own config (game config in Gamer RPC mode). */
+  activeRpcConfig?: RpcConfig | null
+  /** The currently enabled game (Gamer RPC config owner), if any. */
+  activeGame?: { slug: string; name: string; enabled: boolean } | null
   rotatorPresets?: RotatorPreset[]
   rotatorEnabled?: boolean
   app?: { name: string; tagline: string }
@@ -81,6 +87,7 @@ export interface GameListItem {
   defaultDetails?: string
   enabled: boolean
   saved: boolean
+  custom?: boolean
 }
 
 export interface GamePreset {
@@ -95,11 +102,13 @@ export interface GamePreset {
   defaultPartyCurrent: number
   defaultEndTotalMins: number | null
   tags: string[]
+  custom?: boolean
 }
 
 export interface GameConfig {
   id?: string
   enabled: boolean
+  appId?: string | null
   platform: string
   state: string | null
   details: string | null
@@ -207,7 +216,7 @@ export const api = {
   logout: () => fetchJson<{ ok: boolean; redirect: string }>('/api/logout', { method: 'POST' }),
   demoLogin: () => fetchJson<{ ok: boolean; demo: boolean; sessionToken?: string; redirect?: string }>('/api/demo-login', { method: 'POST' }),
 
-  rpcSave: (data: RpcConfig) => fetchJson<{ ok: boolean; rpcConfig: RpcConfig }>('/api/rpc', {
+  rpcSave: (data: RpcConfig) => fetchJson<{ ok: boolean; rpcConfig: RpcConfig; rpcEnabled?: boolean; message?: string }>('/api/rpc', {
     method: 'POST', body: JSON.stringify(data),
   }),
   rpcGet: () => fetchJson<{ rpcConfig: RpcConfig | null }>('/api/rpc'),
@@ -269,6 +278,11 @@ export const api = {
   gameSave: (slug: string, data: Partial<GameConfig>) => fetchJson<{ ok: boolean; config: GameConfig }>(
     `/api/games/${slug}`, { method: 'POST', body: JSON.stringify(data) }
   ),
+  gameCustomCreate: (data: { appId: string; name?: string; details?: string; iconUrl?: string }) =>
+    fetchJson<{ ok: boolean; config: GameConfig }>('/api/games/custom', { method: 'POST', body: JSON.stringify(data) }),
+  gameDelete: (slug: string) => fetchJson<{ ok: boolean }>(`/api/games/${slug}`, { method: 'DELETE' }),
+  appLookup: (appId: string) =>
+    fetchJson<{ ok: boolean; name: string; iconUrl: string | null }>(`/api/games/app-lookup?appId=${encodeURIComponent(appId)}`),
 
   configSave: (city: string | null, timezone: string) => fetchJson<{ ok: boolean }>(
     '/api/config/save', { method: 'POST', body: JSON.stringify({ city, timezone }) }

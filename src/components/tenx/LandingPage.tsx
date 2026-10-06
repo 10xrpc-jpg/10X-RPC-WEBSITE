@@ -1,4 +1,4 @@
-// 10X RPC — Landing page (matches Roxy reference: hero + seamless experience + pricing)
+// 10X RPC — Landing page (hero + seamless experience + pricing)
 'use client'
 import { PrimaryButton, GhostButton } from './ui'
 import { useRouter } from './useRouter'
@@ -12,15 +12,18 @@ export function LandingPage() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    // Check for OAuth error in URL hash (e.g. #/?error=invalid_scope)
+    // Check for OAuth error in the URL query (?error=invalid_scope) or a
+    // legacy hash form (#/?error=...) from old bookmarks
     if (typeof window !== 'undefined') {
-      const hash = window.location.hash
-      const errorMatch = hash.match(/[?&]error=([^&]+)/)
+      const { search, hash } = window.location
+      const errorMatch = (search + hash).match(/[?&]error=([^&]+)/)
       if (errorMatch) {
         const errMsg = decodeURIComponent(errorMatch[1])
-        toast.error(`OAuth error: ${errMsg}`, { duration: 6000 })
-        // Clear the error from URL
-        window.location.hash = ''
+        // Clear the error from the URL
+        window.history.replaceState(null, '', window.location.pathname)
+        // Defer the toast one tick — toasts fired during the first commit
+        // pass race the sonner portal mount and never render
+        setTimeout(() => toast.error(`OAuth error: ${errMsg}`, { duration: 6000 }), 60)
       }
     }
     api.me().then(m => { setMe(m); setLoading(false) }).catch(() => setLoading(false))

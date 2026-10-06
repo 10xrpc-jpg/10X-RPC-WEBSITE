@@ -1,4 +1,4 @@
-// 10X RPC — Smart Sleep Timer card (matches Roxy reference exactly)
+// 10X RPC — Smart Sleep Timer card
 'use client'
 import { useState } from 'react'
 import { toast } from 'sonner'
@@ -67,7 +67,7 @@ export function SmartSleepTimerCard({ currentEndsAt, onSaved }: { currentEndsAt?
 
         {/* Subtitle */}
         <p className="text-sm text-white/60 text-center max-w-sm mx-auto leading-relaxed mb-6">
-          Automatically turn off your Roxy connection after a set amount of time.
+          Automatically turn off your 10X RPC connection after a set amount of time.
         </p>
 
         {/* Input Row: [ ex. 1.5 or 3 ] Hours [ SAVE ] */}

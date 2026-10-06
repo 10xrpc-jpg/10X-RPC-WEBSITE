@@ -50,6 +50,33 @@ export function platformByValue(value: string) {
   return PLATFORMS.find(p => p.value === value)
 }
 
+// Flat options for the "RPC DEVICE / PLATFORM" selector (reference design: None / PlayStation / Xbox / Meta Quest)
+export const RPC_PLATFORM_OPTIONS: { value: string; label: string }[] = [
+  { value: 'desktop', label: 'None' },
+  { value: 'ps4', label: 'PlayStation' },
+  { value: 'xbox', label: 'Xbox' },
+  { value: 'meta_quest', label: 'Meta Quest' },
+]
+
+// Human-readable label for any stored platform value (incl. legacy: ps5, console, embedded)
+export function rpcPlatformLabel(value?: string | null): string {
+  switch (value) {
+    case 'ps4':
+    case 'ps5':
+      return 'PlayStation'
+    case 'xbox':
+      return 'Xbox'
+    case 'meta_quest':
+      return 'Meta Quest'
+    case 'console':
+      return 'Console'
+    case 'embedded':
+      return 'Embedded'
+    default:
+      return 'None'
+  }
+}
+
 export const PLATFORM_FALLBACK_NAMES: Record<string, string> = {
   meta_quest: 'Meta Quest',
   xbox: 'Xbox',

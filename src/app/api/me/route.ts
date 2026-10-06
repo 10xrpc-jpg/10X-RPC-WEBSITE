@@ -4,8 +4,35 @@ import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { avatarUrl } from '@/lib/discord-oauth'
 import { CONFIG } from '@/lib/config'
+import { selectActiveRpc, type RpcMode } from '@/lib/rpc-manager'
 
 export const dynamic = 'force-dynamic'
+
+function serializeRpcConfig(cfg: any) {
+  return {
+    id: cfg.id,
+    name: cfg.name,
+    type: cfg.type,
+    platform: cfg.platform,
+    state: cfg.state,
+    details: cfg.details,
+    largeImage: cfg.largeImage,
+    largeText: cfg.largeText,
+    smallImage: cfg.smallImage,
+    smallText: cfg.smallText,
+    button1Label: cfg.button1Label,
+    button1Url: cfg.button1Url,
+    button2Label: cfg.button2Label,
+    button2Url: cfg.button2Url,
+    partyCurrent: cfg.partyCurrent,
+    partyMax: cfg.partyMax,
+    partyId: cfg.partyId,
+    partySecret: cfg.partySecret,
+    startMinsAgo: cfg.startMinsAgo,
+    endTotalMins: cfg.endTotalMins,
+    enabled: cfg.enabled,
+  }
+}
 
 export async function GET() {
   try {
@@ -18,14 +45,16 @@ export async function GET() {
     let trial: any = null
     let globalConfig: any = null
     let rpcConfig: any = null
+    let enabledGame: any = null
     let rotatorPresets: any[] = []
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        [trial, globalConfig, rpcConfig, rotatorPresets] = await Promise.all([
+        [trial, globalConfig, rpcConfig, enabledGame, rotatorPresets] = await Promise.all([
           db.trial.findUnique({ where: { userId: session.userId } }),
           db.globalConfig.findUnique({ where: { userId: session.userId } }),
           db.rpcConfig.findFirst({ where: { userId: session.userId } }),
+          db.gameConfig.findFirst({ where: { userId: session.userId, enabled: true } }),
           db.rotatorPreset.findMany({
             where: { userId: session.userId },
             orderBy: { order: 'asc' },
@@ -75,6 +104,15 @@ export async function GET() {
   // Check sleep timer
   const sleepTimerActive = session.sleepTimerActive && session.sleepTimerEndsAt && session.sleepTimerEndsAt > now
 
+  // ══ NORMAL RPC vs GAMER RPC — mutual exclusivity (completely separate configs) ══
+  //   • Normal RPC config  = rpcConfig (RpcConfig row)
+  //   • Gamer RPC config   = enabledGame (GameConfig row)
+  // selectActiveRpc returns ONLY the active mode's own config (never a merge).
+  const selection = selectActiveRpc(session.rpcEnabled, rpcConfig, enabledGame)
+  const rpcMode: RpcMode | null = selection.mode
+  // What the daemon is ACTUALLY sending right now (null when nothing is live):
+  const activeRpcConfig = selection.active && selection.config ? serializeRpcConfig(selection.config) : null
+
   return NextResponse.json({
     authenticated: true,
     user: {
@@ -90,7 +128,8 @@ export async function GET() {
     },
     session: {
       statusEnabled: session.statusEnabled ?? false,
-      rpcEnabled: rpcConfig ? (rpcConfig.enabled && session.rpcEnabled) : session.rpcEnabled,
+      rpcEnabled: !!session.rpcEnabled,
+      rpcMode,
       gatewayReady: session.gatewayReady,
       userStatus: session.userStatus,
       customStatus: session.customStatus,
@@ -115,27 +154,17 @@ export async function GET() {
       rotatorIntervalMins: globalConfig.rotatorIntervalMins,
     } : null,
     rpcConfig: rpcConfig ? {
-      id: rpcConfig.id,
-      name: rpcConfig.name,
-      type: rpcConfig.type,
-      platform: rpcConfig.platform,
-      state: rpcConfig.state,
-      details: rpcConfig.details,
-      largeImage: rpcConfig.largeImage,
-      largeText: rpcConfig.largeText,
-      smallImage: rpcConfig.smallImage,
-      smallText: rpcConfig.smallText,
-      button1Label: rpcConfig.button1Label,
-      button1Url: rpcConfig.button1Url,
-      button2Label: rpcConfig.button2Label,
-      button2Url: rpcConfig.button2Url,
-      partyCurrent: rpcConfig.partyCurrent,
-      partyMax: rpcConfig.partyMax,
-      partyId: rpcConfig.partyId,
-      partySecret: rpcConfig.partySecret,
-      startMinsAgo: rpcConfig.startMinsAgo,
-      endTotalMins: rpcConfig.endTotalMins,
-      enabled: rpcConfig.enabled && session.rpcEnabled,
+      ...serializeRpcConfig(rpcConfig),
+      enabled: rpcConfig.enabled,
+    } : null,
+    // The ACTIVE mode's own config (Gamer RPC config when a game owns the
+    // presence, Normal RPC config otherwise; null when RPC is not live).
+    activeRpcConfig,
+    // Convenience: the currently enabled game (Gamer RPC config owner).
+    activeGame: enabledGame ? {
+      slug: enabledGame.gameSlug,
+      name: enabledGame.gameName,
+      enabled: enabledGame.enabled,
     } : null,
     rotatorPresets: rotatorPresets.map(p => ({
       id: p.id,

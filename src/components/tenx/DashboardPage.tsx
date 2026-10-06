@@ -165,9 +165,11 @@ export function DashboardPage() {
           onSaved={refresh}
         />
 
-        {/* Rich presence form */}
+        {/* Rich presence form (Normal RPC — its own independent config) */}
         <RichPresenceForm
           initial={me.rpcConfig}
+          rpcMode={me.session?.rpcMode ?? null}
+          activeGameName={me.activeGame?.name ?? null}
           onChange={setLiveRpcConfig}
           onSaved={() => {
             setLiveRpcConfig(null)

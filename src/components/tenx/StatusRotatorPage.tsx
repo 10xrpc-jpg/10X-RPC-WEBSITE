@@ -6,6 +6,7 @@ import { api, type RotatorPreset, type Me } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { Card, PrimaryButton, GhostButton, PurpleSwitch, BackButton } from './ui'
 import { MAX_ROTATOR_PRESETS, DEFAULT_ROTATOR_PRESETS } from '@/lib/rotator'
+import { DiscordEmoji, normalizeEmojiInput } from './Emoji'
 
 type StatusType = 'online' | 'idle' | 'dnd'
 
@@ -224,7 +225,7 @@ function AddPresetModal({
   onCancel: () => void
   onSave: (data: AddPresetData) => void
 }) {
-  const [emoji, setEmoji] = useState('😋')
+  const [emoji, setEmoji] = useState('')
   const [text, setText] = useState('')
   const [statusType, setStatusType] = useState<StatusType>('online')
   const [durationSecs, setDurationSecs] = useState('15')
@@ -232,6 +233,8 @@ function AddPresetModal({
 
   const handleSave = () => {
     const newErrors: Record<string, string> = {}
+    const em = normalizeEmojiInput(emoji)
+    if (em.error) newErrors.emoji = em.error
     if (!text.trim()) newErrors.text = 'Message is required'
     if (text.length > 128) newErrors.text = 'Message too long (max 128 chars)'
     const dur = Number(durationSecs)
@@ -241,7 +244,7 @@ function AddPresetModal({
     if (Object.keys(newErrors).length > 0) return
 
     onSave({
-      emoji: emoji.trim() || null,
+      emoji: em.value,
       text: text.trim(),
       statusType,
       durationSecs: Math.max(1, dur),
@@ -267,25 +270,32 @@ function AddPresetModal({
         className="glass-card w-full max-w-md p-6 space-y-5 animate-in slide-in-from-bottom-3 duration-150 max-h-[90vh] overflow-y-auto styled-scroll"
         onClick={e => e.stopPropagation()}
       >
-        <h2 id="add-preset-title" className="text-xl font-bold text-white text-center">Add Preset</h2>
+        <h2 id="add-preset-title" className="text-xl font-bold text-white">Add Preset</h2>
 
-        {/* Emoji */}
+        {/* Emoji — unicode or Nitro custom emoji */}
         <div className="space-y-1.5">
-          <label className="text-xs uppercase tracking-wider text-purple-400 font-semibold">Emoji</label>
+          <label className="text-sm text-white/80 font-medium">Emoji</label>
           <input
             type="text"
             value={emoji}
-            onChange={e => setEmoji(e.target.value.slice(0, 2))}
-            placeholder="😋"
-            maxLength={2}
-            className="w-full bg-[#13141a] border border-white/8 rounded-xl px-4 py-3 text-2xl text-center text-white outline-none focus:ring-2 focus:ring-purple-500/40"
+            onChange={e => { setEmoji(e.target.value); if (errors.emoji) setErrors({ ...errors, emoji: '' }) }}
+            placeholder="ex. ✨ or <:CuteBoy:1326137929852129345>"
+            maxLength={64}
+            className={`w-full bg-[#13141a] border rounded-xl px-4 py-3 text-sm text-white outline-none focus:ring-2 focus:ring-purple-500/40 placeholder:text-white/40 ${
+              errors.emoji ? 'border-red-500/50' : 'border-white/8'
+            }`}
             aria-label="Emoji"
+            aria-invalid={!!errors.emoji}
+            aria-describedby={errors.emoji ? 'emoji-error' : undefined}
           />
+          {errors.emoji && (
+            <p id="emoji-error" className="text-xs text-red-400" role="alert">{errors.emoji}</p>
+          )}
         </div>
 
         {/* Message */}
         <div className="space-y-1.5">
-          <label className="text-xs uppercase tracking-wider text-purple-400 font-semibold">Message</label>
+          <label className="text-sm text-white/80 font-medium">Message</label>
           <input
             type="text"
             value={text}
@@ -304,24 +314,26 @@ function AddPresetModal({
           )}
         </div>
 
-        {/* Status Type segmented */}
+        {/* Status Type — connected segmented control */}
         <div className="space-y-1.5">
-          <label className="text-xs uppercase tracking-wider text-purple-400 font-semibold">Status Type</label>
-          <div className="grid grid-cols-3 gap-2">
+          <label className="text-sm text-white/80 font-medium">Status Type</label>
+          <div className="flex rounded-xl border border-white/10 overflow-hidden">
             {([
               { v: 'online', label: 'ONLINE', dot: 'bg-green-500' },
               { v: 'idle', label: 'IDLE', dot: 'bg-yellow-500' },
               { v: 'dnd', label: 'DND', dot: 'bg-red-500' },
-            ] as const).map(s => (
+            ] as const).map((s, i) => (
               <button
                 key={s.v}
                 type="button"
                 onClick={() => setStatusType(s.v)}
                 aria-pressed={statusType === s.v}
-                className={`flex items-center justify-center gap-1.5 px-2 py-2.5 rounded-xl text-xs font-semibold transition-all ${
+                className={`flex-1 flex items-center justify-center gap-1.5 px-2 py-3 text-xs font-semibold transition-all ${
+                  i > 0 ? 'border-l border-white/10' : ''
+                } ${
                   statusType === s.v
-                    ? 'bg-white/10 text-white ring-2 ring-purple-500/50'
-                    : 'bg-[#13141a] border border-white/8 text-white/60 hover:text-white'
+                    ? 'bg-white/10 text-white'
+                    : 'bg-[#13141a] text-white/60 hover:text-white'
                 }`}
               >
                 <span className={`w-2 h-2 rounded-full ${s.dot}`} />
@@ -333,7 +345,7 @@ function AddPresetModal({
 
         {/* Duration (Seconds) */}
         <div className="space-y-1.5">
-          <label className="text-xs uppercase tracking-wider text-purple-400 font-semibold">Duration (Seconds)</label>
+          <label className="text-sm text-white/80 font-medium">Duration (Seconds)</label>
           <input
             type="number"
             value={durationSecs}
@@ -397,11 +409,16 @@ function PresetRow({
       toast.error('Message cannot be empty')
       return
     }
+    const em = normalizeEmojiInput(emoji)
+    if (em.error) {
+      toast.error(em.error)
+      return
+    }
     setSaving(true)
     try {
       const r = await api.rotatorSave({
         id: preset.id,
-        emoji: emoji || null,
+        emoji: em.value,
         text,
         durationMins: Math.max(1, Math.round(Number(duration) / 60)),
       })
@@ -422,10 +439,10 @@ function PresetRow({
         <div className="flex items-center gap-2">
           <input
             type="text" value={emoji}
-            onChange={e => setEmoji(e.target.value.slice(0, 2))}
-            placeholder="😀"
-            maxLength={2}
-            className="w-12 bg-[#13141a] border border-white/8 rounded-lg px-2 py-2 text-center text-sm text-white outline-none focus:ring-2 focus:ring-purple-500/40"
+            onChange={e => setEmoji(e.target.value)}
+            placeholder="😀 or <:name:id>"
+            maxLength={64}
+            className="w-24 bg-[#13141a] border border-white/8 rounded-lg px-2 py-2 text-sm text-white outline-none focus:ring-2 focus:ring-purple-500/40"
             aria-label="Emoji"
           />
           <input
@@ -458,7 +475,7 @@ function PresetRow({
     <div className="glass-card-inner p-3 flex items-center gap-3">
       {/* Order index */}
       <span className="text-xs text-white/40 font-mono w-5 text-center">{index + 1}</span>
-      <span className="text-xl">{preset.emoji || '💬'}</span>
+      <span className="w-7 text-center"><DiscordEmoji emoji={preset.emoji} size={22} fallback="💬" /></span>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-white truncate">{preset.text}</p>
         <p className="text-xs text-white/40">{(preset.durationMins || 5) * 60}s • {preset.enabled === false ? 'disabled' : 'enabled'}</p>

@@ -16,10 +16,10 @@ export async function GET(req: Request) {
   const error = url.searchParams.get('error')
 
   if (error) {
-    return NextResponse.redirect(`${CONFIG.app.url}/#/?error=${encodeURIComponent(error)}`)
+    return NextResponse.redirect(`${CONFIG.app.url}/?error=${encodeURIComponent(error)}`)
   }
   if (!code || !state) {
-    return NextResponse.redirect(`${CONFIG.app.url}/#/?error=missing_code`)
+    return NextResponse.redirect(`${CONFIG.app.url}/?error=missing_code`)
   }
 
   // Look up the PKCE verifier from the database by state
@@ -28,13 +28,13 @@ export async function GET(req: Request) {
   })
 
   if (!oauthState) {
-    return NextResponse.redirect(`${CONFIG.app.url}/#/?error=invalid_state`)
+    return NextResponse.redirect(`${CONFIG.app.url}/?error=invalid_state`)
   }
 
   // Check if the state has expired
   if (oauthState.expiresAt < new Date()) {
     await db.oAuthState.delete({ where: { id: oauthState.id } }).catch(() => {})
-    return NextResponse.redirect(`${CONFIG.app.url}/#/?error=state_expired`)
+    return NextResponse.redirect(`${CONFIG.app.url}/?error=state_expired`)
   }
 
   const verifier = oauthState.verifier
@@ -101,6 +101,6 @@ export async function GET(req: Request) {
     return NextResponse.redirect(`${frontendUrl}/set-session?token=${encodeURIComponent(sessionToken)}`)
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'unknown_error'
-    return NextResponse.redirect(`${CONFIG.app.url}/#/?error=${encodeURIComponent(msg)}`)
+    return NextResponse.redirect(`${CONFIG.app.url}/?error=${encodeURIComponent(msg)}`)
   }
 }

@@ -36,8 +36,21 @@ export async function POST(req: Request) {
     if (!session) return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
 
     const body: RpcSaveInput = await req.json()
-    const enabled = !!body.enabled
-    const platform = body.platform || 'desktop'
+
+    // ════════════════════════════════════════════════════════════════════
+    // ENABLED-STATE INDEPENDENCE GUARANTEE (Button Config bug fix):
+    // A configuration save (Rich Presence form UPDATE, incl. Button Config)
+    // must NEVER change the RPC enabled/disabled state. The DB is the single
+    // source of truth for `enabled`; enabling/disabling happens EXCLUSIVELY
+    // through /api/rpc/toggle. Previously `enabled` came from the request
+    // body (`!!body.enabled`), so a save with a stale client-side switch
+    // silently flipped the DB to disabled and called stopUserRpc — turning
+    // the user's RPC OFF whenever only the buttons were updated.
+    // ════════════════════════════════════════════════════════════════════
+    const existing = await db.rpcConfig.findFirst({ where: { userId: session.userId } })
+    const enabled = existing?.enabled ?? false // preserved, never body-driven
+
+    const platform = body.platform || existing?.platform || 'desktop'
     const name = resolveRpcActivityName(body.name, platform)
 
     const data = {
@@ -60,11 +73,10 @@ export async function POST(req: Request) {
       partySecret: body.partySecret?.trim() || null,
       startMinsAgo: typeof body.startMinsAgo === 'number' ? body.startMinsAgo : 0,
       endTotalMins: typeof body.endTotalMins === 'number' ? body.endTotalMins : null,
-      enabled,
+      enabled, // ← unchanged from DB: config save cannot disable the RPC
     }
 
     // 1. Save full configuration to Database (Single Source of Truth)
-    const existing = await db.rpcConfig.findFirst({ where: { userId: session.userId } })
     let rpcConfig
     if (existing) {
       rpcConfig = await db.rpcConfig.update({ where: { id: existing.id }, data })
@@ -72,41 +84,48 @@ export async function POST(req: Request) {
       rpcConfig = await db.rpcConfig.create({ data: { userId: session.userId, ...data } })
     }
 
-    // 2. Update Session state in Database for all active user sessions (strictly preserves status fields)
-    const statusSession = await db.session.findFirst({
-      where: {
-        userId: session.userId,
-        statusEnabled: true,
-      },
-    })
-    const keepGateway = enabled || !!statusSession
-
+    // 2. Bump session timestamp only — rpcEnabled / gatewayReady / status fields
+    //    are OWNED by the toggle & status endpoints and stay untouched here.
     await db.session.updateMany({
       where: { userId: session.userId },
       data: {
-        rpcEnabled: enabled,
-        gatewayReady: keepGateway,
         lastPresenceUpdate: new Date(),
       },
     })
 
-    // 3. Immediately sync Gateway:
-    // If enabled: starts RPC using latest saved DB config (no glitches, exact timestamps)
-    // If disabled: completely stops RPC, clears Rich Presence from Discord, stops all timers
-    if (session.discordAccessToken) {
+    // 3. Sync Gateway WITHOUT changing the running state:
+    //    - If the RPC is enabled in the DB: push the freshly saved config
+    //      (new buttons included) to the ALREADY RUNNING presence.
+    //    - If it is disabled: do NOTHING — a config save must never start or
+    //      stop the presence (stopUserRpc belongs to the toggle endpoint).
+    //    NOTE: with Normal RPC and Gamer RPC being separate configurations,
+    //    the daemon decides which mode's config is live; a Normal config save
+    //    never starts, stops or modifies a running Gamer RPC.
+    if (session.discordAccessToken && enabled) {
       const daemon = ensureDaemonRunning()
-      if (enabled) {
-        await daemon.syncUser(session.userId)
-      } else {
-        await daemon.stopUserRpc(session.userId)
-      }
+      await daemon.syncUser(session.userId)
     }
 
-    // 4. Return success only AFTER database update and gateway sync complete
+    // 4. Return success only AFTER database update and gateway sync complete.
+    //    Surface the mutual-exclusivity state: while a GAME owns the presence,
+    //    this Normal config is remembered but idle (message reflects reality).
+    let message: string
+    if (enabled) {
+      message = 'Configuration saved & live on Discord'
+    } else {
+      const enabledGame = await db.gameConfig.findFirst({
+        where: { userId: session.userId, enabled: true },
+      })
+      message = enabledGame
+        ? `Configuration saved — Game RPC (${enabledGame.gameName}) is currently active`
+        : 'Configuration saved (RPC is off — use the toggle to enable)'
+    }
+
     return NextResponse.json({
       ok: true,
       rpcConfig,
-      message: enabled ? 'Rich Presence updated & live on Discord' : 'RPC disabled & cleared from Discord',
+      rpcEnabled: enabled,
+      message,
     })
   } catch (e: any) {
     console.error('Error saving RPC config:', e)

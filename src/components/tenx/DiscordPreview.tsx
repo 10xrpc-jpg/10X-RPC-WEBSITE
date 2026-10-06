@@ -1,4 +1,4 @@
-// 10X RPC — Live Discord RPC Preview card (matches Roxy reference styling)
+// 10X RPC — Live Discord RPC Preview card
 'use client'
 import { useEffect, useState } from 'react'
 import type { RpcConfig } from '@/lib/api-client'
@@ -154,12 +154,7 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
                     className="w-14 h-14 rounded-xl object-cover border border-white/10"
                   />
                 ) : (
-                  <div
-                    title={largeText}
-                    className="w-14 h-14 rounded-xl purple-gradient flex items-center justify-center text-2xl font-bold text-white border border-white/10"
-                  >
-                    {(largeImage || name).slice(0, 1).toUpperCase()}
-                  </div>
+                  <AssetImage assetKey={largeImage} fallbackText={(largeImage || name).slice(0, 1).toUpperCase()} title={largeText} />
                 )
               ) : (
                 <div className="w-14 h-14 rounded-xl bg-[#1c1d25] border border-white/10 flex items-center justify-center text-2xl select-none">
@@ -265,6 +260,56 @@ function PlatformBadge({ platform }: { platform: string }) {
 
 function isUrl(s: string): boolean {
   return /^https?:\/\//i.test(s)
+}
+
+/** Discord asset IDs are 15-21 digit snowflakes (the gateway wire format). */
+function isAssetId(s: string): boolean {
+  return /^\d{15,21}$/.test(s)
+}
+
+/** mp:external/... references map 1:1 onto Discord's public media proxy. */
+function mpExternalToUrl(s: string): string | null {
+  if (s.startsWith('mp:external/')) return `https://media.discordapp.net/${s.slice(3)}`
+  if (s.startsWith('external/')) return `https://media.discordapp.net/${s}`
+  return null
+}
+
+/**
+ * Renders a Discord asset reference (non-URL) in the preview.
+ * Accepted wire formats (what presences actually carry):
+ *   • asset ID (digits)  → /api/asset-image/<id> — 302 to app-assets CDN
+ *   • mp:external/...    → https://media.discordapp.net/external/... (animated)
+ * Legacy/plain keys:
+ *   1. Locally-hosted icon at /games/<key>.png (built-in game presets + vscode)
+ *   2. /api/asset-image/<key> — 302 to Discord's app-assets CDN (shows the REAL
+ *      uploaded image, animated GIFs included, for pipeline keys like img-*)
+ *   3. Purple gradient letter box — mirrors what Discord shows for unknown keys
+ */
+function AssetImage({ assetKey, fallbackText, title }: { assetKey: string; fallbackText: string; title?: string }) {
+  const mpUrl = mpExternalToUrl(assetKey)
+  const [stage, setStage] = useState<0 | 1 | 2>(() => (assetKey.startsWith('img-') || isAssetId(assetKey) || mpUrl ? 1 : 0))
+  const src =
+    mpUrl ||
+    (stage === 0 ? `/games/${encodeURIComponent(assetKey)}.png` : `/api/asset-image/${encodeURIComponent(assetKey)}`)
+  if (stage >= 2 || !src) {
+    return (
+      <div
+        title={title}
+        className="w-14 h-14 rounded-xl purple-gradient flex items-center justify-center text-2xl font-bold text-white border border-white/10"
+      >
+        {fallbackText}
+      </div>
+    )
+  }
+  return (
+    <img
+      src={src}
+      alt={title || assetKey}
+      title={title}
+      onError={() => setStage(s => (s + 1) as 0 | 1 | 2)}
+      className="w-14 h-14 rounded-xl object-cover border border-white/10"
+    />
+  )
 }
 
 function formatElapsed(ms: number): string {

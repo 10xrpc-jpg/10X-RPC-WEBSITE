@@ -41,11 +41,19 @@ export async function POST(req: Request) {
           vrStatusActive: false,
         },
       })
-      // Also disable any RpcConfig for this user
-      await db.rpcConfig.updateMany({
-        where: { userId: session.userId, enabled: true },
-        data: { enabled: false },
-      })
+      // Disable BOTH modes' enabled flags — Normal RPC (RpcConfig) and Gamer
+      // RPC (GameConfig). Only flags flip: both configurations' saved field
+      // data is preserved and remembered for the next session.
+      await Promise.all([
+        db.rpcConfig.updateMany({
+          where: { userId: session.userId, enabled: true },
+          data: { enabled: false },
+        }),
+        db.gameConfig.updateMany({
+          where: { userId: session.userId, enabled: true },
+          data: { enabled: false },
+        }),
+      ])
       expired.push(session.id)
     } catch (e) {
       console.error(`Failed to expire sleep timer for session ${session.id}:`, e)

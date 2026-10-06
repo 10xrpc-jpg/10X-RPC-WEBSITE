@@ -1,8 +1,13 @@
-// 10X RPC — hash router hook
+// 10X RPC — history-based SPA router (clean URLs — no /#/ hash prefix).
+// Navigations use history.pushState; the page component inside app/page.tsx
+// re-renders from the URL pathname. next.config.ts rewrites the known app
+// paths back to "/" so direct loads and refreshes serve the same SPA shell.
+// Legacy "#/..." URLs are migrated to clean paths by an inline script in
+// app/layout.tsx that runs before this module (and Next.js) boots.
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 
-export type Route = 
+export type Route =
   | { name: 'home' }
   | { name: 'dashboard' }
   | { name: 'games' }
@@ -12,13 +17,13 @@ export type Route =
   | { name: 'oauth-consent' }
   | { name: 'admin' }
 
-export function parseHash(hash: string): Route {
-  const clean = hash.replace(/^#\/?/, '').trim()
+export function parsePath(pathname: string): Route {
+  const clean = pathname.replace(/^\/+|\/+$/g, '').trim()
   if (!clean) return { name: 'home' }
   const parts = clean.split('/')
   if (parts[0] === 'dashboard') return { name: 'dashboard' }
   if (parts[0] === 'games') {
-    if (parts[1]) return { name: 'game', slug: parts[1] }
+    if (parts[1]) return { name: 'game', slug: decodeURIComponent(parts[1]) }
     return { name: 'games' }
   }
   if (parts[0] === 'config') return { name: 'config' }
@@ -28,35 +33,51 @@ export function parseHash(hash: string): Route {
   return { name: 'home' }
 }
 
-export function toHash(route: Route): string {
+export function toPath(route: Route): string {
   switch (route.name) {
-    case 'home': return '#/'
-    case 'dashboard': return '#/dashboard'
-    case 'games': return '#/games'
-    case 'game': return `#/games/${route.slug}`
-    case 'config': return '#/config'
-    case 'rotator': return '#/rotator'
-    case 'oauth-consent': return '#/oauth-consent'
-    case 'admin': return '#/admin'
+    case 'home': return '/'
+    case 'dashboard': return '/dashboard'
+    case 'games': return '/games'
+    case 'game': return `/games/${encodeURIComponent(route.slug)}`
+    case 'config': return '/config'
+    case 'rotator': return '/rotator'
+    case 'oauth-consent': return '/oauth-consent'
+    case 'admin': return '/admin'
   }
 }
 
+// External pathname store — keeps SSR/client render consistent and avoids
+// setState-inside-effect cascades flagged by the react-hooks lint rules.
+// pushState does not fire popstate, so navigate() also dispatches a
+// "tenx:navigate" event that subscribers listen for.
+const pathStore = {
+  subscribe(onChange: () => void) {
+    window.addEventListener('popstate', onChange)
+    window.addEventListener('tenx:navigate', onChange)
+    return () => {
+      window.removeEventListener('popstate', onChange)
+      window.removeEventListener('tenx:navigate', onChange)
+    }
+  },
+  getSnapshot(): string {
+    return window.location.pathname
+  },
+  getServerSnapshot(): string {
+    return '/'
+  },
+}
+
 export function useRouter() {
-  const [route, setRoute] = useState<Route>({ name: 'home' })
-  const [mounted, setMounted] = useState(false)
-
-  useEffect(() => {
-    setMounted(true)
-    setRoute(parseHash(window.location.hash))
-
-    const onHashChange = () => setRoute(parseHash(window.location.hash))
-    window.addEventListener('hashchange', onHashChange)
-    return () => window.removeEventListener('hashchange', onHashChange)
-  }, [])
+  const pathname = useSyncExternalStore(pathStore.subscribe, pathStore.getSnapshot, pathStore.getServerSnapshot)
+  const mounted = typeof window !== 'undefined' && pathname !== undefined
 
   const navigate = useCallback((next: Route) => {
-    window.location.hash = toHash(next)
+    const to = toPath(next)
+    if (window.location.pathname !== to) {
+      window.history.pushState(null, '', to)
+    }
+    window.dispatchEvent(new Event('tenx:navigate'))
   }, [])
 
-  return { route, navigate, mounted }
+  return { route: parsePath(pathname), navigate, mounted }
 }

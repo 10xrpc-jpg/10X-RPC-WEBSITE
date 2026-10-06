@@ -8,6 +8,32 @@ import type { RpcConfig } from './api-client'
 import type { PlaceholderContext } from './placeholders'
 import { resolvePlaceholders } from './placeholders'
 import { resolveRpcActivityName } from './constants'
+import { GAME_SPOOF, findGame, DISCORD_APP_ID_RE } from './games'
+import { resolveAssetRef, resolveExternalAsset, sanitizeActivities, type ResolveOpts } from './discord-assets'
+
+export type { ResolveOpts }
+
+/**
+ * Custom games ("Add Games") store an optional Discord Application ID on the
+ * GameConfig row. The Orihost daemon runs a Prisma client generated BEFORE the
+ * appId column existed, so the value is read via $queryRaw (schema-independent
+ * for both the Vercel in-process daemon and the standalone Orihost daemon).
+ * Returns null for preset slugs, missing/invalid ids, or DB errors.
+ */
+export async function fetchGameAppId(userId: string, gameSlug: string | null | undefined): Promise<string | null> {
+  if (!gameSlug || !gameSlug.startsWith('custom-')) return null
+  try {
+    const { db } = await import('./db')
+    const rows = await db.$queryRaw<Array<{ appId: string | null }>>`
+      SELECT "appId" FROM "GameConfig"
+      WHERE "userId" = ${userId} AND "gameSlug" = ${gameSlug}
+      LIMIT 1`
+    const id = rows?.[0]?.appId ?? null
+    return id && DISCORD_APP_ID_RE.test(id) ? id : null
+  } catch {
+    return null
+  }
+}
 
 // Activity types mapped to Discord's numeric values
 export const ACTIVITY_TYPE_MAP: Record<string, number> = {
@@ -33,7 +59,8 @@ export interface PresenceResult {
  */
 export async function buildActivityPayload(
   cfg: RpcConfig,
-  placeholderCtx: PlaceholderContext
+  placeholderCtx: PlaceholderContext,
+  assetOpts?: ResolveOpts
 ): Promise<object> {
   const state = await resolvePlaceholders(cfg.state || '', placeholderCtx)
   const details = await resolvePlaceholders(cfg.details || '', placeholderCtx)
@@ -87,26 +114,36 @@ export async function buildActivityPayload(
   }
 
   // Assets (images)
+  // Converted into WIRE-RENDERABLE values: URLs → mp:external references
+  // (animated GIF capable) and asset keys → uploaded asset IDs. Gateway
+  // presences never render raw URLs or bare keys (see discord-assets.ts).
   const assets: Record<string, string> = {}
-  if (cfg.largeImage) assets.large_image = cfg.largeImage
+  const largeImageRef = await resolveAssetRef(cfg.largeImage, assetOpts)
+  const smallImageRef = await resolveAssetRef(cfg.smallImage, assetOpts)
+  if (largeImageRef) assets.large_image = largeImageRef
   if (cfg.largeText) assets.large_text = cfg.largeText
-  if (cfg.smallImage) assets.small_image = cfg.smallImage
+  if (smallImageRef) assets.small_image = smallImageRef
   if (cfg.smallText) assets.small_text = cfg.smallText
   if (Object.keys(assets).length > 0) activity.assets = assets
 
   // Buttons (max 2)
-  const buttons: Array<{ label: string; url: string }> = []
+  // WIRE FORMAT (live-verified against gateway.gaming-sdk.com): `buttons` must be
+  // an array of LABEL STRINGS; URLs ride in `metadata.button_urls` (exactly how
+  // real Discord clients broadcast). Sending `buttons` as [{label,url}] objects is
+  // INVALID — Discord silently drops the ENTIRE activity, which made the RPC
+  // vanish from the profile whenever Button Config was saved ("RPC turns OFF" bug).
+  const buttonLabels: string[] = []
   const buttonUrls: string[] = []
   if (cfg.button1Label && cfg.button1Url) {
-    buttons.push({ label: cfg.button1Label, url: cfg.button1Url })
+    buttonLabels.push(cfg.button1Label)
     buttonUrls.push(cfg.button1Url)
   }
   if (cfg.button2Label && cfg.button2Url) {
-    buttons.push({ label: cfg.button2Label, url: cfg.button2Url })
+    buttonLabels.push(cfg.button2Label)
     buttonUrls.push(cfg.button2Url)
   }
-  if (buttons.length > 0) {
-    activity.buttons = buttons
+  if (buttonLabels.length > 0) {
+    activity.buttons = buttonLabels
     activity.metadata = { button_urls: buttonUrls }
   }
 
@@ -134,11 +171,97 @@ export function buildCustomStatusActivity(
   }
   if (text) activity.state = text
   if (emoji) {
-    activity.emoji = {
-      name: emoji,
+    // Nitro custom emoji — canonical `<:name:id>` / `<a:name:id>` (animated), or bare `name:id`.
+    // The gateway requires { name, id, animated } — sending the raw `<:name:id>` string as `name` does NOT render.
+    const bracket = emoji.match(/^<(a?):([A-Za-z0-9_]+):(\d+)>$/)
+    const bare = !bracket && /^[A-Za-z0-9_]+:\d+$/.test(emoji) ? emoji.match(/^([A-Za-z0-9_]+):(\d+)$/) : null
+    if (bracket) {
+      activity.emoji = { name: bracket[2], id: bracket[3], animated: bracket[1] === 'a' }
+    } else if (bare) {
+      activity.emoji = { name: bare[1], id: bare[2], animated: false }
+    } else {
+      // Unicode emoji (e.g. 😊)
+      activity.emoji = { name: emoji }
     }
   }
   return activity
+}
+
+// ════════════════════════════════════════════════════════════════════════
+// NORMAL RPC vs GAMER (GAME) RPC — MODE SELECTION
+//
+// The two RPC modes are COMPLETELY SEPARATE configurations:
+//   • Normal RPC  → RpcConfig row  (user's custom Rich Presence)
+//   • Gamer RPC   → GameConfig row (enabled game preset, spoofed as real app)
+//
+// Neither mode ever reads, copies, merges or overwrites the other's data.
+// Exactly ONE mode may be active at a time — every write path enforces this
+// (enabling one auto-disables the other's enabled flag; field data of both
+// configurations is preserved so switching modes never resets anything).
+//
+// The active mode is derived transactionally from the enabled flags:
+//   • an enabled GameConfig  → GAME mode wins
+//   • else RpcConfig.enabled → NORMAL mode
+// (game precedence is purely defensive against legacy rows where both were
+// left enabled — new writes can never produce that state).
+// ════════════════════════════════════════════════════════════════════════
+
+export type RpcMode = 'normal' | 'game'
+
+export interface ActiveRpcSelection {
+  /** Master RPC flag ON and the active mode's own config is enabled. */
+  active: boolean
+  /** Which mode owns the presence right now (null = nothing active). */
+  mode: RpcMode | null
+  /**
+   * Config of the ACTIVE mode only — an RpcConfig row in normal mode, or a
+   * synthesized activity config from the enabled GameConfig row in game mode.
+   * Never a merge of the two.
+   */
+  config: RpcConfig | null
+  /** Enabled game slug in game mode (drives official-app spoofing); else null. */
+  gameSlug: string | null
+}
+
+/**
+ * Pick the single active RPC mode + its own config.
+ * GameConfig rows carry `gameName` (not `name`) and no `type` — the synthesized
+ * game-mode config normalizes both so downstream activity building is uniform.
+ */
+export function selectActiveRpc(
+  rpcEnabled: boolean | null | undefined,
+  rpcConfig: RpcConfig | null | undefined,
+  enabledGame: (RpcConfig & { gameSlug?: string; gameName?: string }) | null | undefined
+): ActiveRpcSelection {
+  // GAMER RPC — an enabled game owns the presence exclusively.
+  // (Defensive: also verifies the row's own enabled flag, so passing an
+  // unfiltered GameConfig row can never activate a disabled game.)
+  if (enabledGame && enabledGame.enabled !== false) {
+    const gameName = (enabledGame as { gameName?: string }).gameName || enabledGame.name || 'Game'
+    return {
+      active: !!rpcEnabled,
+      mode: 'game',
+      config: {
+        ...enabledGame,
+        name: gameName,
+        type: 'PLAYING',
+        enabled: true,
+      },
+      gameSlug: (enabledGame as { gameSlug?: string }).gameSlug ?? null,
+    }
+  }
+
+  // NORMAL RPC — user's own Rich Presence config (only when its own enabled flag is set).
+  if (rpcConfig && rpcConfig.enabled) {
+    return {
+      active: !!rpcEnabled,
+      mode: 'normal',
+      config: rpcConfig,
+      gameSlug: null,
+    }
+  }
+
+  return { active: false, mode: null, config: null, gameSlug: null }
 }
 
 /**
@@ -152,6 +275,12 @@ export async function buildPresenceActivities(options: {
   placeholderCtx?: PlaceholderContext
   vrStatusActive?: boolean
   platform?: string
+  /** User OAuth token — enables external-asset resolution (animated GIFs). */
+  userAccessToken?: string | null
+  /** The user's ENABLED game slug (GameConfig.enabled) — enables game spoofing. */
+  selectedGameSlug?: string | null
+  /** Discord Application ID for CUSTOM games ("Add Games") — spoofs that application. */
+  selectedGameAppId?: string | null
 }): Promise<Array<Record<string, unknown>>> {
   const activities: Array<Record<string, unknown>> = []
 
@@ -173,7 +302,9 @@ export async function buildPresenceActivities(options: {
       timezone: 'UTC',
       rpcStartedAt: Date.now(),
     }
-    const rpcActivity = (await buildActivityPayload(options.rpcConfig, ctx)) as Record<string, unknown>
+    const rpcActivity = (await buildActivityPayload(options.rpcConfig, ctx, {
+      userAccessToken: options.userAccessToken,
+    })) as Record<string, unknown>
     if (isVr) {
       rpcActivity.platform = 'meta_quest'
       if (!rpcActivity.state) {
@@ -182,6 +313,63 @@ export async function buildPresenceActivities(options: {
     }
     // Activity Name is ALWAYS prioritized from custom NAME, falling back to platform name only when NAME is empty.
     rpcActivity.name = resolveRpcActivityName(options.rpcConfig?.name, isVr ? 'meta_quest' : explicitPlatform)
+
+    // Game spoof — when the user's ENABLED game has a known real Discord
+    // application identity AND the active RPC is that game (name matches the
+    // preset), present the activity as the game's OFFICIAL application:
+    // real application_id + official display name + official app icon —
+    // exactly like the real game's own Rich Presence.
+    const activeGame = options.selectedGameSlug ? findGame(options.selectedGameSlug) : undefined
+    let spoof: GameSpoofEntry | undefined
+      = activeGame && options.rpcConfig?.name === activeGame.name ? GAME_SPOOF[activeGame.slug] : undefined
+    if (!spoof && options.selectedGameAppId && options.rpcConfig?.name) {
+      // CUSTOM game ("Add Games") with a user-supplied Discord Application ID:
+      // present the presence as that application. The stored config name is the
+      // application's official name (validated & auto-filled from Discord at
+      // save time); the icon rides the config's own image URL, resolved to an
+      // app-independent mp:external reference below.
+      const cfgIcon = options.rpcConfig.largeImage
+      spoof = {
+        appId: options.selectedGameAppId,
+        name: options.rpcConfig.name,
+        icon: cfgIcon && /^https?:\/\//i.test(cfgIcon) ? cfgIcon : '',
+      }
+    }
+    if (spoof) {
+      rpcActivity.application_id = spoof.appId
+      rpcActivity.name = spoof.name
+      const assets = (rpcActivity.assets as Record<string, string> | undefined) ?? {}
+      // Spoof icons must ONLY ride app-independent external media references
+      // (mp:external/...): uploaded asset IDs are scoped to the 10X application
+      // and can NOT render once application_id is spoofed to the game's own
+      // app. resolveExternalAsset never produces asset IDs and keeps its own
+      // in-memory cache, so shared DB cache rows can never poison this path.
+      const rawIcon = options.userAccessToken && spoof.icon
+        ? await resolveExternalAsset(spoof.icon, options.userAccessToken)
+        : null
+      const iconRef = rawIcon && rawIcon.startsWith('mp:') ? rawIcon : null
+      if (iconRef) {
+        assets.large_image = iconRef
+        if (!assets.large_text) assets.large_text = spoof.name
+      } else {
+        // No renderable official icon (no token / resolution failed): drop image
+        // references entirely — 10X-scoped asset IDs would render nothing under
+        // the spoofed application and only reserve a dead image slot.
+        delete assets.large_image
+        delete assets.large_text
+      }
+      if (assets.small_image && !String(assets.small_image).startsWith('mp:')) {
+        // Small image asset IDs are 10X-application scoped too — drop unrenderable ones.
+        delete assets.small_image
+        delete assets.small_text
+      }
+      if (Object.keys(assets).length > 0) {
+        rpcActivity.assets = assets
+      } else {
+        delete rpcActivity.assets
+      }
+      console.log(`[10X RPC] Game spoof: ${activeGame?.slug ?? 'custom'} → application ${spoof.appId} "${spoof.name}"${iconRef ? ' (official icon attached)' : ' (no icon)'}`)
+    }
     activities.push(rpcActivity)
   }
 
@@ -224,6 +412,11 @@ export async function sendPresenceViaGateway(
   const activities: object[] = Array.isArray(activityOrActivities)
     ? activityOrActivities
     : activityOrActivities ? [activityOrActivities] : []
+
+  // Defense-in-depth: raw http(s) URLs in assets are silently dropped by
+  // Discord — strip them so a failed asset resolution can never degrade the
+  // presence into the "image not showing" state.
+  const safeActivities = sanitizeActivities(activities as Array<Record<string, unknown>>)
 
   // If clearing presence
   if (activities.length === 0 && (!status || status === 'offline')) {
@@ -268,21 +461,21 @@ export async function sendPresenceViaGateway(
           op: 3,
           d: {
             status,
-            activities,
+            activities: safeActivities,
             afk: false,
             since: null,
           },
         }))
         existing.lastStatus = status
-        existing.lastActivities = activities
+        existing.lastActivities = safeActivities
         return {
           ok: true,
           method: 'gateway',
           message: isQuest
             ? 'Meta Quest VR presence active on Discord'
             : 'Presence updated via active gateway connection',
-          activities,
-          activity: activities[0],
+          activities: safeActivities,
+          activity: safeActivities[0],
         }
       } catch {
         clearInterval(existing.heartbeatTimer)
@@ -384,7 +577,7 @@ export async function sendPresenceViaGateway(
               op: 3,
               d: {
                 status,
-                activities,
+                activities: safeActivities,
                 afk: false,
                 since: null,
               },
@@ -395,7 +588,7 @@ export async function sendPresenceViaGateway(
               heartbeatTimer,
               platform: targetPlatform,
               lastStatus: status,
-              lastActivities: activities,
+              lastActivities: safeActivities,
             })
 
             finish({
@@ -404,8 +597,8 @@ export async function sendPresenceViaGateway(
               message: isQuest
                 ? 'Meta Quest VR presence active on Discord'
                 : 'Presence sent via Gaming SDK gateway',
-              activities,
-              activity: activities[0],
+              activities: safeActivities,
+              activity: safeActivities[0],
             })
           } else if (op === 0 && t === 'PRESENCE_UPDATE') {
             clearTimeout(timeout)
@@ -597,7 +790,7 @@ export async function refreshDiscordToken(
       body,
     })
     if (!res.ok) return null
-    return res.json()
+    return (await res.json()) as { access_token: string; refresh_token: string; expires_in: number }
   } catch {
     return null
   }
@@ -665,20 +858,40 @@ export async function applyPresence(
     }
   }
 
-  const isRpcActive = !!((session as any).rpcEnabled && rpcConfig && rpcConfig.enabled !== false)
+  // MUTUAL EXCLUSIVITY — pick the ONE active mode and use ONLY its config:
+  // game mode (enabled GameConfig) and normal mode (RpcConfig.enabled) never
+  // combine. selectActiveRpc returns the active mode's own config, or null.
+  let enabledGame: (RpcConfig & { gameSlug?: string; gameName?: string }) | null = null
+  try {
+    const { db } = await import('./db')
+    enabledGame = await db.gameConfig.findFirst({ where: { userId: session.userId, enabled: true } })
+  } catch {
+    enabledGame = null
+  }
+  const selection = selectActiveRpc((session as any).rpcEnabled, rpcConfig, enabledGame)
+  const isRpcActive = selection.active
   const isStatusActive = !!(session as any).statusEnabled
   const statusPlatform = (session as any).statusPlatform || 'mobile'
-  const explicitPlatform = isRpcActive ? (rpcConfig?.platform || 'desktop') : statusPlatform
-  const isVr = (isStatusActive && statusPlatform === 'meta_quest') || (isRpcActive && rpcConfig?.platform === 'meta_quest')
+  const explicitPlatform = isRpcActive ? (selection.config?.platform || 'desktop') : statusPlatform
+  const isVr = (isStatusActive && statusPlatform === 'meta_quest') || (isRpcActive && selection.config?.platform === 'meta_quest')
+
+  // Custom games may carry a Discord Application ID — spoof that application.
+  const selectedGameAppId = isRpcActive && selection.mode === 'game'
+    ? await fetchGameAppId(session.userId, selection.gameSlug)
+    : null
 
   // Build combined activities (custom status + rich presence)
   const activities = await buildPresenceActivities({
-    rpcConfig: isRpcActive ? rpcConfig : null,
+    rpcConfig: isRpcActive ? selection.config : null,
     customStatus: isStatusActive ? session.customStatus : null,
     customStatusEmoji: isStatusActive ? session.customStatusEmoji : null,
     placeholderCtx,
     vrStatusActive: isVr,
     platform: isVr ? 'meta_quest' : explicitPlatform,
+    userAccessToken: accessToken,
+    // Only the GAME mode's own game drives official-app spoofing.
+    selectedGameSlug: isRpcActive && selection.mode === 'game' ? selection.gameSlug : null,
+    selectedGameAppId,
   })
 
   // Send presence via Gaming SDK gateway

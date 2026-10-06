@@ -38,6 +38,18 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning className="dark">
+      <head>
+        {/* Legacy "#/..." URL migration — runs inline BEFORE Next.js boots so
+            nothing captures or restores the old hash URL. Converts
+            "#/games/x" -> "/games/x" in place. Plain anchors ("#section")
+            are untouched. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "if(location.hash.indexOf('#/')===0){try{history.replaceState(null,'',location.hash.slice(1)||'/')}catch(e){}}",
+          }}
+        />
+      </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased bg-[#0a0b0f] text-white min-h-screen`}
       >

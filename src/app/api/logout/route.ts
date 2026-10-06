@@ -7,5 +7,5 @@ export const dynamic = 'force-dynamic'
 
 export async function POST() {
   await clearSessionCookie()
-  return NextResponse.json({ ok: true, redirect: `${CONFIG.app.url}/#/` })
+  return NextResponse.json({ ok: true, redirect: `${CONFIG.app.url}/` })
 }

@@ -1,4 +1,4 @@
-// 10X RPC — Profile card + action row (matches Roxy reference exactly)
+// 10X RPC — Profile card + action row
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
@@ -6,8 +6,9 @@ import { api, type Me } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { Card, PurpleSwitch } from './ui'
 import { DISCORD_STATUSES } from '@/lib/constants'
-import { Gamepad2, Globe, Monitor, Smartphone } from 'lucide-react'
+import { Monitor, Smartphone, SmilePlus } from 'lucide-react'
 import { DiscordPreview } from './DiscordPreview'
+import { DiscordEmoji, normalizeEmojiInput } from './Emoji'
 
 function VrIcon({ className = 'w-4 h-4' }: { className?: string }) {
   return (
@@ -23,8 +24,6 @@ function VrIcon({ className = 'w-4 h-4' }: { className?: string }) {
 const PLATFORM_ITEMS = [
   { value: 'mobile', label: 'Mobile', icon: Smartphone },
   { value: 'desktop', label: 'Desktop', icon: Monitor },
-  { value: 'console', label: 'Console', icon: Gamepad2 },
-  { value: 'web', label: 'Web', icon: Globe },
   { value: 'meta_quest', label: 'VR', icon: VrIcon },
 ]
 
@@ -42,10 +41,14 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
   const [platformOpen, setPlatformOpen] = useState(false)
   const [bgModalOpen, setBgModalOpen] = useState(false)
   const [bgUrl, setBgUrl] = useState(me.user?.backgroundUrl || '')
+  const [emojiPickerOpen, setEmojiPickerOpen] = useState(false)
+  const [emojiDraft, setEmojiDraft] = useState('')
+  const [emojiSaving, setEmojiSaving] = useState(false)
 
   const statusDropdownRef = useRef<HTMLDivElement>(null)
   const userMenuRef = useRef<HTMLDivElement>(null)
   const platformRef = useRef<HTMLDivElement>(null)
+  const emojiPickerRef = useRef<HTMLDivElement>(null)
 
   // Live tick for countdowns
   const [now, setNow] = useState(Date.now())
@@ -53,6 +56,15 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
   }, [])
+
+  // Open one popup exclusively (opening one closes all others)
+  const togglePopup = (open: boolean, setter: (v: boolean) => void) => {
+    setStatusDropdown(false)
+    setUserMenuOpen(false)
+    setPlatformOpen(false)
+    setEmojiPickerOpen(false)
+    setter(open)
+  }
 
   // Outside click handlers
   useEffect(() => {
@@ -66,6 +78,9 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
       }
       if (userMenuRef.current && !userMenuRef.current.contains(target)) {
         setUserMenuOpen(false)
+      }
+      if (emojiPickerRef.current && !emojiPickerRef.current.contains(target)) {
+        setEmojiPickerOpen(false)
       }
     }
     document.addEventListener('mousedown', handleClickOutside)
@@ -146,6 +161,33 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
     window.location.href = '/'
   }
 
+  const openEmojiPicker = () => {
+    setEmojiDraft(customEmoji || '')
+    togglePopup(true, setEmojiPickerOpen)
+  }
+
+  const handleSaveEmoji = async () => {
+    const { value, error } = normalizeEmojiInput(emojiDraft)
+    if (error) {
+      toast.error(error)
+      return
+    }
+    setEmojiSaving(true)
+    try {
+      // Emoji-only partial update — never touches RPC config or enabled state
+      await api.statusUpdate({ customStatusEmoji: value })
+      setCustomEmoji(value || '')
+      setEmojiPickerOpen(false)
+      toast.success(value ? '✓ Emoji saved' : '✓ Emoji removed', { duration: 2000 })
+      onRefresh()
+    } catch (e) {
+      console.error(e)
+      toast.error('Failed to save emoji')
+    } finally {
+      setEmojiSaving(false)
+    }
+  }
+
   const handleSaveBg = async () => {
     const trimmed = bgUrl.trim()
     if (trimmed && !/^https?:\/\//i.test(trimmed)) {
@@ -191,30 +233,33 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
 
   return (
     <>
-      {/* === MAIN PROFILE CARD (Matches roxydev.xyz/me reference screenshot) === */}
-      <div className="relative overflow-hidden bg-gradient-to-b from-[#13111d]/95 via-[#0e0d14]/95 to-[#0a0a0f] border border-white/10 rounded-[28px] p-6 shadow-2xl backdrop-blur-xl">
-        {/* Ambient violet glow at top left and top right */}
-        <div className="absolute -top-16 -left-12 w-56 h-56 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" />
-        <div className="absolute -top-16 -right-12 w-48 h-48 bg-purple-900/10 rounded-full blur-2xl pointer-events-none" />
+      {/* === MAIN PROFILE CARD === */}
+      <div className="relative bg-gradient-to-b from-[#13111d]/95 via-[#0e0d14]/95 to-[#0a0a0f] border border-white/10 rounded-[28px] p-6 shadow-2xl backdrop-blur-xl">
+        {/* Clipped decorative layer: ambient glows + optional background image (kept inside rounded bounds) */}
+        <div className="absolute inset-0 overflow-hidden rounded-[28px] pointer-events-none">
+          {/* Ambient violet glow at top left and top right */}
+          <div className="absolute -top-16 -left-12 w-56 h-56 bg-purple-600/15 rounded-full blur-3xl" />
+          <div className="absolute -top-16 -right-12 w-48 h-48 bg-purple-900/10 rounded-full blur-2xl" />
 
-        {/* Custom background image if configured */}
-        {me.user.backgroundUrl && (
-          <>
-            <img
-              src={me.user.backgroundUrl}
-              alt=""
-              className="absolute inset-0 w-full h-full object-cover opacity-25 pointer-events-none"
-            />
-            <div className="absolute inset-0 bg-gradient-to-b from-[#0e0d14]/75 via-[#0e0d14]/90 to-[#0a0a0f] pointer-events-none" />
-          </>
-        )}
+          {/* Custom background image if configured */}
+          {me.user.backgroundUrl && (
+            <>
+              <img
+                src={me.user.backgroundUrl}
+                alt=""
+                className="absolute inset-0 w-full h-full object-cover opacity-25"
+              />
+              <div className="absolute inset-0 bg-gradient-to-b from-[#0e0d14]/75 via-[#0e0d14]/90 to-[#0a0a0f]" />
+            </>
+          )}
+        </div>
 
         {/* Top-Right Small Avatar + Dropdown Menu */}
-        <div className="relative flex items-center justify-end z-20">
+        <div className={`relative flex items-center justify-end ${userMenuOpen ? 'z-50' : 'z-20'}`}>
           <div className="relative" ref={userMenuRef}>
             <button
               type="button"
-              onClick={() => setUserMenuOpen(v => !v)}
+              onClick={() => togglePopup(!userMenuOpen, setUserMenuOpen)}
               className="relative rounded-full focus:outline-none ring-1 ring-white/20 hover:ring-purple-400/60 transition-all cursor-pointer"
               title="Account options"
             >
@@ -251,7 +296,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                   <span>🖼️</span>
                   <span>Set Background</span>
                 </button>
-                {(me.user.discordId === '824940038617694279' || me.user.id === '824940038617694279') && (
+                {((me.user as Record<string, unknown>).discordId === '824940038617694279' || me.user.id === '824940038617694279') && (
                   <button
                     type="button"
                     onClick={() => { setUserMenuOpen(false); navigate({ name: 'admin' }) }}
@@ -275,7 +320,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
         </div>
 
         {/* Center: Large Circular Avatar + Status Dot + "click here" */}
-        <div className="relative flex flex-col items-center justify-center -mt-3 mb-5 z-20">
+        <div className={`relative flex flex-col items-center justify-center -mt-3 mb-5 ${statusDropdown ? 'z-50' : 'z-20'}`}>
           <div className="relative inline-block" ref={statusDropdownRef}>
             {/* Avatar */}
             <div className="w-28 h-28 rounded-full overflow-hidden border-2 border-white/10 shadow-2xl ring-1 ring-white/5">
@@ -289,7 +334,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
             {/* Status Dot at bottom-right of avatar */}
             <button
               type="button"
-              onClick={() => setStatusDropdown(v => !v)}
+              onClick={() => togglePopup(!statusDropdown, setStatusDropdown)}
               className={`absolute bottom-1 right-2 w-4 h-4 rounded-full border-2 border-[#13111d] ${statusInfo.color} shadow-lg cursor-pointer transition-transform hover:scale-125 active:scale-95`}
               aria-label="Change status"
               title="Click to change status"
@@ -298,7 +343,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
             {/* "click here" text */}
             <button
               type="button"
-              onClick={() => setStatusDropdown(v => !v)}
+              onClick={() => togglePopup(!statusDropdown, setStatusDropdown)}
               className="absolute left-[calc(100%-8px)] bottom-1.5 text-xs text-white/40 hover:text-white/70 transition-colors whitespace-nowrap pl-1.5 flex items-center cursor-pointer select-none"
             >
               click here
@@ -344,28 +389,90 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
           </div>
         </div>
 
-        {/* Custom Msg Pill Input */}
-        <div className="relative z-10 w-full max-w-sm mx-auto bg-[#181922]/90 border border-white/8 hover:border-white/15 focus-within:border-purple-500/40 rounded-2xl px-4 py-2.5 flex items-center gap-3 transition-colors shadow-inner">
-          <button
-            type="button"
-            onClick={() => {
-              const emojis = ['😋', '🔥', '🎮', '✨', '⚡', '🎧', '🚀']
-              const next = emojis[(emojis.indexOf(customEmoji || '😋') + 1) % emojis.length]
-              setCustomEmoji(next)
-            }}
-            className="text-xl select-none hover:scale-110 active:scale-95 transition-transform"
-            title="Click to cycle emoji"
-          >
-            {customEmoji || '😋'}
-          </button>
-          <input
-            type="text"
-            value={customMsg}
-            onChange={e => setCustomMsg(e.target.value)}
-            placeholder="Custom Msg..."
-            className="bg-transparent flex-1 outline-none text-sm text-white placeholder:text-white/40"
-            maxLength={128}
-          />
+        {/* Custom Msg Pill Input + Emoji Picker Popup */}
+        <div className={`relative ${emojiPickerOpen ? 'z-50' : 'z-30'} w-full max-w-sm mx-auto`} ref={emojiPickerRef}>
+          <div className="bg-[#181922]/90 border border-white/8 hover:border-white/15 focus-within:border-purple-500/40 rounded-2xl px-4 py-2.5 flex items-center gap-3 transition-colors shadow-inner">
+            <button
+              type="button"
+              onClick={() => (emojiPickerOpen ? setEmojiPickerOpen(false) : openEmojiPicker())}
+              className="shrink-0 w-8 h-8 -ml-1 rounded-full inline-flex items-center justify-center hover:bg-white/10 active:scale-95 transition-all cursor-pointer"
+              title={customEmoji ? 'Change emoji' : 'Pick an emoji'}
+              aria-label="Pick an emoji"
+              aria-expanded={emojiPickerOpen}
+            >
+              {customEmoji ? (
+                <DiscordEmoji emoji={customEmoji} size={20} />
+              ) : (
+                <SmilePlus className="w-5 h-5 text-white/70" />
+              )}
+            </button>
+            <input
+              type="text"
+              value={customMsg}
+              onChange={e => setCustomMsg(e.target.value)}
+              placeholder="Custom Msg..."
+              className="bg-transparent flex-1 outline-none text-sm text-white placeholder:text-white/40"
+              maxLength={128}
+            />
+          </div>
+
+          {/* Emoji Picker Popup — type any emoji, or Nitro custom emoji format */}
+          {emojiPickerOpen && (
+            <div className="absolute left-0 right-0 top-full mt-2 bg-[#141318]/95 backdrop-blur-xl border border-white/10 rounded-2xl p-4 shadow-2xl shadow-black/80 z-50 space-y-3">
+              <input
+                type="text"
+                value={emojiDraft}
+                onChange={e => setEmojiDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault()
+                    handleSaveEmoji()
+                  } else if (e.key === 'Escape') {
+                    setEmojiPickerOpen(false)
+                  }
+                }}
+                placeholder="Type emoji here..."
+                className="w-full bg-[#0d0c12] border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-purple-500/50 placeholder:text-white/35"
+                maxLength={64}
+                autoFocus
+              />
+
+              <div className="bg-black rounded-xl px-3.5 py-3 space-y-1.5 text-xs text-white/85">
+                <p className="flex items-center flex-wrap gap-1.5">
+                  <span>Use normal emoji like</span>
+                  {['😊', '🎮', '⭐'].map(em => (
+                    <button
+                      key={em}
+                      type="button"
+                      onClick={() => setEmojiDraft(em)}
+                      className="text-base leading-none hover:scale-125 active:scale-95 transition-transform cursor-pointer"
+                      title={`Use ${em}`}
+                    >
+                      {em}
+                    </button>
+                  ))}
+                </p>
+                <p>Have Nitro? use custom emoji</p>
+                <button
+                  type="button"
+                  onClick={() => setEmojiDraft('<:name:id>')}
+                  className="block font-mono text-[13px] text-purple-400 hover:text-purple-300 transition-colors cursor-pointer"
+                  title="Click to insert this format — replace name & id with your emoji"
+                >
+                  {'<:wsp:1329393881881>'}
+                </button>
+              </div>
+
+              <button
+                type="button"
+                onClick={handleSaveEmoji}
+                disabled={emojiSaving}
+                className="w-full h-11 bg-[#a855f7] hover:bg-[#b678f9] text-white font-semibold rounded-xl text-sm transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+              >
+                {emojiSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Centered Username & Status (OFFLINE / ONLINE) */}
@@ -387,12 +494,12 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
         </div>
 
         {/* 3 Action Buttons: [ 📱 Mobile ] [ ROTATOR ] [ UPDATE ] */}
-        <div className="relative z-10 flex items-center gap-2 pt-1">
+        <div className={`relative ${platformOpen ? 'z-50' : 'z-10'} flex items-center gap-2 pt-1`}>
           {/* Platform Picker Button */}
           <div className="relative flex-1" ref={platformRef}>
             <button
               type="button"
-              onClick={() => setPlatformOpen(v => !v)}
+              onClick={() => togglePopup(!platformOpen, setPlatformOpen)}
               className="w-full h-11 bg-[#181922] border border-white/10 rounded-xl px-3 text-xs text-white hover:bg-white/10 inline-flex items-center justify-center gap-2 font-medium transition-all active:scale-[0.98]"
             >
               <PlatformIcon className="w-4 h-4 text-white/90" />
@@ -458,12 +565,15 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
       </div>
 
       {/* === Live Discord RPC Preview === */}
+      {/* Shows the ACTIVE RPC mode's own config: the game's config while Gamer
+          RPC owns the presence, the Normal config otherwise. The two are never
+          merged — activeRpcConfig is exactly what the daemon is sending. */}
       <DiscordPreview
-        config={me.rpcConfig}
+        config={me.activeRpcConfig ?? me.rpcConfig}
         username={me.user.username}
         avatarUrl={me.user.avatar}
-        platform={me.rpcConfig?.platform || 'desktop'}
-        rpcEnabled={!!(me.session?.rpcEnabled && me.rpcConfig?.enabled)}
+        platform={me.activeRpcConfig?.platform || me.rpcConfig?.platform || 'desktop'}
+        rpcEnabled={!!me.activeRpcConfig}
         hasDiscordToken={me.session?.hasDiscordToken}
         lastPresenceUpdate={me.session?.lastPresenceUpdate}
       />

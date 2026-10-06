@@ -5,8 +5,8 @@ import { toast } from 'sonner'
 import { api, type GamePreset, type GameConfig } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { BackButton, PurpleSwitch } from './ui'
-import { PLATFORMS, PLATFORM_GROUPS } from '@/lib/constants'
-import { Gamepad2, ChevronDown } from 'lucide-react'
+import { Gamepad2 } from 'lucide-react'
+import { RpcPlatformSelect } from './RpcPlatformSelect'
 
 export function GameConfigPage({ slug }: { slug: string }) {
   const { navigate } = useRouter()
@@ -15,7 +15,10 @@ export function GameConfigPage({ slug }: { slug: string }) {
   const [saving, setSaving] = useState(false)
   const [enabled, setEnabled] = useState(false)
   const [platformOpen, setPlatformOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const platformRef = useRef<HTMLDivElement>(null)
+  const isCustom = slug.startsWith('custom-')
 
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
@@ -101,6 +104,24 @@ export function GameConfigPage({ slug }: { slug: string }) {
     }
   }
 
+  const handleDelete = async () => {
+    if (!confirmDelete) {
+      setConfirmDelete(true)
+      setTimeout(() => setConfirmDelete(false), 3500)
+      return
+    }
+    setDeleting(true)
+    try {
+      await api.gameDelete(slug)
+      toast.success(`${preset?.name} deleted`, { duration: 2500 })
+      navigate({ name: 'games' })
+    } catch (e) {
+      console.error(e)
+      toast.error('Failed to delete game')
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="min-h-screen px-4 sm:px-6 py-6 max-w-2xl mx-auto space-y-6">
       {/* Header */}
@@ -133,72 +154,23 @@ export function GameConfigPage({ slug }: { slug: string }) {
             <PurpleSwitch checked={enabled} onCheckedChange={setEnabled} />
           </div>
 
+          {/* Mutual-exclusivity note: Normal RPC & Game RPC are separate configs */}
+          <p className="text-[11px] leading-relaxed text-white/45 px-1">
+            ℹ️ Game RPC and Normal RPC are separate configurations — enabling one automatically
+            disables the other. Both configurations are remembered, so switching never resets
+            your saved settings.
+          </p>
+
           {/* Device Platform */}
           <FormField label="RPC DEVICE / PLATFORM">
-            <div className="relative" ref={platformRef}>
-              <button
-                type="button"
-                onClick={() => setPlatformOpen(v => !v)}
-                className="w-full h-12 bg-[#12131a] border border-white/10 hover:border-white/20 focus:border-purple-500/50 rounded-xl px-4 text-sm text-white flex items-center justify-between cursor-pointer transition-colors"
-              >
-                {(() => {
-                  const currentPlatform = PLATFORMS.find(p => p.value === cfg.platform)
-                  if (!cfg.platform || cfg.platform === 'desktop' || !currentPlatform) {
-                    return <span className="text-white/90 font-medium">None</span>
-                  }
-                  return (
-                    <span className="flex items-center gap-2 text-white/90 font-medium">
-                      <span>{currentPlatform.emoji}</span>
-                      <span>{currentPlatform.label}</span>
-                    </span>
-                  )
-                })()}
-                <ChevronDown className={`w-4 h-4 text-white/50 transition-transform ${platformOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {platformOpen && (
-                <div className="absolute left-0 top-full mt-2 w-full max-h-80 overflow-y-auto bg-[#161720]/98 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl z-50 space-y-2">
-                  {/* None option */}
-                  <button
-                    type="button"
-                    onClick={() => { set('platform', 'desktop'); setPlatformOpen(false) }}
-                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs transition-colors text-left ${
-                      (!cfg.platform || cfg.platform === 'desktop')
-                        ? 'bg-[#6b21a8] text-white font-medium'
-                        : 'text-white/80 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    <span>None</span>
-                  </button>
-
-                  {/* Grouped Platform Categories */}
-                  {PLATFORM_GROUPS.map(group => (
-                    <div key={group} className="mb-1.5">
-                      <p className="text-[10px] uppercase tracking-wider text-white/40 px-2 py-1 font-semibold">{group}</p>
-                      <div className="space-y-0.5">
-                        {PLATFORMS.filter(p => p.group === group).map(p => {
-                          const isSelected = cfg.platform === p.value
-                          return (
-                            <button
-                              key={p.value}
-                              type="button"
-                              onClick={() => { set('platform', p.value); setPlatformOpen(false) }}
-                              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors text-left ${
-                                isSelected
-                                  ? 'bg-[#6b21a8] text-white font-medium shadow-sm'
-                                  : 'text-white/80 hover:text-white hover:bg-white/5'
-                              }`}
-                            >
-                              <span>{p.emoji}</span>
-                              <span>{p.label}</span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div ref={platformRef}>
+              <RpcPlatformSelect
+                value={cfg.platform || 'desktop'}
+                onChange={v => set('platform', v)}
+                open={platformOpen}
+                onToggle={() => setPlatformOpen(v => !v)}
+                onClose={() => setPlatformOpen(false)}
+              />
             </div>
           </FormField>
 
@@ -225,6 +197,24 @@ export function GameConfigPage({ slug }: { slug: string }) {
               maxLength={128}
             />
           </FormField>
+
+          {/* Application ID (custom games only) */}
+          {isCustom && (
+            <FormField label="APPLICATION ID (OPTIONAL)">
+              <input
+                type="text"
+                value={cfg.appId || ''}
+                onChange={e => set('appId', e.target.value)}
+                placeholder="Discord Application ID — e.g. 1402418491272986635"
+                inputMode="numeric"
+                className="w-full h-12 bg-[#12131a] border border-white/10 hover:border-white/20 focus:border-purple-500/50 rounded-xl px-4 text-sm text-white placeholder:text-white/35 outline-none transition-colors"
+              />
+              <p className="text-[11px] text-white/40 px-1">
+                Paste a Discord Application ID and this game is presented as that application
+                (official name + icon are fetched automatically). Leave empty to use the 10X identity.
+              </p>
+            </FormField>
+          )}
 
           {/* Start Time */}
           <FormField label="START TIME (MINS AGO)">
@@ -351,6 +341,24 @@ export function GameConfigPage({ slug }: { slug: string }) {
               {saving ? 'SAVING...' : 'SAVE CONFIGURATION'}
             </button>
           </div>
+
+          {/* Delete (custom games only) */}
+          {isCustom && (
+            <div className="pt-2 flex justify-center">
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={deleting}
+                className={`font-medium text-xs tracking-widest uppercase px-8 py-3 rounded-xl border transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer ${
+                  confirmDelete
+                    ? 'bg-red-500/20 hover:bg-red-500/30 border-red-500/50 text-red-200'
+                    : 'bg-transparent hover:bg-red-500/10 border-white/10 text-white/40 hover:text-red-300 hover:border-red-500/40'
+                }`}
+              >
+                {deleting ? 'DELETING...' : confirmDelete ? 'TAP AGAIN TO CONFIRM' : 'DELETE GAME'}
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

@@ -1,11 +1,12 @@
-// 10X RPC — Rich Presence form (matches Roxy reference exactly)
+// 10X RPC — Rich Presence form
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
 import { api, type RpcConfig } from '@/lib/api-client'
 import { PurpleSwitch } from './ui'
-import { ACTIVITY_TYPES, PLATFORMS, PLATFORM_GROUPS } from '@/lib/constants'
+import { ACTIVITY_TYPES } from '@/lib/constants'
 import { Gamepad2, ChevronDown, ChevronsDown } from 'lucide-react'
+import { RpcPlatformSelect } from './RpcPlatformSelect'
 
 const DEFAULT_CONFIG: RpcConfig = {
   name: '10X RPC',
@@ -31,13 +32,17 @@ const DEFAULT_CONFIG: RpcConfig = {
 }
 
 export function RichPresenceForm({
-  initial, onSaved, onToggle, onGameRpcClick, onChange,
+  initial, onSaved, onToggle, onGameRpcClick, onChange, rpcMode, activeGameName,
 }: {
   initial: RpcConfig | null | undefined
   onSaved?: () => void
   onToggle?: (v: boolean) => void
   onGameRpcClick?: () => void
   onChange?: (cfg: RpcConfig) => void
+  /** Active RPC mode: 'game' while Gamer RPC owns the presence, 'normal' otherwise. */
+  rpcMode?: 'normal' | 'game' | null
+  /** Name of the currently enabled game (Gamer RPC config owner), if any. */
+  activeGameName?: string | null
 }) {
   const [cfg, setCfg] = useState<RpcConfig>(initial || DEFAULT_CONFIG)
   const [saving, setSaving] = useState(false)
@@ -123,7 +128,9 @@ export function RichPresenceForm({
     try {
       const res = await api.rpcSave({ ...cfg, enabled })
       if (res.ok) {
-        toast.success(enabled ? 'Rich Presence updated & live on Discord' : 'Configuration saved (RPC is OFF)', { duration: 2500 })
+        // Server owns the enabled state (config save can never disable the RPC) —
+        // surface its authoritative message instead of the local switch value.
+        toast.success(res.message || 'Configuration saved', { duration: 2500 })
         onSaved?.()
       } else {
         toast.error('Failed to save configuration')
@@ -157,7 +164,7 @@ export function RichPresenceForm({
 
   return (
     <div className="space-y-8">
-      {/* === RICH PRESENCE CARD (Matches roxydev.xyz reference) === */}
+      {/* === RICH PRESENCE CARD === */}
       <div className="relative overflow-hidden bg-gradient-to-b from-[#13111d]/95 via-[#0e0d14]/95 to-[#0a0a0f] border border-white/10 rounded-[28px] p-6 sm:p-7 shadow-2xl backdrop-blur-xl">
         {/* Ambient violet glow at top */}
         <div className="absolute -top-16 left-1/4 -translate-x-1/2 w-64 h-48 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" />
@@ -168,6 +175,19 @@ export function RichPresenceForm({
           <Gamepad2 className="w-6 h-6 text-purple-400 stroke-[2.2]" />
           <h2 className="text-2xl font-bold text-white tracking-tight">Rich Presence</h2>
         </div>
+
+        {/* Mutual-exclusivity notice: while Gamer RPC is active, this Normal RPC
+            config is remembered but idle — enabling Normal RPC auto-disables it. */}
+        {rpcMode === 'game' && (
+          <div className="relative z-10 mb-5 flex items-start gap-2.5 text-xs text-amber-200/90 bg-amber-500/10 border border-amber-500/25 rounded-xl px-3.5 py-2.5">
+            <span aria-hidden>🎮</span>
+            <span>
+              <strong>Game RPC is currently active{activeGameName ? ` — ${activeGameName}` : ''}.</strong>{' '}
+              Your Normal RPC configuration is saved separately and will not be overwritten.
+              Enable RPC below to switch to Normal RPC (this automatically turns Game RPC off).
+            </span>
+          </div>
+        )}
 
         {/* Form Fields */}
         <div className="relative z-10 space-y-4">
@@ -209,70 +229,14 @@ export function RichPresenceForm({
 
           {/* 2. RPC DEVICE / PLATFORM */}
           <FormField label="RPC DEVICE / PLATFORM">
-            <div className="relative" ref={platformRef}>
-              <button
-                type="button"
-                onClick={() => { setPlatformOpen(v => !v); setTypeOpen(false) }}
-                className="w-full h-12 bg-[#12131a] border border-white/10 hover:border-white/20 focus:border-purple-500/50 rounded-xl px-4 text-sm text-white flex items-center justify-between cursor-pointer transition-colors"
-              >
-                {(() => {
-                  const currentPlatform = PLATFORMS.find(p => p.value === cfg.platform)
-                  if (!cfg.platform || cfg.platform === 'desktop') {
-                    return <span className="text-white/90 font-medium">None</span>
-                  }
-                  return (
-                    <span className="flex items-center gap-2 text-white/90 font-medium">
-                      <span>{currentPlatform?.emoji || '🖥️'}</span>
-                      <span>{currentPlatform?.label || cfg.platform}</span>
-                    </span>
-                  )
-                })()}
-                <ChevronDown className={`w-4 h-4 text-white/50 transition-transform ${platformOpen ? 'rotate-180' : ''}`} />
-              </button>
-
-              {platformOpen && (
-                <div className="absolute left-0 top-full mt-2 w-full max-h-80 overflow-y-auto bg-[#161720]/98 backdrop-blur-xl border border-white/10 rounded-2xl p-2 shadow-2xl z-50 space-y-2">
-                  {/* None option */}
-                  <button
-                    type="button"
-                    onClick={() => { set('platform', 'desktop'); setPlatformOpen(false) }}
-                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-xl text-xs transition-colors text-left ${
-                      (!cfg.platform || cfg.platform === 'desktop')
-                        ? 'bg-[#6b21a8] text-white font-medium'
-                        : 'text-white/80 hover:text-white hover:bg-white/5'
-                    }`}
-                  >
-                    <span>None</span>
-                  </button>
-
-                  {/* Grouped Platform Categories */}
-                  {PLATFORM_GROUPS.map(group => (
-                    <div key={group} className="mb-1.5">
-                      <p className="text-[10px] uppercase tracking-wider text-white/40 px-2 py-1 font-semibold">{group}</p>
-                      <div className="space-y-0.5">
-                        {PLATFORMS.filter(p => p.group === group).map(p => {
-                          const isSelected = cfg.platform === p.value
-                          return (
-                            <button
-                              key={p.value}
-                              type="button"
-                              onClick={() => { set('platform', p.value); setPlatformOpen(false) }}
-                              className={`w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs transition-colors text-left ${
-                                isSelected
-                                  ? 'bg-[#6b21a8] text-white font-medium shadow-sm'
-                                  : 'text-white/80 hover:text-white hover:bg-white/5'
-                              }`}
-                            >
-                              <span>{p.emoji}</span>
-                              <span>{p.label}</span>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
+            <div ref={platformRef}>
+              <RpcPlatformSelect
+                value={cfg.platform || 'desktop'}
+                onChange={v => set('platform', v)}
+                open={platformOpen}
+                onToggle={() => { setPlatformOpen(v => !v); setTypeOpen(false) }}
+                onClose={() => setPlatformOpen(false)}
+              />
             </div>
           </FormField>
 

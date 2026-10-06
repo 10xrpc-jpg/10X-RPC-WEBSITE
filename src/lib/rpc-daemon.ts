@@ -9,10 +9,13 @@ import { db } from './db'
 import {
   buildPresenceActivities,
   buildCustomStatusActivity,
+  fetchGameAppId,
   refreshDiscordToken,
+  selectActiveRpc,
   type PresenceResult,
 } from './rpc-manager'
 import { resolvePlaceholders, type PlaceholderContext } from './placeholders'
+import { sanitizeActivities } from './discord-assets'
 
 interface ActiveUserSocket {
   userId: string
@@ -141,10 +144,18 @@ export class RpcDaemon {
               gatewayReady: false,
             },
           })
-          await db.rpcConfig.updateMany({
-            where: { userId, enabled: true },
-            data: { enabled: false },
-          })
+          // Sleep timer = full RPC stop: disable BOTH modes' enabled flags
+          // (each configuration's field data is preserved, only flags flip).
+          await Promise.all([
+            db.rpcConfig.updateMany({
+              where: { userId, enabled: true },
+              data: { enabled: false },
+            }),
+            db.gameConfig.updateMany({
+              where: { userId, enabled: true },
+              data: { enabled: false },
+            }),
+          ])
           this.disconnectUser(userId)
           continue
         }
@@ -229,6 +240,7 @@ export class RpcDaemon {
             trial: true,
             globalConfig: true,
             rpcConfigs: true,
+            gameConfigs: true,
             rotatorPresets: true,
           },
         },
@@ -248,7 +260,11 @@ export class RpcDaemon {
       }
 
       const rpcConfig = session.user.rpcConfigs?.[0]
-      const hasRpc = !!(session.rpcEnabled && rpcConfig?.enabled)
+      const enabledGame = session.user.gameConfigs?.find(g => g.enabled) ?? null
+      // MUTUAL EXCLUSIVITY: only ONE mode can be active — the daemon uses
+      // exclusively the active mode's own config (never a merge of both).
+      const selection = selectActiveRpc(session.rpcEnabled, rpcConfig, enabledGame)
+      const hasRpc = selection.active
       const hasStatus = !!session.statusEnabled
       const hasRotator = !!(session.statusEnabled && session.user.globalConfig?.rotatorEnabled && session.user.rotatorPresets?.some(p => p.enabled))
 
@@ -267,7 +283,7 @@ export class RpcDaemon {
           ws: null,
           heartbeatAck: true,
           retryCount: 0,
-          platform: rpcConfig?.platform || 'desktop',
+          platform: selection.config?.platform || 'desktop',
           lastStatus: session.userStatus || 'online',
           lastActivitiesHash: '',
           connected: false,
@@ -384,7 +400,10 @@ export class RpcDaemon {
     }
 
     const rpcConfig = await db.rpcConfig.findFirst({ where: { userId } })
-    const hasRpc = !!(session.rpcEnabled && rpcConfig?.enabled)
+    const enabledGame = await db.gameConfig.findFirst({ where: { userId, enabled: true } })
+    // MUTUAL EXCLUSIVITY: one mode at a time, active config only.
+    const selection = selectActiveRpc(session.rpcEnabled, rpcConfig, enabledGame)
+    const hasRpc = selection.active
     const hasStatus = !!session.statusEnabled
     const hasRotator = !!(session.statusEnabled && session.user.globalConfig?.rotatorEnabled && session.user.rotatorPresets?.some(p => p.enabled))
 
@@ -406,7 +425,7 @@ export class RpcDaemon {
         ws: null,
         heartbeatAck: true,
         retryCount: 0,
-        platform: rpcConfig?.platform || 'desktop',
+        platform: selection.config?.platform || 'desktop',
         lastStatus: session.userStatus || 'online',
         lastActivitiesHash: '',
         connected: false,
@@ -469,14 +488,17 @@ export class RpcDaemon {
         }
       }
 
-      // Check target platform based on active mode
+      // Check target platform based on active mode (Normal vs Gamer RPC are
+      // exclusive — the socket platform follows the ACTIVE mode's own config).
       const rpcConfig = await db.rpcConfig.findFirst({ where: { userId } })
-      const isRpcActive = !!(session.rpcEnabled && rpcConfig?.enabled)
+      const enabledGame = await db.gameConfig.findFirst({ where: { userId, enabled: true } })
+      const selection = selectActiveRpc(session.rpcEnabled, rpcConfig, enabledGame)
+      const isRpcActive = selection.active
       const isStatusActive = !!session.statusEnabled
 
       const activePlatform = isStatusActive
         ? (session.statusPlatform || 'mobile')
-        : (isRpcActive ? (rpcConfig?.platform || 'desktop') : (session.statusPlatform || 'mobile'))
+        : (isRpcActive ? (selection.config?.platform || 'desktop') : (session.statusPlatform || 'mobile'))
 
       const isQuest = activePlatform === 'meta_quest' || (isStatusActive && session.vrStatusActive)
       const targetPlatform = isQuest ? 'meta_quest' : activePlatform
@@ -656,13 +678,21 @@ export class RpcDaemon {
     const userSock = this.sockets.get(userId)
     if (!userSock || !userSock.ws || userSock.ws.readyState !== WebSocket.OPEN) return
 
-    let rpcConfig = null
-    let globalConfig = null
+    type RpcCfgRow = Awaited<ReturnType<typeof db.rpcConfig.findFirst>>
+    type GlobalCfgRow = Awaited<ReturnType<typeof db.globalConfig.findUnique>>
+    type GameCfgRow = Awaited<ReturnType<typeof db.gameConfig.findFirst>>
+    let rpcConfig: RpcCfgRow = null
+    let globalConfig: GlobalCfgRow = null
+    let enabledGame: GameCfgRow = null
     try {
-      [rpcConfig, globalConfig] = await Promise.all([
+      const [rpc, glob, game] = await Promise.all([
         db.rpcConfig.findFirst({ where: { userId } }),
         db.globalConfig.findUnique({ where: { userId } }),
+        db.gameConfig.findFirst({ where: { userId, enabled: true } }),
       ])
+      rpcConfig = rpc
+      globalConfig = glob
+      enabledGame = game
     } catch (dbErr) {
       console.warn(`[10X RPC Daemon] Transient DB error in pushPresenceForUser for user ${userId}:`, dbErr)
       return
@@ -671,32 +701,51 @@ export class RpcDaemon {
     const placeholderCtx: PlaceholderContext = {
       timezone: globalConfig?.timezone || 'UTC',
       city: globalConfig?.city || undefined,
-      rpcStartedAt: rpcConfig?.updatedAt
-        ? new Date(rpcConfig.updatedAt).getTime()
+      rpcStartedAt: (rpcConfig?.updatedAt || enabledGame?.updatedAt)
+        ? new Date((rpcConfig?.updatedAt || enabledGame?.updatedAt) as Date).getTime()
         : (session.lastPresenceUpdate ? new Date(session.lastPresenceUpdate).getTime() : Date.now()),
     }
 
-    // DATABASE IS SINGLE SOURCE OF TRUTH:
-    // Only send RPC if rpcConfig exists AND rpcConfig.enabled === true AND session.rpcEnabled === true
-    const isRpcActive = !!(session.rpcEnabled && rpcConfig?.enabled)
+    // MUTUAL EXCLUSIVITY — Normal RPC (RpcConfig) and Gamer RPC (GameConfig)
+    // are completely separate configurations. Pick the ONE active mode and use
+    // ONLY that mode's own config; never merge or cross-read the other's data.
+    const selection = selectActiveRpc(session.rpcEnabled, rpcConfig, enabledGame)
+    const isRpcActive = selection.active
     const isStatusActive = !!session.statusEnabled
 
     const activePlatform = isStatusActive
       ? (session.statusPlatform || 'mobile')
-      : (isRpcActive ? (rpcConfig?.platform || 'desktop') : (session.statusPlatform || 'mobile'))
+      : (isRpcActive ? (selection.config?.platform || 'desktop') : (session.statusPlatform || 'mobile'))
     userSock.platform = activePlatform === 'meta_quest' ? 'meta_quest' : activePlatform
 
+    // Custom games may carry a Discord Application ID — spoof that application.
+    const selectedGameAppId = isRpcActive && selection.mode === 'game'
+      ? await fetchGameAppId(userId, selection.gameSlug)
+      : null
+
     const activities = await buildPresenceActivities({
-      rpcConfig: isRpcActive ? rpcConfig : null,
+      rpcConfig: isRpcActive ? selection.config : null,
       customStatus: isStatusActive ? session.customStatus : null,
       customStatusEmoji: isStatusActive ? session.customStatusEmoji : null,
       placeholderCtx,
-      vrStatusActive: (isStatusActive && session.statusPlatform === 'meta_quest') || (isRpcActive && rpcConfig?.platform === 'meta_quest'),
-      platform: isRpcActive ? (rpcConfig?.platform || 'desktop') : (session.statusPlatform || 'mobile'),
+      vrStatusActive: (isStatusActive && session.statusPlatform === 'meta_quest') || (isRpcActive && selection.config?.platform === 'meta_quest'),
+      platform: isRpcActive ? (selection.config?.platform || 'desktop') : (session.statusPlatform || 'mobile'),
+      // User OAuth token — required to resolve image URLs into animated-capable
+      // mp:external asset references via Discord's external-assets endpoint.
+      userAccessToken: session.discordAccessToken,
+      // Only the GAME mode's own enabled game drives official-app spoofing
+      // (real app_id/name/icon). Normal mode never spoofs.
+      selectedGameSlug: isRpcActive && selection.mode === 'game' ? selection.gameSlug : null,
+      selectedGameAppId,
     })
 
+    // Defense-in-depth: raw http(s) URLs inside assets are silently dropped by
+    // Discord. Strip them so a failed asset resolution can never make the RPC
+    // image disappear (the "image not showing" bug).
+    const safeActivities = sanitizeActivities(activities as Array<Record<string, unknown>>)
+
     const status = isStatusActive ? (session.userStatus || 'online') : (isRpcActive ? 'online' : 'invisible')
-    const activitiesHash = JSON.stringify({ status, activities })
+    const activitiesHash = JSON.stringify({ status, activities: safeActivities })
 
     // Avoid spamming identical OP 3 payloads unless forced (prevents rate limits)
     if (!force && userSock.lastActivitiesHash === activitiesHash && userSock.lastStatus === status) {
@@ -707,12 +756,12 @@ export class RpcDaemon {
     if (!userSock.ws || userSock.ws.readyState !== WebSocket.OPEN) return
 
     try {
-      console.log(`[10X RPC Daemon] Sending OP 3 for user ${userId}: status=${status}, activities=${JSON.stringify(activities)}`)
+      console.log(`[10X RPC Daemon] Sending OP 3 for user ${userId}: status=${status}, activities=${JSON.stringify(safeActivities)}`)
       userSock.ws.send(JSON.stringify({
         op: 3,
         d: {
           status,
-          activities,
+          activities: safeActivities,
           afk: false,
           since: null,
         },

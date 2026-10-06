@@ -11,12 +11,12 @@ export async function GET(req: Request) {
   const token = url.searchParams.get('token')
 
   if (!token) {
-    return NextResponse.redirect(`${CONFIG.app.url}/#/?error=missing_token`)
+    return NextResponse.redirect(`${CONFIG.app.url}/?error=missing_token`)
   }
 
   // Set the session cookie on Vercel's domain
   const expiresAt = new Date(Date.now() + CONFIG.session.ttlDays * 24 * 60 * 60 * 1000)
-  const res = NextResponse.redirect(`${CONFIG.app.url}/#/dashboard`)
+  const res = NextResponse.redirect(`${CONFIG.app.url}/dashboard`)
   res.cookies.set(CONFIG.session.cookieName, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
