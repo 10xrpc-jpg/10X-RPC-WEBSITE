@@ -85,3 +85,4 @@ Caddyfile
 # Local-only tooling with credentials — NEVER commit
 scripts/panel-api.mjs
 scripts/panel-console.mjs
+.daemon-heartbeat
