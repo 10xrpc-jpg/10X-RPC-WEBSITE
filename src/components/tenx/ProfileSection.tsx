@@ -6,7 +6,7 @@ import { api, type Me } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { Card, PurpleSwitch } from './ui'
 import { DISCORD_STATUSES } from '@/lib/constants'
-import { Monitor, Smartphone, SmilePlus } from 'lucide-react'
+import { Ban, Smartphone, SmilePlus } from 'lucide-react'
 import { DiscordPreview } from './DiscordPreview'
 import { DiscordEmoji, normalizeEmojiInput } from './Emoji'
 
@@ -23,7 +23,7 @@ function VrIcon({ className = 'w-4 h-4' }: { className?: string }) {
 
 const PLATFORM_ITEMS = [
   { value: 'mobile', label: 'Mobile', icon: Smartphone },
-  { value: 'desktop', label: 'Desktop', icon: Monitor },
+  { value: 'desktop', label: 'None', icon: Ban },
   { value: 'meta_quest', label: 'VR', icon: VrIcon },
 ]
 
