@@ -1,6 +1,7 @@
 // 10X RPC — /health — service health check and 24/7 daemon metrics
 import { NextResponse } from 'next/server'
 import { getRpcDaemon } from '@/lib/rpc-daemon'
+import { presenceBackend } from '@/lib/presence-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,6 +13,7 @@ export async function GET() {
     {
       status: 'ok',
       service: '10x-rpc-backend',
+      presenceBackend: presenceBackend(),
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       daemon: daemonStatus,

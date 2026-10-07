@@ -6,7 +6,7 @@ import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { findGame, fetchDiscordApplication, DISCORD_APP_ID_RE } from '@/lib/games'
-import { ensureDaemonRunning } from '@/lib/rpc-daemon'
+import { syncPresenceDetached } from '@/lib/presence-sync'
 import type { GameConfig as DbGameConfig } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
@@ -157,7 +157,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       data: { rpcEnabled: true, lastPresenceUpdate: new Date() },
     })
     if (session.discordAccessToken) {
-      ensureDaemonRunning().syncUser(session.userId).catch(() => {})
+      syncPresenceDetached(session.userId)
     }
   } else if (existing?.enabled) {
     // Disabling the currently-enabled game turns Gamer RPC off. By mutual
@@ -168,7 +168,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       data: { rpcEnabled: false, lastPresenceUpdate: new Date() },
     })
     if (session.discordAccessToken) {
-      ensureDaemonRunning().syncUser(session.userId).catch(() => {})
+      syncPresenceDetached(session.userId)
     }
   }
 
@@ -202,7 +202,7 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ slug: strin
       data: { rpcEnabled: false, lastPresenceUpdate: new Date() },
     })
     if (session.discordAccessToken) {
-      ensureDaemonRunning().syncUser(session.userId).catch(() => {})
+      syncPresenceDetached(session.userId)
     }
   }
 

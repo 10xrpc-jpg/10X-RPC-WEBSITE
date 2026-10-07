@@ -6,7 +6,7 @@
 //   4. Returns summary of how many users were ticked
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { ensureDaemonRunning } from '@/lib/rpc-daemon'
+import { syncPresence } from '@/lib/presence-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,7 +23,6 @@ export async function POST(req: Request) {
   const ticked: string[] = []
   const errors: string[] = []
   const now = new Date()
-  const daemon = ensureDaemonRunning()
 
   // Find all users with rotator enabled
   const enabledUsers = await db.globalConfig.findMany({
@@ -75,7 +74,7 @@ export async function POST(req: Request) {
       }
 
       // Push to Discord Gateway in real-time
-      await daemon.syncUser(gc.user.id)
+      await syncPresence(gc.user.id)
       ticked.push(gc.user.username)
     } catch (e) {
       errors.push(`${gc.user.username}: ${e instanceof Error ? e.message : 'unknown'}`)

@@ -23,6 +23,8 @@ interface ActiveUserSocket {
   ws: WebSocket | null
   heartbeatTimer?: NodeJS.Timeout
   heartbeatAck: boolean
+  /** Timestamp of the last op-1 heartbeat we sent without an ACK yet. */
+  lastHeartbeatSentAt?: number
   retryCount: number
   retryTimer?: NodeJS.Timeout
   platform: string
@@ -610,6 +612,7 @@ export class RpcDaemon {
                   return
                 }
                 userSock.heartbeatAck = false
+                userSock.lastHeartbeatSentAt = Date.now()
                 ws.send(JSON.stringify({ op: 1, d: null }))
               }
             }, heartbeatInterval)
@@ -648,6 +651,7 @@ export class RpcDaemon {
           } else if (op === 11) {
             // Heartbeat ACK
             userSock.heartbeatAck = true
+            userSock.lastHeartbeatSentAt = undefined
           } else if (op === 1) {
             // Server requested heartbeat
             ws.send(JSON.stringify({ op: 1, d: null }))
@@ -844,6 +848,22 @@ export class RpcDaemon {
     // If socket is open and payload is ready, send OP 3
     if (!userSock.ws || userSock.ws.readyState !== WebSocket.OPEN) return
 
+    // Zombie push guard — SLOW-UPDATE FIX: if our last heartbeat went
+    // unanswered for >15s the TCP connection is half-dead; an OP 3 sent now
+    // would vanish silently while marking the payload as "delivered" (hash
+    // updated), freezing the profile until the 10-min watchdog. Detect and
+    // reconnect instead, leaving the hash untouched so the reconnect's forced
+    // push re-sends the current presence immediately.
+    const heartbeatPendingMs = userSock.lastHeartbeatSentAt
+      ? Date.now() - userSock.lastHeartbeatSentAt
+      : 0
+    if (!userSock.heartbeatAck && heartbeatPendingMs > 15000) {
+      console.warn(`[10X RPC Daemon] Zombie push guard: user ${userId} heartbeat unanswered for ${Math.round(heartbeatPendingMs / 1000)}s. Reconnecting instead of pushing into the void...`)
+      this.cleanupSocket(userSock)
+      this.scheduleReconnect(userId)
+      return
+    }
+
     try {
       console.log(`[10X RPC Daemon] Sending OP 3 for user ${userId}: status=${status}, activities=${JSON.stringify(safeActivities)}`)
       userSock.ws.send(JSON.stringify({
@@ -888,6 +908,7 @@ export class RpcDaemon {
       userSock.retryTimer = undefined
     }
     userSock.connectingSince = undefined
+    userSock.lastHeartbeatSentAt = undefined
     if (userSock.ws) {
       try {
         userSock.ws.removeAllListeners()
@@ -915,6 +936,7 @@ export class RpcDaemon {
         platform: s.platform,
         lastStatus: s.lastStatus,
         lastConnectedAt: s.lastConnectedAt,
+        lastPushAt: s.lastPushAt ? new Date(s.lastPushAt).toISOString() : null,
       })),
     }
   }

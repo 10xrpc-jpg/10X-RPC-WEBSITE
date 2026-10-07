@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
-import { ensureDaemonRunning } from '@/lib/rpc-daemon'
+import { syncPresence } from '@/lib/presence-sync'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -64,8 +64,7 @@ export async function POST() {
 
     // Sync Gateway on the single managed persistent socket
     if (session.discordAccessToken) {
-      const daemon = ensureDaemonRunning()
-      await daemon.syncUser(session.userId)
+      await syncPresence(session.userId)
     }
 
     return NextResponse.json({

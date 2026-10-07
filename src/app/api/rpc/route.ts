@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
-import { ensureDaemonRunning } from '@/lib/rpc-daemon'
+import { syncPresence } from '@/lib/presence-sync'
 import { resolveRpcActivityName } from '@/lib/constants'
 
 export const dynamic = 'force-dynamic'
@@ -102,8 +102,7 @@ export async function POST(req: Request) {
     //    the daemon decides which mode's config is live; a Normal config save
     //    never starts, stops or modifies a running Gamer RPC.
     if (session.discordAccessToken && enabled) {
-      const daemon = ensureDaemonRunning()
-      await daemon.syncUser(session.userId)
+      await syncPresence(session.userId)
     }
 
     // 4. Return success only AFTER database update and gateway sync complete.

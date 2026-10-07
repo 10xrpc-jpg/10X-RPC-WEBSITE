@@ -9,8 +9,7 @@ import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { CONFIG } from '@/lib/config'
-import { applyPresence } from '@/lib/rpc-manager'
-import { resolvePlaceholders } from '@/lib/placeholders'
+import { syncPresence, stopPresence } from '@/lib/presence-sync'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -47,52 +46,24 @@ export async function POST(req: Request) {
   for (const sess of sessions) {
     try {
       if (enable) {
-        // Enable RPC
-        const rpcConfig = await db.rpcConfig.findFirst({ where: { userId: sess.userId } })
-        const globalConfig = await db.globalConfig.findUnique({ where: { userId: sess.userId } })
-
-        const placeholderCtx = {
-          timezone: globalConfig?.timezone || 'UTC',
-          city: globalConfig?.city || undefined,
-          rpcStartedAt: sess.createdAt.getTime(),
-        }
-
-        const result = await applyPresence(
-          {
-            id: sess.id,
-            userId: sess.userId,
-            discordAccessToken: sess.discordAccessToken,
-            discordRefreshToken: sess.discordRefreshToken,
-            discordTokenExpiresAt: sess.discordTokenExpiresAt,
-            userStatus: sess.userStatus || 'online',
-            customStatus: sess.customStatus,
-            customStatusEmoji: sess.customStatusEmoji,
-          },
-          rpcConfig ? {
-            id: rpcConfig.id,
-            name: rpcConfig.name,
-            type: rpcConfig.type,
-            platform: rpcConfig.platform,
-            state: rpcConfig.state,
-            details: rpcConfig.details,
-            largeImage: rpcConfig.largeImage,
-            largeText: rpcConfig.largeText,
-            smallImage: rpcConfig.smallImage,
-            smallText: rpcConfig.smallText,
-            button1Label: rpcConfig.button1Label,
-            button1Url: rpcConfig.button1Url,
-            button2Label: rpcConfig.button2Label,
-            button2Url: rpcConfig.button2Url,
-            partyCurrent: rpcConfig.partyCurrent,
-            partyMax: rpcConfig.partyMax,
-            partyId: rpcConfig.partyId,
-            partySecret: rpcConfig.partySecret,
-            startMinsAgo: rpcConfig.startMinsAgo,
-            endTotalMins: rpcConfig.endTotalMins,
-            enabled: true,
-          } : null,
-          placeholderCtx
-        )
+        // Enable RPC — write the enabled state to the DB (single source of
+        // truth) and let the presence backend push it. Never push from here
+        // directly (competing gateway session = stale/flappy profile).
+        await db.session.update({
+          where: { id: sess.id },
+          data: { rpcEnabled: true, gatewayReady: true, lastPresenceUpdate: new Date() },
+        })
+        // Mutual exclusivity — enabling Normal RPC disables any enabled game
+        // and enables the user's Normal config (same semantics as /api/rpc/toggle ON).
+        await db.gameConfig.updateMany({
+          where: { userId: sess.userId, enabled: true },
+          data: { enabled: false },
+        })
+        await db.rpcConfig.updateMany({
+          where: { userId: sess.userId },
+          data: { enabled: true },
+        })
+        const result = await syncPresence(sess.userId)
 
         results.push({
           userId: sess.userId,
@@ -107,13 +78,7 @@ export async function POST(req: Request) {
           data: { rpcEnabled: false, gatewayReady: false, vrStatusActive: false },
         })
         if (sess.discordAccessToken) {
-          const { clearPresence } = await import('@/lib/rpc-manager')
-          await clearPresence({
-            id: sess.id,
-            discordAccessToken: sess.discordAccessToken,
-            discordRefreshToken: sess.discordRefreshToken,
-            discordTokenExpiresAt: sess.discordTokenExpiresAt,
-          })
+          await stopPresence(sess.userId)
         }
         results.push({
           userId: sess.userId,

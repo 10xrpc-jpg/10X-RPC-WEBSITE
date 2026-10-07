@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
-import { ensureDaemonRunning } from '@/lib/rpc-daemon'
+import { syncPresence } from '@/lib/presence-sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,8 +27,7 @@ export async function POST(req: Request) {
     // If Status is enabled and user has Discord token, sync Status to gateway
     let presenceResult: any = null
     if (session.statusEnabled && session.discordAccessToken) {
-      const daemon = ensureDaemonRunning()
-      presenceResult = await daemon.syncUser(session.userId)
+      presenceResult = await syncPresence(session.userId)
     }
 
     return NextResponse.json({
