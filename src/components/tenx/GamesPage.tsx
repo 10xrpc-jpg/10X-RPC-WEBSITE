@@ -1,9 +1,9 @@
 // 10X RPC — Games list page (#/games) with active game indicator + "Add Games"
 // Custom games (created via the Add Games dialog) appear after the presets and
 // can be configured or deleted from their own config page.
-// Discord App Directory search: typing in the search box ALSO queries Discord's
-// public discovery — one click on a result adds the game with its official
-// Application ID, name and icon pre-filled into the RPC configuration.
+// Game search source: Discord's official TRENDING GAMES ranking (real games
+// with their real Application IDs — no bots). One click on a result adds the
+// game with its official Application ID, name and icon pre-filled.
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
@@ -36,7 +36,8 @@ export function GamesPage() {
     refresh()
   }, [])
 
-  // Debounced Discord directory search — reuses the SAME search box, layout untouched.
+  // Debounced trending-games search — reuses the SAME search box, layout untouched.
+  // Source: Discord's official trending-games ranking (real games only, no bots).
   useEffect(() => {
     const q = query.trim()
     if (q.length < 2) {
@@ -212,12 +213,12 @@ export function GamesPage() {
               </button>
             ))}
 
-            {/* Discord App Directory results — same row style, one click to add */}
+            {/* Trending games (real games with real App IDs) — same row style, one click to add */}
             {showDiscordSection && (
               <div className="pt-1 space-y-2">
                 <div className="flex items-center gap-2 px-1 pt-2">
                   <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
-                    From Discord App Directory
+                    Trending Games On Discord
                   </span>
                   {discordSearching && (
                     <Loader2 className="w-3.5 h-3.5 text-purple-300/70 animate-spin" />
@@ -227,7 +228,7 @@ export function GamesPage() {
                 {!discordSearching && discordResults.length === 0 && (
                   <div className="text-[11px] text-white/30 px-1 pb-1 space-y-2">
                     <p>
-                      No Discord applications found for "{query.trim()}".
+                      No trending games found for "{query.trim()}".
                     </p>
                     <button
                       type="button"
@@ -284,7 +285,7 @@ export function GamesPage() {
                             )}
                           </span>
                           <span className="text-xs text-white/50 block truncate mt-0.5">
-                            {app.description || 'Discord Application'}
+                            {app.description || 'Real game — trending on Discord'}
                           </span>
                         </div>
                       </div>

@@ -1,9 +1,10 @@
 // 10X RPC — Profile Board page (/profile)
 // The user's profile board: account identity + "Favorite Game" section.
 // Favorite Game → Add Game opens a search that covers BOTH the existing game
-// catalog and Discord's public App Directory — one click on a directory result
-// automatically grabs the correct Discord Application ID (official name +
-// icon auto-fill), stars it as a favorite and sets it as the live Game RPC.
+// catalog and Discord's official TRENDING GAMES ranking (real games only —
+// no bots) — one click on a result automatically grabs the correct Discord
+// Application ID (official name + icon auto-fill), stars it as a favorite and
+// sets it as the live Game RPC.
 // Any favorited row can be re-applied as Game RPC with a single tap.
 'use client'
 import { useEffect, useState, useRef, useCallback } from 'react'
@@ -319,7 +320,7 @@ function AddFavoriteGameDialog({
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  // Debounced Discord directory search (same pipeline as the Games page).
+  // Debounced trending-games search (same real-games pipeline as the Games page).
   useEffect(() => {
     const q = query.trim()
     if (q.length < 2) {
@@ -508,12 +509,12 @@ function AddFavoriteGameDialog({
             </div>
           )}
 
-          {/* Discord App Directory */}
+          {/* Discord Trending Games (real games, no bots) */}
           {showDirectory && (
             <div className="space-y-2">
               <div className="flex items-center gap-2 px-1 pt-1">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
-                  From Discord App Directory
+                  Trending Games On Discord
                 </span>
                 {discordSearching && (
                   <Loader2 className="w-3.5 h-3.5 text-purple-300/70 animate-spin" />
@@ -522,7 +523,7 @@ function AddFavoriteGameDialog({
 
               {!discordSearching && discordResults.length === 0 && (
                 <p className="text-[11px] text-white/30 px-1 pb-1">
-                  No Discord applications found for "{query.trim()}".
+                  No trending games found for "{query.trim()}".
                 </p>
               )}
 
@@ -606,7 +607,7 @@ function AddFavoriteGameDialog({
               <Gamepad2 className="w-8 h-8 text-white/25 mx-auto" />
               <p className="text-sm text-white/50 font-medium">Search any game</p>
               <p className="text-xs text-white/35">
-                Your games appear instantly — anything else is searched on Discord's App Directory with automatic ID detection.
+                Your games appear instantly — anything else is searched on Discord's official Trending Games ranking with automatic ID detection.
               </p>
             </div>
           )}

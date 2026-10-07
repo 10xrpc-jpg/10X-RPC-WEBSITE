@@ -92,7 +92,7 @@ export interface GameListItem {
   appId?: string | null
 }
 
-/** Application candidate from Discord's public App Directory search (/api/games/discover). */
+/** Real-game candidate from Discord's official Trending Games ranking (/api/games/discover). */
 export interface DiscoveredApp {
   appId: string
   name: string
