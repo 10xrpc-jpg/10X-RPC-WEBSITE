@@ -218,9 +218,18 @@ function startDaemon() {
   blog('stage: spawn-child npx tsx scripts/rpc-daemon-standalone.ts')
 
   const daemon = spawn('npx', ['tsx', 'scripts/rpc-daemon-standalone.ts'], {
-    stdio: 'inherit',
+    // Pipe (not inherit) so child crashes are ALSO captured in boot-log.txt —
+    // the wings console isn't reachable via the client API, and a 2s-lifetime
+    // crash-loop with invisible stderr is undiagnosable.
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: process.env,
     cwd: __dirname,
+  })
+  daemon.stdout.on('data', (d) => process.stdout.write(d))
+  daemon.stderr.on('data', (d) => {
+    const line = String(d).trim()
+    if (line) blog(`[child-stderr] ${line.slice(0, 800)}`)
+    process.stderr.write(d)
   })
   activeDaemon = daemon
   blog(`stage: child-spawned pid=${daemon.pid}`)
