@@ -90,6 +90,18 @@ export interface GameListItem {
   custom?: boolean
 }
 
+/** Application candidate from Discord's public App Directory search (/api/games/discover). */
+export interface DiscoveredApp {
+  appId: string
+  name: string
+  iconUrl: string | null
+  coverUrl: string | null
+  description: string
+  verified: boolean
+  isGame: boolean
+  tags: string[]
+}
+
 export interface GamePreset {
   slug: string
   name: string
@@ -274,6 +286,10 @@ export const api = {
   ),
 
   gamesList: () => fetchJson<{ games: GameListItem[] }>('/api/games/list'),
+  gamesDiscover: (q: string, limit = 8) =>
+    fetchJson<{ ok: boolean; results: DiscoveredApp[] }>(
+      `/api/games/discover?q=${encodeURIComponent(q)}&limit=${limit}`
+    ),
   gameConfig: (slug: string) => fetchJson<{ preset: GamePreset; config: GameConfig | null }>(`/api/games/${slug}`),
   gameSave: (slug: string, data: Partial<GameConfig>) => fetchJson<{ ok: boolean; config: GameConfig }>(
     `/api/games/${slug}`, { method: 'POST', body: JSON.stringify(data) }
