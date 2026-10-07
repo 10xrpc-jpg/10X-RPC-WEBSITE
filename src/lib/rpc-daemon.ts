@@ -16,6 +16,7 @@ import {
 } from './rpc-manager'
 import { resolvePlaceholders, type PlaceholderContext } from './placeholders'
 import { sanitizeActivities } from './discord-assets'
+import { discordAuthValue } from './discord-auth'
 
 interface ActiveUserSocket {
   userId: string
@@ -121,7 +122,7 @@ export class RpcDaemon {
         if (pushAge > 10 * 60 * 1000) {
           console.log(`[10X RPC Daemon] Watchdog: forcing presence refresh for user ${userId} (last push ${Math.round(pushAge / 1000)}s ago)`)
           try {
-            const session = await db.session.findFirst({ where: { userId } })
+            const session = await db.session.findFirst({ where: { userId }, orderBy: { createdAt: 'desc' } })
             if (session) {
               await this.pushPresenceForUser(userId, session, true)
             }
@@ -175,6 +176,7 @@ export class RpcDaemon {
       try {
         const session = await db.session.findFirst({
           where: { userId, expiresAt: { gt: now } },
+          orderBy: { createdAt: 'desc' },
           include: {
             user: {
               include: {
@@ -395,6 +397,7 @@ export class RpcDaemon {
   public async stopUserRpc(userId: string): Promise<void> {
     const session = await db.session.findFirst({
       where: { userId },
+      orderBy: { createdAt: 'desc' },
     })
     if (!session || !session.discordAccessToken) return
 
@@ -448,6 +451,7 @@ export class RpcDaemon {
     const now = new Date()
     const session = await db.session.findFirst({
       where: { userId, expiresAt: { gt: now } },
+      orderBy: { createdAt: 'desc' },
       include: {
         user: {
           include: {
@@ -639,7 +643,9 @@ export class RpcDaemon {
               ? { os: 'Windows', browser: 'Discord Web', device: 'Chrome' }
               : { os: 'Windows', browser: 'Discord Client', device: 'Desktop' }
 
-            const bearerToken = accessToken.startsWith('Bearer ') ? accessToken : `Bearer ${accessToken}`
+            // Raw user tokens must be sent BARE (Bearer is silently ignored by
+            // the gateway); OAuth2 tokens use the Bearer scheme.
+            const bearerToken = discordAuthValue(accessToken)
             const identify = {
               op: 2,
               d: {

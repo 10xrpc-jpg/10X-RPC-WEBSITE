@@ -1,9 +1,11 @@
 // 10X RPC — OAuth consent preview page (mirrors Discord's consent screen)
 'use client'
 import { useState } from 'react'
+import { toast } from 'sonner'
 import { api } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { Card, PrimaryButton, GhostButton, BackButton } from './ui'
+import { KeyRound, ChevronDown } from 'lucide-react'
 
 const PERMISSIONS = [
   { icon: '👤', label: 'Access your profile information (username, avatar)', granted: true },
@@ -22,7 +24,9 @@ const FEATURES = [
 
 export function OAuthConsentPage() {
   const { navigate } = useRouter()
-  const [loading, setLoading] = useState<'oauth' | 'demo' | null>(null)
+  const [loading, setLoading] = useState<'oauth' | 'demo' | 'token' | null>(null)
+  const [tokenOpen, setTokenOpen] = useState(false)
+  const [token, setToken] = useState('')
 
   const handleAuthorize = () => {
     setLoading('oauth')
@@ -42,6 +46,28 @@ export function OAuthConsentPage() {
     } catch (e) {
       console.error(e)
       setLoading(null)
+    }
+  }
+
+  const handleTokenLogin = async () => {
+    const t = token.trim()
+    if (!t) {
+      toast.error('Paste your Discord token first')
+      return
+    }
+    setLoading('token')
+    try {
+      const r = await api.tokenLogin(t)
+      toast.success(`Signed in as ${r.user.globalName || r.user.username}`)
+      // Route through /set-session so the cookie lands on the right domain
+      window.location.href = `/set-session?token=${encodeURIComponent(r.sessionToken)}`
+    } catch (e) {
+      setLoading(null)
+      const msg = (e as Error)?.message || ''
+      if (msg.includes('invalid_token')) toast.error('Invalid or expired token')
+      else if (msg.includes('not_a_user_token')) toast.error('That does not look like a Discord user token')
+      else if (msg.includes('rate_limited')) toast.error('Too many attempts — try again in a few minutes')
+      else toast.error('Token login failed — try again')
     }
   }
 
@@ -154,6 +180,44 @@ export function OAuthConsentPage() {
             >
               {loading === 'demo' ? 'Loading demo...' : 'Try Demo Mode →'}
             </button>
+          </div>
+
+          {/* Token login alternative */}
+          <div className="pt-3 border-t border-white/5">
+            <button
+              type="button"
+              onClick={() => setTokenOpen(o => !o)}
+              className="w-full flex items-center justify-center gap-1.5 text-xs text-white/50 hover:text-white/80 font-medium transition-colors cursor-pointer"
+              aria-expanded={tokenOpen}
+            >
+              <KeyRound className="w-3.5 h-3.5" />
+              <span>Login with Token</span>
+              <ChevronDown className={`w-3.5 h-3.5 transition-transform ${tokenOpen ? 'rotate-180' : ''}`} />
+            </button>
+            {tokenOpen && (
+              <div className="mt-3 space-y-2">
+                <input
+                  type="password"
+                  value={token}
+                  onChange={e => setToken(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter' && loading === null) handleTokenLogin() }}
+                  placeholder="Paste your Discord token..."
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="w-full bg-black/40 border border-white/10 focus:border-purple-500/50 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder:text-white/25 outline-none transition-colors font-mono"
+                />
+                <PrimaryButton
+                  onClick={handleTokenLogin}
+                  disabled={loading !== null || !token.trim()}
+                  className="w-full py-2.5 text-sm"
+                >
+                  {loading === 'token' ? 'Signing in...' : 'Sign In with Token'}
+                </PrimaryButton>
+                <p className="text-[10px] text-white/30 leading-relaxed">
+                  Your token is stored securely and used only to apply your presence. Never share it with anyone you don&apos;t trust.
+                </p>
+              </div>
+            )}
           </div>
         </Card>
 

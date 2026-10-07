@@ -10,6 +10,7 @@ import { resolvePlaceholders } from './placeholders'
 import { resolveRpcActivityName } from './constants'
 import { GAME_SPOOF, findGame, DISCORD_APP_ID_RE } from './games'
 import { resolveAssetRef, resolveExternalAsset, sanitizeActivities, type ResolveOpts } from './discord-assets'
+import { discordAuthValue } from './discord-auth'
 
 export type { ResolveOpts }
 
@@ -561,7 +562,9 @@ export async function sendPresenceViaGateway(
                   device: 'Desktop',
                 }
 
-            const bearerToken = accessToken.startsWith('Bearer ') ? accessToken : `Bearer ${accessToken}`
+            // Raw user tokens must be sent BARE (Bearer is silently ignored by
+            // the gateway); OAuth2 tokens use the Bearer scheme.
+            const bearerToken = discordAuthValue(accessToken)
             const identify = {
               op: 2,
               d: {
@@ -701,7 +704,7 @@ export async function setCustomStatusViaRest(
     const res = await fetch(`${CONFIG.discord.apiBase}/users/@me/settings`, {
       method: 'PATCH',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
+        'Authorization': discordAuthValue(accessToken),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(body),
@@ -741,7 +744,7 @@ export async function setStatusViaRest(
     const res = await fetch(`${CONFIG.discord.apiBase}/users/@me/settings`, {
       method: 'PATCH',
       headers: {
-        'Authorization': `Bearer ${accessToken}`,
+        'Authorization': discordAuthValue(accessToken),
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({ status }),

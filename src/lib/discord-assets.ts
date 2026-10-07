@@ -33,6 +33,7 @@ import crypto from 'crypto'
 import fs from 'fs'
 import { db } from '@/lib/db'
 import { CONFIG } from '@/lib/config'
+import { discordAuthValue } from '@/lib/discord-auth'
 
 const API = 'https://discord.com/api/v9'
 const APP_ID = CONFIG.discord.clientId
@@ -401,7 +402,7 @@ export async function resolveExternalAsset(url: string, userAccessToken: string)
   try {
     const res = await fetch(`${API}/applications/${APP_ID}/external-assets`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${userAccessToken}`, 'Content-Type': 'application/json' },
+      headers: { Authorization: discordAuthValue(userAccessToken), 'Content-Type': 'application/json' },
       body: JSON.stringify({ urls: [url] }),
     })
     if (!res.ok) {

@@ -227,6 +227,9 @@ export const api = {
   me: () => fetchJson<Me>('/api/me'),
   logout: () => fetchJson<{ ok: boolean; redirect: string }>('/api/logout', { method: 'POST' }),
   demoLogin: () => fetchJson<{ ok: boolean; demo: boolean; sessionToken?: string; redirect?: string }>('/api/demo-login', { method: 'POST' }),
+  tokenLogin: (token: string) => fetchJson<{ ok: boolean; sessionToken: string; user: { discordId: string; username: string; globalName: string | null } }>(
+    '/api/token-login', { method: 'POST', body: JSON.stringify({ token }) }
+  ),
 
   rpcSave: (data: RpcConfig) => fetchJson<{ ok: boolean; rpcConfig: RpcConfig; rpcEnabled?: boolean; message?: string }>('/api/rpc', {
     method: 'POST', body: JSON.stringify(data),
