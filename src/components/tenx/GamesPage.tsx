@@ -225,9 +225,19 @@ export function GamesPage() {
                 </div>
 
                 {!discordSearching && discordResults.length === 0 && (
-                  <p className="text-[11px] text-white/30 px-1 pb-1">
-                    No Discord applications found for "{query.trim()}".
-                  </p>
+                  <div className="text-[11px] text-white/30 px-1 pb-1 space-y-2">
+                    <p>
+                      No Discord applications found for "{query.trim()}".
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setAddOpen(true)}
+                      className="text-purple-300 hover:text-purple-200 font-medium inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" />
+                      Add it by Application ID instead
+                    </button>
+                  </div>
                 )}
 
                 {discordResults.map(app => {

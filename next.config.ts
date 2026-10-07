@@ -8,6 +8,7 @@ const RENDER_API_URL = process.env.RENDER_API_URL || "";
 // routes (API handlers, static assets) are matched before these rewrites.
 const SPA_SHELL_REWRITES = [
   { source: "/dashboard", destination: "/" },
+  { source: "/profile", destination: "/" },
   { source: "/games", destination: "/" },
   { source: "/games/:slug", destination: "/" },
   { source: "/config", destination: "/" },

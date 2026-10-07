@@ -30,6 +30,7 @@ model User {
   rotatorPresets RotatorPreset[]
   globalConfig   GlobalConfig?
   trial          Trial?
+  favoriteGames  FavoriteGame[]
 }
 
 model Session {
@@ -206,4 +207,23 @@ model MirrorAsset {
   size        Int
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// Profile Board → Favorite Game: the user's shortlist of games (starred).
+// A favorite references either a catalog preset (slug) or a Discord
+// application discovered via the directory search (appId). "Use for Game RPC"
+// resolves it to the user's GameConfig (creating the custom game if needed)
+// and enables it as the active Gamer RPC.
+model FavoriteGame {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String // official game/application name
+  appId     String? // Discord Application ID (discovered apps)
+  slug      String? // catalog slug (preset games, e.g. "minecraft")
+  iconUrl   String?
+  createdAt DateTime @default(now())
+
+  @@unique([userId, name])
+  @@index([userId])
 }

@@ -45,6 +45,7 @@ export async function GET() {
       enabled: c.enabled,
       saved: true,
       custom: true,
+      appId: c.appId || null as string | null,
     }))
 
   return NextResponse.json({ games: [...presetGames, ...customGames] })

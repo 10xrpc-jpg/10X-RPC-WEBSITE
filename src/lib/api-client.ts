@@ -88,6 +88,8 @@ export interface GameListItem {
   enabled: boolean
   saved: boolean
   custom?: boolean
+  /** Discord Application ID (custom games added by App ID). */
+  appId?: string | null
 }
 
 /** Application candidate from Discord's public App Directory search (/api/games/discover). */
@@ -100,6 +102,16 @@ export interface DiscoveredApp {
   verified: boolean
   isGame: boolean
   tags: string[]
+}
+
+/** Profile Board → Favorite Game entry (starred game shortlist). */
+export interface FavoriteGameItem {
+  id: string
+  name: string
+  appId: string | null
+  slug: string | null
+  iconUrl: string | null
+  createdAt: string
 }
 
 export interface GamePreset {
@@ -302,6 +314,15 @@ export const api = {
   gameDelete: (slug: string) => fetchJson<{ ok: boolean }>(`/api/games/${slug}`, { method: 'DELETE' }),
   appLookup: (appId: string) =>
     fetchJson<{ ok: boolean; name: string; iconUrl: string | null }>(`/api/games/app-lookup?appId=${encodeURIComponent(appId)}`),
+
+  favoritesList: () => fetchJson<{ ok: boolean; favorites: FavoriteGameItem[] }>('/api/favorites'),
+  favoriteAdd: (data: { name: string; appId?: string; slug?: string; iconUrl?: string | null }) =>
+    fetchJson<{ ok: boolean; favorite: FavoriteGameItem }>('/api/favorites', { method: 'POST', body: JSON.stringify(data) }),
+  favoriteRemove: (id: string) =>
+    fetchJson<{ ok: boolean }>(`/api/favorites?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  /** One click: resolve the favorite to a game (auto-creating it with the official App ID) and enable it as Game RPC. */
+  favoriteUse: (id: string) =>
+    fetchJson<{ ok: boolean; slug: string; name: string }>('/api/favorites/use', { method: 'POST', body: JSON.stringify({ id }) }),
 
   configSave: (city: string | null, timezone: string) => fetchJson<{ ok: boolean }>(
     '/api/config/save', { method: 'POST', body: JSON.stringify({ city, timezone }) }
