@@ -77,7 +77,9 @@ export function GamesPage() {
     setAddingAppId(app.appId)
     try {
       const r = await api.gameCustomCreate({ appId: app.appId })
-      toast.success(`${r.config.gameName} added — official identity auto-filled`, { duration: 2500 })
+      toast.success(r.existing
+        ? `${r.config.gameName} is already in your games`
+        : `${r.config.gameName} added — official identity auto-filled`, { duration: 2500 })
       await refresh()
       navigate({ name: 'game', slug: r.config.gameSlug })
     } catch {
@@ -403,7 +405,9 @@ function AddGameDialog({
     setSaving(true)
     try {
       const r = await api.gameCustomCreate({ appId: a })
-      toast.success(`${r.config.gameName} added to your games`, { duration: 2500 })
+      toast.success(r.existing
+        ? `${r.config.gameName} is already in your games`
+        : `${r.config.gameName} added to your games`, { duration: 2500 })
       onCreated(r.config.gameSlug)
     } catch {
       toast.error('Failed to add game (check the Application ID)')

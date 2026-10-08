@@ -1,9 +1,12 @@
 // 10X RPC — /api/favorites/use — "Use for Game RPC" (Profile Board one-click)
 // Resolves a favorite into the user's live Game RPC:
-//   1. Preset favorite (slug)  → target = that catalog game.
-//   2. App favorite (appId)    → reuse the user's existing custom game for that
+//   1. App favorite (appId)    → reuse the user's existing custom game for that
 //      Application ID, or CREATE it on the spot (official name + icon are
-//      fetched from Discord — the App ID is grabbed automatically).
+//      fetched from Discord — the App ID is grabbed automatically). appId WINS
+//      when present: the Add Game search flow is explicitly about THIS Discord
+//      application, and a stale slug left by an earlier favorite must never
+//      shadow the auto-grabbed ID.
+//   2. Preset favorite (slug)  → target = that catalog game.
 //   3. Enables it as the Gamer RPC with full mutual exclusivity (Normal RPC
 //      and every other game get disabled) and pushes via the 24/7 daemon.
 // Unlike POST /api/games/[slug], enabling NEVER wipes an existing saved
@@ -37,17 +40,16 @@ export async function POST(req: Request) {
   }
 
   // ── Resolve the target game ────────────────────────────────────────────
-  const preset = favorite.slug ? findGame(favorite.slug) : null
+  const hasApp = !!(favorite.appId && DISCORD_APP_ID_RE.test(favorite.appId))
+  const preset = !hasApp && favorite.slug ? findGame(favorite.slug) : null
   let targetSlug: string
   let targetName: string
 
-  if (preset) {
-    // Catalog preset game (e.g. Minecraft)
-    targetSlug = preset.slug
-    targetName = preset.name
-  } else if (favorite.appId && DISCORD_APP_ID_RE.test(favorite.appId)) {
+  if (hasApp) {
     // Discord application favorite — find the user's existing custom game
     // for this App ID, or auto-create it (official identity auto-fill).
+    // appId wins over any stale slug: the Add Game flow is explicitly about
+    // THIS application and its auto-grabbed Application ID.
     const existing = await db.gameConfig.findFirst({
       where: { userId: session.userId, appId: favorite.appId },
       orderBy: { createdAt: 'desc' },
@@ -76,6 +78,10 @@ export async function POST(req: Request) {
         },
       })
     }
+  } else if (preset) {
+    // Catalog preset game (e.g. Minecraft)
+    targetSlug = preset.slug
+    targetName = preset.name
   } else {
     return NextResponse.json({ error: 'favorite_unresolvable' }, { status: 400 })
   }

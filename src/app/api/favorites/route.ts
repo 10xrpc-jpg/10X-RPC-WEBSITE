@@ -57,10 +57,13 @@ export async function POST(req: Request) {
     where: { userId_name: { userId: session.userId, name } },
     create: { userId: session.userId, name, appId, slug, iconUrl },
     update: {
-      // Keep identity fields fresh (icon may have been null on first add)
-      appId: appId ?? undefined,
-      slug: slug ?? undefined,
-      iconUrl: iconUrl ?? undefined,
+      // Identity fields are written EXPLICITLY (null clears) — appId and
+      // slug are mutually exclusive identities and a stale value left behind
+      // by an earlier favorite must never win during /api/favorites/use
+      // resolution. Icon stays fresh too (may have been null on first add).
+      appId,
+      slug,
+      iconUrl,
     },
   })
 

@@ -40,6 +40,15 @@ export async function POST(req: Request) {
     if (!DISCORD_APP_ID_RE.test(appId)) {
       return NextResponse.json({ error: 'invalid_app_id' }, { status: 400 })
     }
+    // Idempotent add: if this user already added a game with this Application
+    // ID, return that row instead of creating a duplicate.
+    const existing = await db.gameConfig.findFirst({
+      where: { userId: session.userId, appId },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (existing) {
+      return NextResponse.json({ ok: true, config: existing, existing: true })
+    }
     const official = await fetchDiscordApplication(appId)
     if (!official) {
       return NextResponse.json({ error: 'app_not_found' }, { status: 400 })

@@ -310,7 +310,7 @@ export const api = {
     `/api/games/${slug}`, { method: 'POST', body: JSON.stringify(data) }
   ),
   gameCustomCreate: (data: { appId: string; name?: string; details?: string; iconUrl?: string }) =>
-    fetchJson<{ ok: boolean; config: GameConfig }>('/api/games/custom', { method: 'POST', body: JSON.stringify(data) }),
+    fetchJson<{ ok: boolean; config: GameConfig; existing?: boolean }>('/api/games/custom', { method: 'POST', body: JSON.stringify(data) }),
   gameDelete: (slug: string) => fetchJson<{ ok: boolean }>(`/api/games/${slug}`, { method: 'DELETE' }),
   appLookup: (appId: string) =>
     fetchJson<{ ok: boolean; name: string; iconUrl: string | null }>(`/api/games/app-lookup?appId=${encodeURIComponent(appId)}`),
