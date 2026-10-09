@@ -1,8 +1,9 @@
 // 10X RPC — Games list page (#/games) with active game indicator + "Add Games"
 // Custom games (created via the Add Games dialog) appear after the presets and
 // can be configured or deleted from their own config page.
-// Game search source: Discord's official TRENDING GAMES ranking (real games
-// with their real Application IDs — no bots). One click on a result adds the
+// Game search sources: Discord's official TRENDING GAMES ranking (real games
+// with their real Application IDs) PLUS the full Discord App Directory, so
+// every query shows ALL matching results. One click on a result adds the
 // game with its official Application ID, name and icon pre-filled.
 'use client'
 import { useEffect, useState, useRef } from 'react'
@@ -89,11 +90,85 @@ export function GamesPage() {
     }
   }
 
+  // Search results split by source: trending games rank first, then ALL other
+  // matches from Discord's full App Directory.
+  const trendingResults = discordResults.filter(r => (r.source ?? 'trending') === 'trending')
+  const directoryResults = discordResults.filter(r => r.source === 'directory')
+
   const filtered = games.filter(g =>
     g.name.toLowerCase().includes(query.toLowerCase())
   )
   const activeCount = games.filter(g => g.enabled).length
   const showDiscordSection = !loading && query.trim().length >= 2
+
+  /** Shared row for a discovered app — one click adds it with its official
+   * Application ID (works for trending games and directory results alike). */
+  const resultRow = (app: DiscoveredApp) => {
+    const already = games.some(
+      g => g.custom && g.name.toLowerCase() === app.name.toLowerCase()
+    )
+    const busy = addingAppId === app.appId
+    return (
+      <button
+        key={app.appId}
+        type="button"
+        disabled={!!addingAppId}
+        onClick={() => handleAddDiscovered(app)}
+        className="w-full flex items-center justify-between p-3 sm:p-3.5 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl transition-all text-left cursor-pointer group active:scale-[0.99] disabled:opacity-60"
+      >
+        <div className="flex items-center gap-3.5 min-w-0">
+          <div className="w-12 h-12 rounded-xl overflow-hidden bg-[#121319] border border-white/10 shrink-0 relative shadow-md">
+            <div className="absolute inset-0 purple-gradient flex items-center justify-center text-xs font-bold text-white select-none">
+              {app.name.slice(0, 2).toUpperCase()}
+            </div>
+            {app.iconUrl && (
+              <img
+                src={app.iconUrl}
+                alt={app.name}
+                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none'
+                }}
+              />
+            )}
+          </div>
+          <div className="min-w-0">
+            <span className="flex items-center gap-1.5 min-w-0">
+              <span className="text-sm sm:text-base font-bold text-white group-hover:text-purple-200 transition-colors truncate">
+                {app.name}
+              </span>
+              {app.verified && (
+                <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-sky-400" aria-label="Verified application" />
+              )}
+              {!app.isGame && (
+                <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-white/10 text-white/60 border border-white/15">
+                  App
+                </span>
+              )}
+            </span>
+            <span className="text-xs text-white/50 block truncate mt-0.5">
+              {app.description || (app.source === 'trending' ? 'Real game — trending on Discord' : 'Discord application')}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0 ml-3">
+          {already ? (
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 inline-flex items-center gap-1 whitespace-nowrap">
+              <CheckCircle2 className="w-3 h-3" />
+              <span>Added</span>
+            </span>
+          ) : busy ? (
+            <Loader2 className="w-4 h-4 text-purple-300 animate-spin" />
+          ) : (
+            <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
+              <Plus className="w-3.5 h-3.5 text-purple-300 stroke-[2.5]" />
+            </span>
+          )}
+        </div>
+      </button>
+    )
+  }
 
   return (
     <div className="min-h-screen px-4 sm:px-6 py-6 max-w-2xl mx-auto space-y-6">
@@ -215,22 +290,46 @@ export function GamesPage() {
               </button>
             ))}
 
-            {/* Trending games (real games with real App IDs) — same row style, one click to add */}
+            {/* Search results — trending games first, then ALL other matches
+                from Discord's full App Directory (same row style, one click
+                to add with the official Application ID). */}
             {showDiscordSection && (
               <div className="pt-1 space-y-2">
-                <div className="flex items-center gap-2 px-1 pt-2">
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
-                    Trending Games On Discord
-                  </span>
-                  {discordSearching && (
+                {discordSearching && (
+                  <div className="flex items-center gap-2 px-1 pt-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
+                      Searching Discord...
+                    </span>
                     <Loader2 className="w-3.5 h-3.5 text-purple-300/70 animate-spin" />
-                  )}
-                </div>
+                  </div>
+                )}
+
+                {!discordSearching && trendingResults.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 px-1 pt-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
+                        Trending Games On Discord
+                      </span>
+                    </div>
+                    {trendingResults.map(resultRow)}
+                  </div>
+                )}
+
+                {!discordSearching && directoryResults.length > 0 && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2 px-1 pt-2">
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
+                        All Results On Discord
+                      </span>
+                    </div>
+                    {directoryResults.map(resultRow)}
+                  </div>
+                )}
 
                 {!discordSearching && discordResults.length === 0 && (
                   <div className="text-[11px] text-white/30 px-1 pb-1 space-y-2">
                     <p>
-                      No trending games found for "{query.trim()}".
+                      No results on Discord for "{query.trim()}".
                     </p>
                     <button
                       type="button"
@@ -242,73 +341,6 @@ export function GamesPage() {
                     </button>
                   </div>
                 )}
-
-                {discordResults.map(app => {
-                  const already = games.some(
-                    g => g.custom && g.name.toLowerCase() === app.name.toLowerCase()
-                  )
-                  const busy = addingAppId === app.appId
-                  return (
-                    <button
-                      key={app.appId}
-                      type="button"
-                      disabled={!!addingAppId}
-                      onClick={() => handleAddDiscovered(app)}
-                      className="w-full flex items-center justify-between p-3 sm:p-3.5 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl transition-all text-left cursor-pointer group active:scale-[0.99] disabled:opacity-60"
-                    >
-                      <div className="flex items-center gap-3.5 min-w-0">
-                        <div className="w-12 h-12 rounded-xl overflow-hidden bg-[#121319] border border-white/10 shrink-0 relative shadow-md">
-                          <div className="absolute inset-0 purple-gradient flex items-center justify-center text-xs font-bold text-white select-none">
-                            {app.name.slice(0, 2).toUpperCase()}
-                          </div>
-                          {app.iconUrl && (
-                            <img
-                              src={app.iconUrl}
-                              alt={app.name}
-                              className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none'
-                              }}
-                            />
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <span className="flex items-center gap-1.5 min-w-0">
-                            <span className="text-sm sm:text-base font-bold text-white group-hover:text-purple-200 transition-colors truncate">
-                              {app.name}
-                            </span>
-                            {app.verified && (
-                              <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-sky-400" aria-label="Verified application" />
-                            )}
-                            {!app.isGame && (
-                              <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-white/10 text-white/60 border border-white/15">
-                                App
-                              </span>
-                            )}
-                          </span>
-                          <span className="text-xs text-white/50 block truncate mt-0.5">
-                            {app.description || 'Real game — trending on Discord'}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 shrink-0 ml-3">
-                        {already ? (
-                          <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 inline-flex items-center gap-1 whitespace-nowrap">
-                            <CheckCircle2 className="w-3 h-3" />
-                            <span>Added</span>
-                          </span>
-                        ) : busy ? (
-                          <Loader2 className="w-4 h-4 text-purple-300 animate-spin" />
-                        ) : (
-                          <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
-                            <Plus className="w-3.5 h-3.5 text-purple-300 stroke-[2.5]" />
-                          </span>
-                        )}
-                      </div>
-                    </button>
-                  )
-                })}
               </div>
             )}
 

@@ -320,7 +320,8 @@ function AddFavoriteGameDialog({
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  // Debounced trending-games search (same real-games pipeline as the Games page).
+  // Debounced Discord search (same sources as the Games page: trending games
+  // first, then the full App Directory).
   useEffect(() => {
     const q = query.trim()
     if (q.length < 2) {
@@ -391,6 +392,78 @@ function AddFavoriteGameDialog({
     } finally {
       setBusyAppId(null)
     }
+  }
+
+  // Search results split by source: trending games rank first, then ALL other
+  // matches from Discord's full App Directory.
+  const trendingResults = discordResults.filter(r => (r.source ?? 'trending') === 'trending')
+  const directoryResults = discordResults.filter(r => r.source === 'directory')
+
+  /** Shared row for a discovered app — one click runs the full flow: grab the
+   * official Application ID, favorite it and set it live as Game RPC. */
+  const resultRow = (app: DiscoveredApp) => {
+    const busy = busyAppId === app.appId
+    const alreadyGame = games.some(
+      g => g.custom && g.name.toLowerCase() === app.name.toLowerCase()
+    )
+    return (
+      <button
+        key={app.appId}
+        type="button"
+        disabled={!!busyAppId}
+        onClick={() => handleAddDiscovered(app)}
+        className="w-full flex items-center justify-between p-3 sm:p-3.5 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl transition-all text-left cursor-pointer group active:scale-[0.99] disabled:opacity-60"
+      >
+        <div className="flex items-center gap-3.5 min-w-0">
+          <div className="w-12 h-12 rounded-xl overflow-hidden bg-[#121319] border border-white/10 shrink-0 relative shadow-md">
+            <div className="absolute inset-0 purple-gradient flex items-center justify-center text-xs font-bold text-white select-none">
+              {app.name.slice(0, 2).toUpperCase()}
+            </div>
+            {app.iconUrl && (
+              <img
+                src={app.iconUrl}
+                alt={app.name}
+                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                onError={(e) => { e.currentTarget.style.display = 'none' }}
+              />
+            )}
+          </div>
+          <div className="min-w-0">
+            <span className="flex items-center gap-1.5 min-w-0">
+              <span className="text-sm sm:text-base font-bold text-white group-hover:text-purple-200 transition-colors truncate">
+                {app.name}
+              </span>
+              {app.verified && (
+                <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-sky-400" aria-label="Verified application" />
+              )}
+              {!app.isGame && (
+                <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-white/10 text-white/60 border border-white/15">
+                  App
+                </span>
+              )}
+            </span>
+            <span className="text-xs text-white/50 block truncate mt-0.5">
+              {app.description || (app.source === 'trending' ? 'Real game — trending on Discord' : 'Discord application')}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0 ml-3">
+          {busy ? (
+            <Loader2 className="w-4 h-4 text-purple-300 animate-spin" />
+          ) : alreadyGame ? (
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/10 text-amber-300 border border-amber-400/30 inline-flex items-center gap-1 whitespace-nowrap">
+              <Star className="w-3 h-3 fill-amber-300/80" />
+              <span>Favorite</span>
+            </span>
+          ) : (
+            <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
+              <Plus className="w-3.5 h-3.5 text-purple-300 stroke-[2.5]" />
+            </span>
+          )}
+        </div>
+      </button>
+    )
   }
 
   const q = query.trim().toLowerCase()
@@ -509,88 +582,46 @@ function AddFavoriteGameDialog({
             </div>
           )}
 
-          {/* Discord Trending Games (real games, no bots) */}
+          {/* Discord search results — trending games first, then ALL other
+              matches from Discord's full App Directory */}
           {showDirectory && (
             <div className="space-y-2">
-              <div className="flex items-center gap-2 px-1 pt-1">
-                <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
-                  Trending Games On Discord
-                </span>
-                {discordSearching && (
+              {discordSearching && (
+                <div className="flex items-center gap-2 px-1 pt-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
+                    Searching Discord...
+                  </span>
                   <Loader2 className="w-3.5 h-3.5 text-purple-300/70 animate-spin" />
-                )}
-              </div>
+                </div>
+              )}
+
+              {!discordSearching && trendingResults.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 px-1 pt-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
+                      Trending Games On Discord
+                    </span>
+                  </div>
+                  {trendingResults.map(resultRow)}
+                </div>
+              )}
+
+              {!discordSearching && directoryResults.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 px-1 pt-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
+                      All Results On Discord
+                    </span>
+                  </div>
+                  {directoryResults.map(resultRow)}
+                </div>
+              )}
 
               {!discordSearching && discordResults.length === 0 && (
                 <p className="text-[11px] text-white/30 px-1 pb-1">
-                  No trending games found for "{query.trim()}".
+                  No results on Discord for "{query.trim()}".
                 </p>
               )}
-
-              {discordResults.map(app => {
-                const busy = busyAppId === app.appId
-                const alreadyGame = games.some(
-                  g => g.custom && g.name.toLowerCase() === app.name.toLowerCase()
-                )
-                return (
-                  <button
-                    key={app.appId}
-                    type="button"
-                    disabled={!!busyAppId}
-                    onClick={() => handleAddDiscovered(app)}
-                    className="w-full flex items-center justify-between p-3 sm:p-3.5 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl transition-all text-left cursor-pointer group active:scale-[0.99] disabled:opacity-60"
-                  >
-                    <div className="flex items-center gap-3.5 min-w-0">
-                      <div className="w-12 h-12 rounded-xl overflow-hidden bg-[#121319] border border-white/10 shrink-0 relative shadow-md">
-                        <div className="absolute inset-0 purple-gradient flex items-center justify-center text-xs font-bold text-white select-none">
-                          {app.name.slice(0, 2).toUpperCase()}
-                        </div>
-                        {app.iconUrl && (
-                          <img
-                            src={app.iconUrl}
-                            alt={app.name}
-                            className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                            onError={(e) => { e.currentTarget.style.display = 'none' }}
-                          />
-                        )}
-                      </div>
-                      <div className="min-w-0">
-                        <span className="flex items-center gap-1.5 min-w-0">
-                          <span className="text-sm sm:text-base font-bold text-white group-hover:text-purple-200 transition-colors truncate">
-                            {app.name}
-                          </span>
-                          {app.verified && (
-                            <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-sky-400" aria-label="Verified application" />
-                          )}
-                          {!app.isGame && (
-                            <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-white/10 text-white/60 border border-white/15">
-                              App
-                            </span>
-                          )}
-                        </span>
-                        <span className="text-xs text-white/50 block truncate mt-0.5">
-                          {app.description || 'Discord Application'}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-2 shrink-0 ml-3">
-                      {busy ? (
-                        <Loader2 className="w-4 h-4 text-purple-300 animate-spin" />
-                      ) : alreadyGame ? (
-                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/10 text-amber-300 border border-amber-400/30 inline-flex items-center gap-1 whitespace-nowrap">
-                          <Star className="w-3 h-3 fill-amber-300/80" />
-                          <span>Favorite</span>
-                        </span>
-                      ) : (
-                        <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
-                          <Plus className="w-3.5 h-3.5 text-purple-300 stroke-[2.5]" />
-                        </span>
-                      )}
-                    </div>
-                  </button>
-                )
-              })}
 
               {!discordSearching && discordResults.length > 0 && (
                 <p className="text-[11px] text-white/35 px-1 pt-1 flex items-center gap-1.5">
@@ -607,7 +638,7 @@ function AddFavoriteGameDialog({
               <Gamepad2 className="w-8 h-8 text-white/25 mx-auto" />
               <p className="text-sm text-white/50 font-medium">Search any game</p>
               <p className="text-xs text-white/35">
-                Your games appear instantly — anything else is searched on Discord's official Trending Games ranking with automatic ID detection.
+                Your games appear instantly — anything else is searched across ALL of Discord (trending games + the full app directory) with automatic ID detection.
               </p>
             </div>
           )}
