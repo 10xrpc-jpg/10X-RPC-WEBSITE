@@ -23,6 +23,23 @@ export async function POST(req: Request) {
   // Check if demo user already exists
   const demoDiscordId = 'demo-user-10x'
   let user = await db.user.findUnique({ where: { discordId: demoDiscordId } })
+
+  // DB-backed global cap (works across serverless instances, unlike the
+  // in-memory per-IP limiter above): every POST creates a Session row, so
+  // the shared demo account must not be spammed with unbounded sessions.
+  if (user) {
+    const recentSessions = await db.session.count({
+      where: { userId: user.id, createdAt: { gt: new Date(Date.now() - WINDOW_MS) } },
+    })
+    if (recentSessions >= 30) {
+      return NextResponse.json({ error: 'rate_limited' }, { status: 429 })
+    }
+    // Housekeeping: prune hour-old demo sessions so the table stays bounded.
+    await db.session.deleteMany({
+      where: { userId: user.id, createdAt: { lt: new Date(Date.now() - 60 * 60 * 1000) } },
+    }).catch(() => {})
+  }
+
   if (!user) {
     user = await db.user.create({
       data: {
