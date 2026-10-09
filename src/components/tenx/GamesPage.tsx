@@ -64,8 +64,9 @@ export function GamesPage() {
     return () => clearTimeout(t)
   }, [query])
 
-  // One click on a Discord result = add the game with its official Application
-  // ID, name and icon pre-filled, then open its RPC configuration.
+  // One click on a Discord result = the FULL flow: auto-grab the official
+  // Application ID, create the game, star it as a Favorite Game on the Board
+  // and apply it live as Game RPC, then open its RPC configuration.
   const handleAddDiscovered = async (app: DiscoveredApp) => {
     if (addingAppId) return
     const existing = games.find(
@@ -77,12 +78,17 @@ export function GamesPage() {
     }
     setAddingAppId(app.appId)
     try {
-      const r = await api.gameCustomCreate({ appId: app.appId })
-      toast.success(r.existing
-        ? `${r.config.gameName} is already in your games`
-        : `${r.config.gameName} added — official identity auto-filled`, { duration: 2500 })
+      // 1. Create the custom game — the official identity (App ID + name +
+      //    icon) is fetched from Discord automatically.
+      await api.gameCustomCreate({ appId: app.appId })
+      // 2. Star it as a favorite on the Profile Board (Favorite Game widget).
+      const f = await api.favoriteAdd({ name: app.name, appId: app.appId, iconUrl: app.iconUrl })
+      // 3. Apply it as the live Game RPC (mutual exclusivity + daemon push
+      //    handled server-side).
+      const u = await api.favoriteUse(f.favorite.id)
+      toast.success(`${u.name} added — Application ID auto-filled, set as Game RPC`, { duration: 3000 })
       await refresh()
-      navigate({ name: 'game', slug: r.config.gameSlug })
+      navigate({ name: 'game', slug: u.slug })
     } catch {
       toast.error('Could not add this application — try the Add Games dialog')
     } finally {
