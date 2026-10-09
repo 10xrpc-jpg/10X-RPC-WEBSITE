@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
+import { capStr, LIMIT_TEXT, LIMIT_SHORT } from '@/lib/validate'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 15
@@ -13,9 +14,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: false, error: 'not_authenticated' }, { status: 401 })
   }
 
-  const body = await req.json() as { emoji?: string | null; text?: string | null }
-  const emoji = body.emoji?.trim() || null
-  const text = body.text?.trim() || null
+  const body = await req.json().catch(() => ({})) as { emoji?: string | null; text?: string | null }
+  const emoji = capStr(body.emoji, LIMIT_SHORT)
+  const text = capStr(body.text, LIMIT_TEXT)
 
   // Persist to session
   await db.session.update({

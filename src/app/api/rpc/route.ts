@@ -4,6 +4,7 @@ import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
 import { resolveRpcActivityName } from '@/lib/constants'
+import { capStr, capNum, LIMIT_TEXT, LIMIT_ASSET_REF, LIMIT_URL, LIMIT_SHORT } from '@/lib/validate'
 
 export const dynamic = 'force-dynamic'
 
@@ -57,22 +58,22 @@ export async function POST(req: Request) {
       name,
       type: body.type || 'PLAYING',
       platform,
-      state: body.state?.trim() || null,
-      details: body.details?.trim() || null,
-      largeImage: body.largeImage?.trim() || null,
-      largeText: body.largeText?.trim() || null,
-      smallImage: body.smallImage?.trim() || null,
-      smallText: body.smallText?.trim() || null,
-      button1Label: body.button1Label?.trim() || null,
-      button1Url: body.button1Url?.trim() || null,
-      button2Label: body.button2Label?.trim() || null,
-      button2Url: body.button2Url?.trim() || null,
-      partyCurrent: typeof body.partyCurrent === 'number' ? body.partyCurrent : null,
-      partyMax: typeof body.partyMax === 'number' ? body.partyMax : null,
-      partyId: body.partyId?.trim() || null,
-      partySecret: body.partySecret?.trim() || null,
-      startMinsAgo: typeof body.startMinsAgo === 'number' ? body.startMinsAgo : 0,
-      endTotalMins: typeof body.endTotalMins === 'number' ? body.endTotalMins : null,
+      state: capStr(body.state, LIMIT_TEXT),
+      details: capStr(body.details, LIMIT_TEXT),
+      largeImage: capStr(body.largeImage, LIMIT_ASSET_REF),
+      largeText: capStr(body.largeText, LIMIT_TEXT),
+      smallImage: capStr(body.smallImage, LIMIT_ASSET_REF),
+      smallText: capStr(body.smallText, LIMIT_TEXT),
+      button1Label: capStr(body.button1Label, LIMIT_SHORT),
+      button1Url: capStr(body.button1Url, LIMIT_URL),
+      button2Label: capStr(body.button2Label, LIMIT_SHORT),
+      button2Url: capStr(body.button2Url, LIMIT_URL),
+      partyCurrent: capNum(body.partyCurrent, 0, 9999),
+      partyMax: capNum(body.partyMax, 0, 9999),
+      partyId: capStr(body.partyId, LIMIT_SHORT),
+      partySecret: capStr(body.partySecret, LIMIT_SHORT),
+      startMinsAgo: capNum(body.startMinsAgo, 0, 10080) ?? 0,
+      endTotalMins: capNum(body.endTotalMins, 0, 10080),
       enabled, // ← unchanged from DB: config save cannot disable the RPC
     }
 
@@ -127,8 +128,9 @@ export async function POST(req: Request) {
       message,
     })
   } catch (e: any) {
-    console.error('Error saving RPC config:', e)
-    return NextResponse.json({ ok: false, error: e?.message || 'Failed to save RPC config' }, { status: 500 })
+    // Log details server-side only — never leak internal errors to clients.
+    console.error('Error saving RPC config:', e?.message || e)
+    return NextResponse.json({ ok: false, error: 'Failed to save RPC config' }, { status: 500 })
   }
 }
 

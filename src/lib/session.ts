@@ -24,7 +24,10 @@ export function verifySessionToken(token: string): { userId: string; ok: boolean
     const raw = `${parts[0]}.${parts[1]}.${parts[2]}`
     const sig = parts[3]
     const expected = sign(raw)
-    if (sig !== expected) return { userId: '', ok: false }
+    const a = Buffer.from(sig)
+    const b = Buffer.from(expected)
+    // Constant-time compare — a mismatched length must not leak via early exit.
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return { userId: '', ok: false }
     const userId = parts[0]
     return { userId, ok: true }
   } catch {

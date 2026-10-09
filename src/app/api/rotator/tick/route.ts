@@ -7,10 +7,19 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
+import { clientIp, isRateLimited } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 
+// Per-IP safety net (in case ROTATOR_TICK_SECRET is not configured on a given
+// deployment): the tick fans out to a presence sync per enabled user.
+const TICK_RATE = { max: 4, windowMs: 60_000 }
+
 export async function POST(req: Request) {
+  if (isRateLimited(`rotator-tick:${clientIp(req)}`, TICK_RATE.max, TICK_RATE.windowMs)) {
+    return NextResponse.json({ error: 'rate_limited' }, { status: 429 })
+  }
+
   const secret = process.env.ROTATOR_TICK_SECRET
   if (secret) {
     const auth = req.headers.get('authorization') || ''

@@ -38,8 +38,16 @@ export const CONFIG = {
     secret: process.env.SESSION_SECRET || '10x-rpc-dev-secret-change-me-in-production-32bytes-min',
   },
   admin: {
-    // Discord user IDs that have admin access
-    discordIds: ['824940038617694279'],
+    // Discord user IDs with admin access. Overridable via ADMIN_DISCORD_IDS
+    // (comma-separated) so the privileged list can rotate without a code
+    // change; the fallback preserves current production behavior.
+    discordIds: (() => {
+      const fromEnv = (process.env.ADMIN_DISCORD_IDS || '')
+        .split(',')
+        .map(id => id.trim())
+        .filter(Boolean)
+      return fromEnv.length > 0 ? fromEnv : ['824940038617694279']
+    })(),
   },
 }
 

@@ -14,6 +14,13 @@ export async function GET(req: Request) {
     return NextResponse.redirect(`${CONFIG.app.url}/?error=missing_token`)
   }
 
+  // Only accept tokens that look like OUR signed session tokens
+  // ("<userId>.<ts>.<nonce>.<hmac>") — never set arbitrary cookie values.
+  const parts = token.split('.')
+  if (parts.length !== 4 || !/^[a-z0-9]{20,}$/i.test(parts[0]) || !/^\d{10,}$/.test(parts[1]) || !/^[a-f0-9]{32}$/i.test(parts[2]) || parts[3].length < 40 || !/^[A-Za-z0-9_-]+$/.test(parts[3])) {
+    return NextResponse.redirect(`${CONFIG.app.url}/?error=invalid_token`)
+  }
+
   // Set the session cookie on Vercel's domain
   const expiresAt = new Date(Date.now() + CONFIG.session.ttlDays * 24 * 60 * 60 * 1000)
   const res = NextResponse.redirect(`${CONFIG.app.url}/dashboard`)

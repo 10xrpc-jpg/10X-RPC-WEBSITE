@@ -9,11 +9,21 @@
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
+import { clientIp, isRateLimited } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
+// Per-IP safety net (in case KEEP_ALIVE_SECRET is not configured on a given
+// deployment): this endpoint fans out to a presence sync for EVERY active
+// user, so it must never be hammerable.
+const TICK_RATE = { max: 4, windowMs: 60_000 }
+
 export async function POST(req: Request) {
+  if (isRateLimited(`keep-alive:${clientIp(req)}`, TICK_RATE.max, TICK_RATE.windowMs)) {
+    return NextResponse.json({ error: 'rate_limited' }, { status: 429 })
+  }
+
   const secret = process.env.KEEP_ALIVE_SECRET
   if (secret) {
     const auth = req.headers.get('authorization') || ''

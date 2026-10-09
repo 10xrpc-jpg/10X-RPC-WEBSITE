@@ -30,6 +30,7 @@
 // image field — never fall back to raw URLs or bare keys.
 
 import crypto from 'crypto'
+import dns from 'dns'
 import fs from 'fs'
 import { db } from '@/lib/db'
 import { CONFIG } from '@/lib/config'
@@ -43,6 +44,104 @@ const MAX_BYTES = 8 * 1024 * 1024 // Discord asset limit is 8MB via portal
 const DOWNLOAD_TIMEOUT_MS = 12000
 const REACHABILITY_TIMEOUT_MS = 5000
 const MIRROR_DIR = 'public/asset-mirror'
+
+/* ------------------------------ SSRF guard ------------------------------- */
+
+// fetchImage()/isReachable() fetch USER-SUPPLIED image URLs server-side (the
+// daemon process runs on a real VPS). Without a guard, a config like
+// largeImage="http://169.254.169.254/…" turns the pipeline into a blind SSRF
+// probe against internal services. This guard:
+//   1. only allows http/https,
+//   2. rejects credentials-in-URL and non-standard ports,
+//   3. DNS-resolves the host and rejects ANY private/loopback/link-local IP.
+const PRIVATE_V4 = [
+  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
+  ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16],
+  ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4],
+]
+
+function ipToLong(ip: string): number {
+  return ip.split('.').reduce((acc, oct) => (acc << 8) + Number(oct), 0) >>> 0
+}
+
+function isPrivateIp(ip: string): boolean {
+  // IPv6 — covers loopback, link-local, ULA, IPv4-mapped, and NAT64 well-known prefix.
+  if (ip.includes(':')) {
+    const lower = ip.toLowerCase()
+    if (lower === '::1' || lower === '::') return true
+    if (lower.startsWith('fe80') || lower.startsWith('fc') || lower.startsWith('fd')) return true
+    if (lower.startsWith('::ffff:')) return isPrivateIp(lower.slice(7))
+    if (lower.startsWith('64:ff9b:')) return true
+    return false
+  }
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(ip)) return true // not a plain v4 dotted quad → treat as unsafe
+  const long = ipToLong(ip)
+  return PRIVATE_V4.some(([base, bits]) => {
+    const mask = bits === 0 ? 0 : (0xffffffff << (32 - bits)) >>> 0
+    return (long & mask) === (ipToLong(base) & mask)
+  })
+}
+
+/** Throws when the URL must not be fetched server-side. */
+async function assertPublicHttpUrl(rawUrl: string): Promise<URL> {
+  let url: URL
+  try {
+    url = new URL(rawUrl)
+  } catch {
+    throw new Error('invalid_url')
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') throw new Error('bad_scheme')
+  if (url.username || url.password) throw new Error('credentials_in_url')
+  const port = url.port ? Number(url.port) : url.protocol === 'https:' ? 443 : 80
+  if (![80, 443, 8080, 8443].includes(port)) throw new Error('bad_port')
+  const host = url.hostname.replace(/^\[|\]$/g, '')
+  if (/^localhost$/i.test(host) || host.endsWith('.local') || host.endsWith('.internal')) {
+    throw new Error('local_host')
+  }
+  let addresses: string[]
+  try {
+    addresses = await dns.promises.lookup(host, { all: true, verbatim: true }).then(r => r.map(a => a.address))
+  } catch {
+    throw new Error('dns_failure')
+  }
+  if (addresses.length === 0 || addresses.some(isPrivateIp)) throw new Error('private_address')
+  return url
+}
+
+/**
+ * fetch() wrapper for user-supplied URLs: validates every hop (including
+ * redirects — a public URL must never bounce to an internal address).
+ * Follows up to 3 http/https redirects; anything else aborts.
+ */
+async function safeFetch(
+  url: string,
+  init: RequestInit & { redirect?: 'manual' } = {},
+  hopsLeft = 3
+): Promise<Response | null> {
+  let current = url
+  for (let hop = 0; hop <= hopsLeft; hop++) {
+    let validated: URL
+    try {
+      validated = await assertPublicHttpUrl(current)
+    } catch {
+      return null
+    }
+    const res = await fetch(validated, { ...init, redirect: 'manual' })
+    // 3xx: validate the Location target and follow manually.
+    if (res.status >= 300 && res.status < 400) {
+      const location = res.headers.get('location')
+      if (!location) return res
+      try {
+        current = new URL(location, validated).toString()
+      } catch {
+        return null
+      }
+      continue
+    }
+    return res
+  }
+  return null // redirect loop / too many hops
+}
 const NEGATIVE_TTL_MS = 60_000
 // Vercel serverless responses are practically capped ~4.5MB. Mirrors larger
 // than this can't be served by /api/asset-mirror/<hash> and fall back to the
@@ -373,9 +472,10 @@ async function fetchImage(url: string): Promise<{ bytes: Buffer; contentType: st
   try {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), DOWNLOAD_TIMEOUT_MS)
-    const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': '10X-RPC/2.0 (asset pipeline)' } })
+    // safeFetch = SSRF guard (public hosts only, every redirect hop re-validated).
+    const res = await safeFetch(url, { signal: ctrl.signal, headers: { 'User-Agent': '10X-RPC/2.0 (asset pipeline)' } })
     clearTimeout(timer)
-    if (!res.ok) return null
+    if (!res || !res.ok) return null
     const ct = res.headers.get('content-type') || ''
     if (!ct.startsWith('image/')) return null
     const buf = Buffer.from(await res.arrayBuffer())
@@ -724,12 +824,16 @@ async function isReachable(url: string): Promise<boolean> {
   try {
     const ctrl = new AbortController()
     const timer = setTimeout(() => ctrl.abort(), REACHABILITY_TIMEOUT_MS)
-    const res = await fetch(url, { method: 'HEAD', signal: ctrl.signal, headers: { 'User-Agent': '10X-RPC/2.0 (asset pipeline)' } })
+    // safeFetch = SSRF guard (public hosts only, every redirect hop re-validated).
+    const res = await safeFetch(url, { method: 'HEAD', signal: ctrl.signal, headers: { 'User-Agent': '10X-RPC/2.0 (asset pipeline)' } })
     clearTimeout(timer)
-    if (res.ok) return true
+    if (res && res.ok) return true
     // Some hosts reject HEAD — allow GET when HEAD fails.
-    const res2 = await fetch(url, { method: 'GET', headers: { 'User-Agent': '10X-RPC/2.0', Range: 'bytes=0-64' }, signal: ctrl.signal })
-    return res2.ok
+    const ctrl2 = new AbortController()
+    const timer2 = setTimeout(() => ctrl2.abort(), REACHABILITY_TIMEOUT_MS)
+    const res2 = await safeFetch(url, { method: 'GET', headers: { 'User-Agent': '10X-RPC/2.0', Range: 'bytes=0-64' }, signal: ctrl2.signal })
+    clearTimeout(timer2)
+    return !!res2 && res2.ok
   } catch {
     return false
   }

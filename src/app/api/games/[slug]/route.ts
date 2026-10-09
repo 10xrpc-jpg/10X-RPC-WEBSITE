@@ -7,6 +7,7 @@ import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { findGame, fetchDiscordApplication, DISCORD_APP_ID_RE } from '@/lib/games'
 import { syncPresenceDetached } from '@/lib/presence-sync'
+import { capStr, capNum, LIMIT_TEXT, LIMIT_ASSET_REF, LIMIT_URL, LIMIT_SHORT } from '@/lib/validate'
 import type { GameConfig as DbGameConfig } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
@@ -71,8 +72,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     return NextResponse.json({ error: 'game_not_found' }, { status: 404 })
   }
 
-  const body = await req.json()
-  const enabled = body.enabled ?? false
+  let body: Record<string, unknown>
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ error: 'invalid_json' }, { status: 400 })
+  }
+  const enabled = (body as { enabled?: boolean }).enabled ?? false
 
   // Custom games may carry a Discord Application ID ("Add Games"). Semantics:
   //   body.appId undefined → keep the stored value
@@ -102,23 +108,23 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
     gameName: preset ? preset.name : (officialName ?? (existing as DbGameConfig).gameName),
     enabled,
     appId: preset ? undefined : (appId ?? (existing as DbGameConfig).appId),
-    platform: body.platform ?? preset?.defaultPlatform ?? 'desktop',
-    state: body.state ?? null,
-    details: body.details ?? null,
-    largeImage: officialIcon ?? body.largeImage ?? preset?.largeImage ?? (existing as DbGameConfig).largeImage,
-    largeText: body.largeText ?? preset?.largeText ?? (existing as DbGameConfig).gameName,
-    smallImage: body.smallImage ?? null,
-    smallText: body.smallText ?? null,
-    button1Label: body.button1Label ?? null,
-    button1Url: body.button1Url ?? null,
-    button2Label: body.button2Label ?? null,
-    button2Url: body.button2Url ?? null,
-    partyCurrent: typeof body.partyCurrent === 'number' ? body.partyCurrent : preset?.defaultPartyCurrent ?? 1,
-    partyMax: typeof body.partyMax === 'number' ? body.partyMax : preset?.defaultPartyMax ?? 5,
-    partyId: body.partyId ?? null,
-    partySecret: body.partySecret ?? null,
-    startMinsAgo: typeof body.startMinsAgo === 'number' ? body.startMinsAgo : 0,
-    endTotalMins: typeof body.endTotalMins === 'number' ? body.endTotalMins : null,
+    platform: capStr(body.platform, 32) ?? preset?.defaultPlatform ?? 'desktop',
+    state: capStr(body.state, LIMIT_TEXT),
+    details: capStr(body.details, LIMIT_TEXT),
+    largeImage: officialIcon ?? capStr(body.largeImage, LIMIT_ASSET_REF) ?? preset?.largeImage ?? (existing as DbGameConfig).largeImage,
+    largeText: capStr(body.largeText, LIMIT_TEXT) ?? preset?.largeText ?? (existing as DbGameConfig).gameName,
+    smallImage: capStr(body.smallImage, LIMIT_ASSET_REF),
+    smallText: capStr(body.smallText, LIMIT_TEXT),
+    button1Label: capStr(body.button1Label, LIMIT_SHORT),
+    button1Url: capStr(body.button1Url, LIMIT_URL),
+    button2Label: capStr(body.button2Label, LIMIT_SHORT),
+    button2Url: capStr(body.button2Url, LIMIT_URL),
+    partyCurrent: capNum(body.partyCurrent, 0, 9999) ?? preset?.defaultPartyCurrent ?? 1,
+    partyMax: capNum(body.partyMax, 0, 9999) ?? preset?.defaultPartyMax ?? 5,
+    partyId: capStr(body.partyId, LIMIT_SHORT),
+    partySecret: capStr(body.partySecret, LIMIT_SHORT),
+    startMinsAgo: capNum(body.startMinsAgo, 0, 10080) ?? 0,
+    endTotalMins: capNum(body.endTotalMins, 0, 10080),
   }
 
   // ════════════════════════════════════════════════════════════════════

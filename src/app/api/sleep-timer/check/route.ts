@@ -5,10 +5,19 @@
 //   - Clear any enabled RpcConfig.enabled flag
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
+import { clientIp, isRateLimited } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 
+// Per-IP safety net (in case SLEEP_TIMER_TICK_SECRET is not configured on a
+// given deployment): the check sweeps every session with an active timer.
+const TICK_RATE = { max: 4, windowMs: 60_000 }
+
 export async function POST(req: Request) {
+  if (isRateLimited(`sleep-timer-check:${clientIp(req)}`, TICK_RATE.max, TICK_RATE.windowMs)) {
+    return NextResponse.json({ error: 'rate_limited' }, { status: 429 })
+  }
+
   const secret = process.env.SLEEP_TIMER_TICK_SECRET
   if (secret) {
     const auth = req.headers.get('authorization') || ''

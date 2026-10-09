@@ -6,10 +6,20 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { setSessionCookie } from '@/lib/session'
 import { CONFIG } from '@/lib/config'
+import { clientIp, isRateLimited } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 
-export async function POST() {
+// Per-IP rate limit: 10 demo sessions / 5 min — every POST creates a new
+// Session row, so an unthrottled endpoint would let anyone bloat the DB.
+const WINDOW_MS = 5 * 60 * 1000
+const MAX_PER_WINDOW = 10
+
+export async function POST(req: Request) {
+  if (isRateLimited(`demo-login:${clientIp(req)}`, MAX_PER_WINDOW, WINDOW_MS)) {
+    return NextResponse.json({ error: 'rate_limited' }, { status: 429 })
+  }
+
   // Check if demo user already exists
   const demoDiscordId = 'demo-user-10x'
   let user = await db.user.findUnique({ where: { discordId: demoDiscordId } })
