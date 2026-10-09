@@ -1,29 +1,20 @@
-// 10X RPC — Games list page (#/games) with active game indicator + "Add Games"
-// Custom games (created via the Add Games dialog) appear after the presets and
-// can be configured or deleted from their own config page.
-// Game search sources: Discord's official TRENDING GAMES ranking (real games
-// with their real Application IDs) PLUS the full Discord App Directory, so
-// every query shows ALL matching results. One click on a result adds the
-// game with its official Application ID, name and icon pre-filled.
+// 10X RPC — Games list page (#/games) with active game indicator + "Add Games".
+// Custom games (added via the Add Games dialog by Application ID) appear after
+// the presets and can be configured or deleted from their own config page.
+// Discord game search lives in the Profile Board → Favorite Game flow.
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
-import { api, type GameListItem, type DiscoveredApp } from '@/lib/api-client'
+import { api, type GameListItem } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { BackButton } from './ui'
-import { Gamepad2, Search, ChevronRight, Plus, X, CheckCircle2, BadgeCheck, Loader2 } from 'lucide-react'
+import { Gamepad2, ChevronRight, Plus, X, CheckCircle2 } from 'lucide-react'
 
 export function GamesPage() {
   const { navigate } = useRouter()
   const [games, setGames] = useState<GameListItem[]>([])
   const [loading, setLoading] = useState(true)
-  const [query, setQuery] = useState('')
   const [addOpen, setAddOpen] = useState(false)
-  // Discord App Directory search (Task: search + auto-config)
-  const [discordResults, setDiscordResults] = useState<DiscoveredApp[]>([])
-  const [discordSearching, setDiscordSearching] = useState(false)
-  const [addingAppId, setAddingAppId] = useState<string | null>(null)
-  const discordSeq = useRef(0)
 
   const refresh = () =>
     api.gamesList()
@@ -37,138 +28,7 @@ export function GamesPage() {
     refresh()
   }, [])
 
-  // Debounced trending-games search — reuses the SAME search box, layout untouched.
-  // Source: Discord's official trending-games ranking (real games only, no bots).
-  useEffect(() => {
-    const q = query.trim()
-    if (q.length < 2) {
-      setDiscordResults([])
-      setDiscordSearching(false)
-      return
-    }
-    const seq = ++discordSeq.current
-    setDiscordSearching(true)
-    const t = setTimeout(() => {
-      api.gamesDiscover(q)
-        .then(r => {
-          if (discordSeq.current !== seq) return
-          setDiscordResults(r.results || [])
-          setDiscordSearching(false)
-        })
-        .catch(() => {
-          if (discordSeq.current !== seq) return
-          setDiscordResults([])
-          setDiscordSearching(false)
-        })
-    }, 350)
-    return () => clearTimeout(t)
-  }, [query])
-
-  // One click on a Discord result = add the game with its official Application
-  // ID, name and icon pre-filled, then open its RPC configuration.
-  const handleAddDiscovered = async (app: DiscoveredApp) => {
-    if (addingAppId) return
-    const existing = games.find(
-      g => g.custom && g.name.toLowerCase() === app.name.toLowerCase()
-    )
-    if (existing) {
-      navigate({ name: 'game', slug: existing.slug })
-      return
-    }
-    setAddingAppId(app.appId)
-    try {
-      const r = await api.gameCustomCreate({ appId: app.appId })
-      toast.success(r.existing
-        ? `${r.config.gameName} is already in your games`
-        : `${r.config.gameName} added — official identity auto-filled`, { duration: 2500 })
-      await refresh()
-      navigate({ name: 'game', slug: r.config.gameSlug })
-    } catch {
-      toast.error('Could not add this application — try the Add Games dialog')
-    } finally {
-      setAddingAppId(null)
-    }
-  }
-
-  // Search results split by source: trending games rank first, then ALL other
-  // matches from Discord's full App Directory.
-  const trendingResults = discordResults.filter(r => (r.source ?? 'trending') === 'trending')
-  const directoryResults = discordResults.filter(r => r.source === 'directory')
-
-  const filtered = games.filter(g =>
-    g.name.toLowerCase().includes(query.toLowerCase())
-  )
   const activeCount = games.filter(g => g.enabled).length
-  const showDiscordSection = !loading && query.trim().length >= 2
-
-  /** Shared row for a discovered app — one click adds it with its official
-   * Application ID (works for trending games and directory results alike). */
-  const resultRow = (app: DiscoveredApp) => {
-    const already = games.some(
-      g => g.custom && g.name.toLowerCase() === app.name.toLowerCase()
-    )
-    const busy = addingAppId === app.appId
-    return (
-      <button
-        key={app.appId}
-        type="button"
-        disabled={!!addingAppId}
-        onClick={() => handleAddDiscovered(app)}
-        className="w-full flex items-center justify-between p-3 sm:p-3.5 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl transition-all text-left cursor-pointer group active:scale-[0.99] disabled:opacity-60"
-      >
-        <div className="flex items-center gap-3.5 min-w-0">
-          <div className="w-12 h-12 rounded-xl overflow-hidden bg-[#121319] border border-white/10 shrink-0 relative shadow-md">
-            <div className="absolute inset-0 purple-gradient flex items-center justify-center text-xs font-bold text-white select-none">
-              {app.name.slice(0, 2).toUpperCase()}
-            </div>
-            {app.iconUrl && (
-              <img
-                src={app.iconUrl}
-                alt={app.name}
-                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none'
-                }}
-              />
-            )}
-          </div>
-          <div className="min-w-0">
-            <span className="flex items-center gap-1.5 min-w-0">
-              <span className="text-sm sm:text-base font-bold text-white group-hover:text-purple-200 transition-colors truncate">
-                {app.name}
-              </span>
-              {app.verified && (
-                <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-sky-400" aria-label="Verified application" />
-              )}
-              {!app.isGame && (
-                <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-white/10 text-white/60 border border-white/15">
-                  App
-                </span>
-              )}
-            </span>
-            <span className="text-xs text-white/50 block truncate mt-0.5">
-              {app.description || (app.source === 'trending' ? 'Real game — trending on Discord' : 'Discord application')}
-            </span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 shrink-0 ml-3">
-          {already ? (
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 inline-flex items-center gap-1 whitespace-nowrap">
-              <CheckCircle2 className="w-3 h-3" />
-              <span>Added</span>
-            </span>
-          ) : busy ? (
-            <Loader2 className="w-4 h-4 text-purple-300 animate-spin" />
-          ) : (
-            <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
-              <Plus className="w-3.5 h-3.5 text-purple-300 stroke-[2.5]" />
-            </span>
-          )}
-        </div>
-      </button>
-    )
-  }
 
   return (
     <div className="min-h-screen px-4 sm:px-6 py-6 max-w-2xl mx-auto space-y-6">
@@ -195,18 +55,6 @@ export function GamesPage() {
         <div className="absolute -top-16 -left-12 w-56 h-56 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" />
 
         <div className="relative z-10 space-y-5">
-          {/* Search Bar */}
-          <div className="relative">
-            <Search className="w-4 h-4 text-white/40 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Search games..."
-              className="w-full h-12 bg-[#12131a] border border-white/10 hover:border-white/20 focus:border-purple-500/50 rounded-2xl pl-11 pr-4 text-sm text-white placeholder:text-white/40 outline-none transition-colors"
-            />
-          </div>
-
           {/* Games List */}
           <div className="space-y-2">
             {loading && (
@@ -216,25 +64,15 @@ export function GamesPage() {
               </div>
             )}
 
-            {!loading && filtered.length === 0 && (
+            {!loading && games.length === 0 && (
               <div className="p-12 text-center space-y-3">
                 <div className="text-4xl select-none">🎮</div>
                 <p className="text-white/70 font-medium">No games found</p>
-                <p className="text-xs text-white/40">
-                  {query ? `No matches for "${query}". Try a different search.` : 'Game catalog is empty.'}
-                </p>
-                {query && (
-                  <button
-                    onClick={() => setQuery('')}
-                    className="text-xs text-purple-300 hover:text-purple-200 mt-2 font-medium"
-                  >
-                    Clear search
-                  </button>
-                )}
+                <p className="text-xs text-white/40">Game catalog is empty.</p>
               </div>
             )}
 
-            {!loading && filtered.map(g => (
+            {!loading && games.map(g => (
               <button
                 key={g.slug}
                 type="button"
@@ -289,60 +127,6 @@ export function GamesPage() {
                 </div>
               </button>
             ))}
-
-            {/* Search results — trending games first, then ALL other matches
-                from Discord's full App Directory (same row style, one click
-                to add with the official Application ID). */}
-            {showDiscordSection && (
-              <div className="pt-1 space-y-2">
-                {discordSearching && (
-                  <div className="flex items-center gap-2 px-1 pt-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
-                      Searching Discord...
-                    </span>
-                    <Loader2 className="w-3.5 h-3.5 text-purple-300/70 animate-spin" />
-                  </div>
-                )}
-
-                {!discordSearching && trendingResults.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 px-1 pt-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
-                        Trending Games On Discord
-                      </span>
-                    </div>
-                    {trendingResults.map(resultRow)}
-                  </div>
-                )}
-
-                {!discordSearching && directoryResults.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 px-1 pt-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
-                        All Results On Discord
-                      </span>
-                    </div>
-                    {directoryResults.map(resultRow)}
-                  </div>
-                )}
-
-                {!discordSearching && discordResults.length === 0 && (
-                  <div className="text-[11px] text-white/30 px-1 pb-1 space-y-2">
-                    <p>
-                      No results on Discord for "{query.trim()}".
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setAddOpen(true)}
-                      className="text-purple-300 hover:text-purple-200 font-medium inline-flex items-center gap-1 cursor-pointer"
-                    >
-                      <Plus className="w-3 h-3" />
-                      Add it by Application ID instead
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
 
             {/* Add Games button */}
             {!loading && (
