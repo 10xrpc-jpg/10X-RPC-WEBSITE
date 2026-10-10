@@ -31,7 +31,7 @@ export function LandingPage() {
 
   const onStart = () => {
     if (me?.authenticated) navigate({ name: 'dashboard' })
-    else navigate({ name: 'oauth-consent' })
+    else window.location.href = '/auth/discord'
   }
 
   return (

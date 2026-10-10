@@ -90,7 +90,7 @@ export function DashboardPage() {
           </p>
           <div className="flex flex-col gap-2">
             <button
-              onClick={() => navigate({ name: 'oauth-consent' })}
+              onClick={() => { window.location.href = '/auth/discord' }}
               className="purple-gradient text-white font-semibold rounded-xl px-4 py-3 shadow-lg shadow-purple-900/30 hover:opacity-90 active:scale-[0.98] transition-all"
             >
               Sign in with Discord

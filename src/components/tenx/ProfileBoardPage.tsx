@@ -103,7 +103,7 @@ export function ProfileBoardPage() {
           <h1 className="text-xl font-bold text-white mb-2">Profile Board</h1>
           <p className="text-sm text-white/60 mb-6">Sign in with Discord to manage your favorite games.</p>
           <button
-            onClick={() => navigate({ name: 'oauth-consent' })}
+            onClick={() => { window.location.href = '/auth/discord' }}
             className="purple-gradient text-white font-semibold rounded-xl px-4 py-3 shadow-lg shadow-purple-900/30 hover:opacity-90 active:scale-[0.98] transition-all"
           >
             Sign in with Discord
