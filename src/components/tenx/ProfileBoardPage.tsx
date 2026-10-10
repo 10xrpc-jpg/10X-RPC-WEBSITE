@@ -1,10 +1,12 @@
 // 10X RPC — Profile Board page (/profile)
 // The user's profile board: account identity + "Favorite Game" section.
-// Favorite Game → Add Game opens a search that covers BOTH the existing game
-// catalog and Discord's official TRENDING GAMES ranking (real games only —
-// no bots) — one click on a result automatically grabs the correct Discord
-// Application ID (official name + icon auto-fill), stars it as a favorite and
-// sets it as the live Game RPC.
+// Favorite Game → Add Game opens a search that covers the existing game
+// catalog PLUS all of Discord: the official TRENDING GAMES ranking, the full
+// 24,600+ DETECTABLE GAMES catalog (scored search — exact > prefix >
+// contains > executable, like the reference standalone-profile-board.js) and
+// the full App Directory. One click on a result automatically grabs the
+// correct Discord Application ID (official name + icon auto-fill), stars it
+// as a favorite and sets it as the live Game RPC.
 // Any favorited row can be re-applied as Game RPC with a single tap.
 'use client'
 import { useEffect, useState, useRef, useCallback } from 'react'
@@ -394,9 +396,11 @@ function AddFavoriteGameDialog({
     }
   }
 
-  // Search results split by source: trending games rank first, then ALL other
-  // matches from Discord's full App Directory.
+  // Search results split by source: trending games rank first, then ALL
+  // matches from the 24,600+ detectable games catalog, then every other app
+  // from Discord's full App Directory.
   const trendingResults = discordResults.filter(r => (r.source ?? 'trending') === 'trending')
+  const detectableResults = discordResults.filter(r => r.source === 'detectable')
   const directoryResults = discordResults.filter(r => r.source === 'directory')
 
   /** Shared row for a discovered app — one click runs the full flow: grab the
@@ -582,8 +586,9 @@ function AddFavoriteGameDialog({
             </div>
           )}
 
-          {/* Discord search results — trending games first, then ALL other
-              matches from Discord's full App Directory */}
+          {/* Discord search results — trending games first, then ALL matches
+              from the 24,600+ detectable games catalog, then every other app
+              from Discord's full App Directory */}
           {showDirectory && (
             <div className="space-y-2">
               {discordSearching && (
@@ -603,6 +608,20 @@ function AddFavoriteGameDialog({
                     </span>
                   </div>
                   {trendingResults.map(resultRow)}
+                </div>
+              )}
+
+              {!discordSearching && detectableResults.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 px-1 pt-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
+                      All Games On Discord
+                    </span>
+                    <span className="text-[9px] font-semibold text-purple-300/70 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
+                      24,600+ catalog
+                    </span>
+                  </div>
+                  {detectableResults.map(resultRow)}
                 </div>
               )}
 
@@ -638,7 +657,7 @@ function AddFavoriteGameDialog({
               <Gamepad2 className="w-8 h-8 text-white/25 mx-auto" />
               <p className="text-sm text-white/50 font-medium">Search any game</p>
               <p className="text-xs text-white/35">
-                Your games appear instantly — anything else is searched across ALL of Discord (trending games + the full app directory) with automatic ID detection.
+                Your games appear instantly — anything else is searched across ALL of Discord (trending games + the 24,600+ detectable catalog + the full app directory) with automatic ID detection.
               </p>
             </div>
           )}

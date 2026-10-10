@@ -92,8 +92,9 @@ export interface GameListItem {
   appId?: string | null
 }
 
-/** Game/app candidate from /api/games/discover — trending-games ranking plus
- * the full Discord App Directory, so every query shows ALL matching results. */
+/** Game/app candidate from /api/games/discover — trending-games ranking, the
+ * full 24,600+ Discord detectable-games catalog, plus the full Discord App
+ * Directory, so every query shows ALL matching results. */
 export interface DiscoveredApp {
   appId: string
   name: string
@@ -104,7 +105,7 @@ export interface DiscoveredApp {
   isGame: boolean
   tags: string[]
   /** Which Discord source produced this result. */
-  source: 'trending' | 'directory'
+  source: 'trending' | 'detectable' | 'directory'
 }
 
 /** Profile Board → Favorite Game entry (starred game shortlist). */
@@ -304,7 +305,7 @@ export const api = {
   ),
 
   gamesList: () => fetchJson<{ games: GameListItem[] }>('/api/games/list'),
-  gamesDiscover: (q: string, limit = 12) =>
+  gamesDiscover: (q: string, limit = 24) =>
     fetchJson<{ ok: boolean; results: DiscoveredApp[] }>(
       `/api/games/discover?q=${encodeURIComponent(q)}&limit=${limit}`
     ),

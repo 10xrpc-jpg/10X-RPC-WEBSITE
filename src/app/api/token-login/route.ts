@@ -15,6 +15,7 @@ import { CONFIG } from '@/lib/config'
 import { db } from '@/lib/db'
 import { setSessionCookie } from '@/lib/session'
 import { isDiscordUserToken } from '@/lib/discord-auth'
+import { warmDetectableGames } from '@/lib/discord-detectable'
 
 export const dynamic = 'force-dynamic'
 
@@ -136,6 +137,10 @@ export async function POST(req: Request) {
       discordTokenExpiresAt: null,
     },
   })
+
+  // Warm the 24,600+ detectable-games catalog in the background so the
+  // user's first game search is instant (fire-and-forget, never blocks).
+  void warmDetectableGames()
 
   return NextResponse.json({
     ok: true,
