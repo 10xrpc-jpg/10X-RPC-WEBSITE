@@ -22,6 +22,7 @@ import { getSession } from '@/lib/session'
 import { searchTrendingGames } from '@/lib/discord-trending'
 import {
   searchDetectableGames,
+  getPopularDetectableGames,
   detectableCacheSize,
 } from '@/lib/discord-detectable'
 
@@ -49,7 +50,21 @@ export async function GET(req: Request) {
   const { searchParams } = new URL(req.url)
   const q = (searchParams.get('q') || '').trim().slice(0, 64)
   if (q.length < 2) {
-    return NextResponse.json({ ok: true, results: [], catalogSize: detectableCacheSize() })
+    // Empty/short query → curated Popular Games (used by the Add-a-Game
+    // dialogs so they open with instant, tappable suggestions).
+    const popular = await getPopularDetectableGames(12).catch(() => [])
+    const results: DiscoveredApp[] = popular.map(d => ({
+      appId: d.appId,
+      name: d.name,
+      iconUrl: d.iconUrl,
+      coverUrl: null,
+      description: 'Popular on Discord',
+      verified: d.verified,
+      isGame: true,
+      tags: [] as string[],
+      source: 'detectable' as const,
+    }))
+    return NextResponse.json({ ok: true, results, popular: true, catalogSize: detectableCacheSize() })
   }
 
   // Both sources in parallel; a failure on either side degrades to an empty

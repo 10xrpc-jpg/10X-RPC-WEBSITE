@@ -308,6 +308,7 @@ function AddFavoriteGameDialog({
   const [favorites, setFavorites] = useState<FavoriteGameItem[]>([])
   const [discordResults, setDiscordResults] = useState<DiscoveredApp[]>([])
   const [discordSearching, setDiscordSearching] = useState(false)
+  const [discordIsPopular, setDiscordIsPopular] = useState(true)
   const [busyAppId, setBusyAppId] = useState<string | null>(null)
   const [starringName, setStarringName] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
@@ -323,12 +324,16 @@ function AddFavoriteGameDialog({
   }, [onClose])
 
   // Debounced Discord search (same sources as the Games page: trending games
-  // first, then the full App Directory).
+  // first, then the 24,600+ detectable games catalog). An empty query returns
+  // curated Popular Games so the dialog opens with instant suggestions.
   useEffect(() => {
     const q = query.trim()
-    if (q.length < 2) {
+    if (q.length === 1) {
+      // Too short for a real search — show only the matched catalog games.
+      ++discordSeq.current
       setDiscordResults([])
       setDiscordSearching(false)
+      setDiscordIsPopular(false)
       return
     }
     const seq = ++discordSeq.current
@@ -338,6 +343,7 @@ function AddFavoriteGameDialog({
         .then(r => {
           if (discordSeq.current !== seq) return
           setDiscordResults(r.results || [])
+          setDiscordIsPopular(!!r.popular)
           setDiscordSearching(false)
         })
         .catch(() => {
@@ -345,7 +351,7 @@ function AddFavoriteGameDialog({
           setDiscordResults([])
           setDiscordSearching(false)
         })
-    }, 350)
+    }, q ? 350 : 0)
     return () => clearTimeout(t)
   }, [query])
 
@@ -472,7 +478,7 @@ function AddFavoriteGameDialog({
   const matchedGames = q.length >= 1
     ? games.filter(g => g.name.toLowerCase().includes(q))
     : []
-  const showDirectory = q.length >= 2
+  const showDirectory = q.length >= 2 || q.length === 0
 
   return (
     <div
@@ -597,7 +603,21 @@ function AddFavoriteGameDialog({
                 </div>
               )}
 
-              {!discordSearching && trendingResults.length > 0 && (
+              {!discordSearching && discordIsPopular && discordResults.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 px-1 pt-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
+                      Popular On Discord
+                    </span>
+                    <span className="text-[9px] font-semibold text-purple-300/70 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
+                      24,600+ catalog
+                    </span>
+                  </div>
+                  {discordResults.map(resultRow)}
+                </div>
+              )}
+
+              {!discordSearching && !discordIsPopular && trendingResults.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 px-1 pt-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
@@ -608,7 +628,7 @@ function AddFavoriteGameDialog({
                 </div>
               )}
 
-              {!discordSearching && detectableResults.length > 0 && (
+              {!discordSearching && !discordIsPopular && detectableResults.length > 0 && (
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 px-1 pt-1">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
@@ -622,7 +642,7 @@ function AddFavoriteGameDialog({
                 </div>
               )}
 
-              {!discordSearching && discordResults.length === 0 && (
+              {!discordSearching && !discordIsPopular && discordResults.length === 0 && (
                 <p className="text-[11px] text-white/30 px-1 pb-1">
                   No results on Discord for "{query.trim()}".
                 </p>
@@ -637,8 +657,8 @@ function AddFavoriteGameDialog({
             </div>
           )}
 
-          {/* Idle hint */}
-          {q.length === 0 && (
+          {/* Idle hint (only if the popular list failed to load) */}
+          {q.length === 0 && !discordSearching && discordResults.length === 0 && (
             <div className="p-8 text-center space-y-2">
               <Gamepad2 className="w-8 h-8 text-white/25 mx-auto" />
               <p className="text-sm text-white/50 font-medium">Search any game</p>

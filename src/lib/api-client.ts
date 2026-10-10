@@ -306,7 +306,7 @@ export const api = {
 
   gamesList: () => fetchJson<{ games: GameListItem[] }>('/api/games/list'),
   gamesDiscover: (q: string, limit = 24) =>
-    fetchJson<{ ok: boolean; results: DiscoveredApp[] }>(
+    fetchJson<{ ok: boolean; results: DiscoveredApp[]; popular?: boolean }>(
       `/api/games/discover?q=${encodeURIComponent(q)}&limit=${limit}`
     ),
   gameConfig: (slug: string) => fetchJson<{ preset: GamePreset; config: GameConfig | null }>(`/api/games/${slug}`),

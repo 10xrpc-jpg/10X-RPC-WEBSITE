@@ -15,7 +15,7 @@ import { toast } from 'sonner'
 import { api, type GameListItem, type DiscoveredApp } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { BackButton } from './ui'
-import { Gamepad2, Search, ChevronRight, Plus, X, CheckCircle2, BadgeCheck, Loader2 } from 'lucide-react'
+import { Gamepad2, Search, ChevronRight, Plus, X, CheckCircle2, BadgeCheck, Loader2, Hash } from 'lucide-react'
 
 export function GamesPage() {
   const { navigate } = useRouter()
@@ -380,7 +380,8 @@ export function GamesPage() {
         ⚠ 10X RPC is not responsible if your account gets banned or blocked. Use at your own risk.
       </p>
 
-      {/* Add Games dialog */}
+      {/* Add Games dialog — full upgrade: Discord search (trending + 24,600+
+          catalog + popular suggestions) AND the classic Application ID flow. */}
       {addOpen && (
         <AddGameDialog
           onClose={() => setAddOpen(false)}
@@ -389,19 +390,54 @@ export function GamesPage() {
             refresh()
             navigate({ name: 'game', slug })
           }}
+          addDiscovered={async (app) => {
+            setAddOpen(false)
+            await handleAddDiscovered(app)
+          }}
+          addingAppId={addingAppId}
+          games={games}
         />
       )}
     </div>
   )
 }
 
+/** Add a Game dialog — upgraded two-tab experience:
+ *
+ * Tab 1 "Search Discord": search across the Trending Games ranking and the
+ * full 24,600+ detectable-games catalog (opens instantly with curated
+ * Popular Games). One click on any result runs the FULL flow — official
+ * Application ID auto-grabbed, game created, starred on the Favorite Game
+ * Board and applied live as Game RPC.
+ *
+ * Tab 2 "Application ID": the classic power-user flow — paste any Discord
+ * Application ID, the official identity (name + icon) is looked up live,
+ * and the game is created for manual RPC configuration.
+ */
 function AddGameDialog({
   onClose,
   onCreated,
+  addDiscovered,
+  addingAppId,
+  games,
 }: {
   onClose: () => void
   onCreated: (slug: string) => void
+  addDiscovered: (app: DiscoveredApp) => Promise<void> | void
+  addingAppId: string | null
+  games: GameListItem[]
 }) {
+  const [tab, setTab] = useState<'search' | 'appid'>('search')
+
+  // --- Search tab state ---
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<DiscoveredApp[]>([])
+  const [isPopular, setIsPopular] = useState(true)
+  const [searching, setSearching] = useState(true)
+  const searchSeq = useRef(0)
+  const searchRef = useRef<HTMLInputElement>(null)
+
+  // --- Application ID tab state (classic flow, unchanged behavior) ---
   const [appId, setAppId] = useState('')
   const [foundApp, setFoundApp] = useState<{ name: string; iconUrl: string | null } | null>(null)
   const [lookingUp, setLookingUp] = useState(false)
@@ -409,13 +445,49 @@ function AddGameDialog({
   const appIdRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
-    appIdRef.current?.focus()
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
   }, [onClose])
+
+  // Focus the active tab's input.
+  useEffect(() => {
+    if (tab === 'search') searchRef.current?.focus()
+    else appIdRef.current?.focus()
+  }, [tab])
+
+  // Debounced Discord search — an empty query returns curated Popular Games
+  // so the dialog opens with instant, tappable suggestions. A single
+  // character is too short for a real search: only the local list matches.
+  useEffect(() => {
+    const q = query.trim()
+    if (q.length === 1) {
+      ++searchSeq.current
+      setResults([])
+      setSearching(false)
+      setIsPopular(false)
+      return
+    }
+    const t = setTimeout(() => {
+      const seq = ++searchSeq.current
+      setSearching(true)
+      api.gamesDiscover(q)
+        .then(r => {
+          if (searchSeq.current !== seq) return
+          setResults(r.results || [])
+          setIsPopular(!!r.popular)
+          setSearching(false)
+        })
+        .catch(() => {
+          if (searchSeq.current !== seq) return
+          setResults([])
+          setSearching(false)
+        })
+    }, q ? 350 : 0)
+    return () => clearTimeout(t)
+  }, [query])
 
   const handleAppIdLookup = async () => {
     const id = appId.trim()
@@ -461,13 +533,88 @@ function AddGameDialog({
     }
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleAppIdKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key !== 'Enter') return
     e.preventDefault()
     const a = appId.trim()
     if (a && /^\d{15,21}$/.test(a) && !foundApp && !lookingUp) handleAppIdLookup()
     else if (!saving) handleCreate()
   }
+
+  // Search results split by source: trending first, then the 24,600+ catalog.
+  const trendingResults = results.filter(r => (r.source ?? 'trending') === 'trending')
+  const detectableResults = results.filter(r => r.source === 'detectable')
+
+  /** Result row — one click runs the full add flow (App ID → favorite → live
+   * Game RPC) via the parent's handler. */
+  const resultRow = (app: DiscoveredApp) => {
+    const already = games.some(
+      g => g.custom && g.name.toLowerCase() === app.name.toLowerCase()
+    )
+    const busy = addingAppId === app.appId
+    return (
+      <button
+        key={app.appId}
+        type="button"
+        disabled={!!addingAppId}
+        onClick={() => addDiscovered(app)}
+        className="w-full flex items-center justify-between p-3 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl transition-all text-left cursor-pointer group active:scale-[0.99] disabled:opacity-60"
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-11 h-11 rounded-xl overflow-hidden bg-[#121319] border border-white/10 shrink-0 relative shadow-md">
+            <div className="absolute inset-0 purple-gradient flex items-center justify-center text-xs font-bold text-white select-none">
+              {app.name.slice(0, 2).toUpperCase()}
+            </div>
+            {app.iconUrl && (
+              <img
+                src={app.iconUrl}
+                alt={app.name}
+                className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none'
+                }}
+              />
+            )}
+          </div>
+          <div className="min-w-0">
+            <span className="flex items-center gap-1.5 min-w-0">
+              <span className="text-sm font-bold text-white group-hover:text-purple-200 transition-colors truncate">
+                {app.name}
+              </span>
+              {app.verified && (
+                <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-sky-400" aria-label="Verified application" />
+              )}
+            </span>
+            <span className="text-[11px] text-white/50 block truncate mt-0.5">
+              {app.description || (app.source === 'trending' ? 'Real game — trending on Discord' : 'Real game — Discord detectable catalog')}
+            </span>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0 ml-3">
+          {already ? (
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 inline-flex items-center gap-1 whitespace-nowrap">
+              <CheckCircle2 className="w-3 h-3" />
+              <span>Added</span>
+            </span>
+          ) : busy ? (
+            <Loader2 className="w-4 h-4 text-purple-300 animate-spin" />
+          ) : (
+            <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
+              <Plus className="w-3.5 h-3.5 text-purple-300 stroke-[2.5]" />
+            </span>
+          )}
+        </div>
+      </button>
+    )
+  }
+
+  const tabBtn = (active: boolean) =>
+    `h-9 rounded-lg text-xs font-bold tracking-wide uppercase transition-all cursor-pointer inline-flex items-center justify-center gap-1.5 ${
+      active
+        ? 'purple-gradient text-white shadow-md shadow-purple-900/40'
+        : 'text-white/45 hover:text-white/80'
+    }`
 
   return (
     <div
@@ -490,7 +637,7 @@ function AddGameDialog({
             </span>
             <div>
               <h2 className="text-base font-bold text-white tracking-tight">Add a Game</h2>
-              <p className="text-[11px] text-white/40">Create your own Rich Presence game</p>
+              <p className="text-[11px] text-white/40">Search Discord or add by Application ID</p>
             </div>
           </div>
           <button
@@ -503,86 +650,178 @@ function AddGameDialog({
           </button>
         </div>
 
-        <div className="space-y-4 pt-4">
-          {/* Application ID — the only field (official name + icon auto-fill) */}
-          <div className="space-y-1.5">
-            <label htmlFor="custom-game-appid" className="text-xs font-bold tracking-wider text-[#a855f7] uppercase block">
-              Application ID
-            </label>
-            <input
-              ref={appIdRef}
-              id="custom-game-appid"
-              type="text"
-              value={appId}
-              onChange={e => {
-                setAppId(e.target.value)
-                setFoundApp(null)
-              }}
-              onBlur={handleAppIdLookup}
-              onKeyDown={handleKeyDown}
-              placeholder="Discord Application ID — e.g. 1402418491272986635"
-              inputMode="numeric"
-              autoComplete="off"
-              className="w-full h-12 bg-[#12131a] border border-white/10 hover:border-white/20 focus:border-purple-500/50 rounded-xl px-4 text-sm text-white placeholder:text-white/35 outline-none transition-colors"
-            />
-            <p className="text-[11px] text-white/35 px-1">
-              {lookingUp ? 'Looking up application…' : 'Paste a Discord Application ID and the game is presented as that application (official name + icon auto-fill).'}
+        {/* Tab switcher */}
+        <div className="grid grid-cols-2 gap-1 p-1 bg-[#12131a] border border-white/10 rounded-xl mt-4" role="tablist" aria-label="Add game method">
+          <button type="button" role="tab" aria-selected={tab === 'search'} onClick={() => setTab('search')} className={tabBtn(tab === 'search')}>
+            <Search className="w-3.5 h-3.5" />
+            Search Discord
+          </button>
+          <button type="button" role="tab" aria-selected={tab === 'appid'} onClick={() => setTab('appid')} className={tabBtn(tab === 'appid')}>
+            <Hash className="w-3.5 h-3.5" />
+            Application ID
+          </button>
+        </div>
+
+        {tab === 'search' ? (
+          <div className="space-y-3 pt-4">
+            {/* Search input */}
+            <div className="relative">
+              <Search className="w-4 h-4 text-white/40 absolute left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <input
+                ref={searchRef}
+                type="text"
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Search games on Discord..."
+                aria-label="Search games on Discord"
+                className="w-full h-12 bg-[#12131a] border border-white/10 hover:border-white/20 focus:border-purple-500/50 rounded-2xl pl-11 pr-4 text-sm text-white placeholder:text-white/40 outline-none transition-colors"
+              />
+            </div>
+
+            {/* Results */}
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-0.5">
+              {searching && (
+                <div className="flex items-center gap-2 px-1 pt-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
+                    {isPopular ? 'Loading popular games...' : 'Searching Discord...'}
+                  </span>
+                  <Loader2 className="w-3.5 h-3.5 text-purple-300/70 animate-spin" />
+                </div>
+              )}
+
+              {!searching && isPopular && results.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 px-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
+                      Popular On Discord
+                    </span>
+                    <span className="text-[9px] font-semibold text-purple-300/70 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
+                      24,600+ catalog
+                    </span>
+                  </div>
+                  {results.map(resultRow)}
+                </div>
+              )}
+
+              {!searching && !isPopular && trendingResults.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 px-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
+                      Trending Games On Discord
+                    </span>
+                  </div>
+                  {trendingResults.map(resultRow)}
+                </div>
+              )}
+
+              {!searching && !isPopular && detectableResults.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 px-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
+                      All Games On Discord
+                    </span>
+                    <span className="text-[9px] font-semibold text-purple-300/70 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
+                      24,600+ catalog
+                    </span>
+                  </div>
+                  {detectableResults.map(resultRow)}
+                </div>
+              )}
+
+              {!searching && !isPopular && results.length === 0 && (
+                <p className="text-[11px] text-white/30 px-1 py-2">
+                  No results on Discord for &quot;{query.trim()}&quot;.
+                </p>
+              )}
+            </div>
+
+            <p className="text-[11px] leading-relaxed text-white/40 px-1">
+              ℹ️ One click grabs the official Application ID, adds the game, stars it
+              on your Favorite Game Board and sets it live as your Game RPC.
             </p>
           </div>
-
-          {/* Found-app preview (auto-filled official identity) */}
-          {foundApp && (
-            <div className="flex items-center gap-3 p-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.07]">
-              <div className="w-10 h-10 rounded-lg overflow-hidden bg-[#121319] border border-white/10 shrink-0 relative">
-                <div className="absolute inset-0 purple-gradient flex items-center justify-center text-[10px] font-bold text-white select-none">
-                  {foundApp.name.slice(0, 2).toUpperCase()}
-                </div>
-                {foundApp.iconUrl && (
-                  <img
-                    src={foundApp.iconUrl}
-                    alt={foundApp.name}
-                    className="absolute inset-0 w-full h-full object-cover"
-                    onError={(e) => {
-                      e.currentTarget.style.display = 'none'
-                    }}
-                  />
-                )}
-              </div>
-              <div className="min-w-0">
-                <p className="text-sm font-bold text-white truncate">{foundApp.name}</p>
-                <p className="text-[11px] text-emerald-300/90 inline-flex items-center gap-1">
-                  <CheckCircle2 className="w-3 h-3 shrink-0" />
-                  Official identity found
-                </p>
-              </div>
+        ) : (
+          <div className="space-y-4 pt-4">
+            {/* Application ID — the classic power-user flow (official name + icon auto-fill) */}
+            <div className="space-y-1.5">
+              <label htmlFor="custom-game-appid" className="text-xs font-bold tracking-wider text-[#a855f7] uppercase block">
+                Application ID
+              </label>
+              <input
+                ref={appIdRef}
+                id="custom-game-appid"
+                type="text"
+                value={appId}
+                onChange={e => {
+                  setAppId(e.target.value)
+                  setFoundApp(null)
+                }}
+                onBlur={handleAppIdLookup}
+                onKeyDown={handleAppIdKeyDown}
+                placeholder="Discord Application ID — e.g. 1402418491272986635"
+                inputMode="numeric"
+                autoComplete="off"
+                className="w-full h-12 bg-[#12131a] border border-white/10 hover:border-white/20 focus:border-purple-500/50 rounded-xl px-4 text-sm text-white placeholder:text-white/35 outline-none transition-colors"
+              />
+              <p className="text-[11px] text-white/35 px-1">
+                {lookingUp ? 'Looking up application…' : 'Paste a Discord Application ID and the game is presented as that application (official name + icon auto-fill).'}
+              </p>
             </div>
-          )}
 
-          <p className="text-[11px] leading-relaxed text-white/40 px-1">
-            ℹ️ The game is presented as the official Discord application — its name and
-            icon are fetched automatically. After adding, open the game to customize
-            state, details, party, buttons and enable its RPC.
-          </p>
+            {/* Found-app preview (auto-filled official identity) */}
+            {foundApp && (
+              <div className="flex items-center gap-3 p-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.07]">
+                <div className="w-10 h-10 rounded-lg overflow-hidden bg-[#121319] border border-white/10 shrink-0 relative">
+                  <div className="absolute inset-0 purple-gradient flex items-center justify-center text-[10px] font-bold text-white select-none">
+                    {foundApp.name.slice(0, 2).toUpperCase()}
+                  </div>
+                  {foundApp.iconUrl && (
+                    <img
+                      src={foundApp.iconUrl}
+                      alt={foundApp.name}
+                      className="absolute inset-0 w-full h-full object-cover"
+                      onError={(e) => {
+                        e.currentTarget.style.display = 'none'
+                      }}
+                    />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <p className="text-sm font-bold text-white truncate">{foundApp.name}</p>
+                  <p className="text-[11px] text-emerald-300/90 inline-flex items-center gap-1">
+                    <CheckCircle2 className="w-3 h-3 shrink-0" />
+                    Official identity found
+                  </p>
+                </div>
+              </div>
+            )}
 
-          {/* Actions */}
-          <div className="pt-2 flex justify-center gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="bg-[#1e1f26] hover:bg-[#282933] border border-white/10 text-white/80 font-medium text-xs tracking-widest uppercase px-6 py-3 rounded-xl transition-all active:scale-[0.98] cursor-pointer"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={handleCreate}
-              disabled={saving}
-              className="purple-gradient text-white font-bold text-xs tracking-widest uppercase px-8 py-3 rounded-xl transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-lg shadow-purple-900/40"
-            >
-              {saving ? 'ADDING...' : 'Add Game'}
-            </button>
+            <p className="text-[11px] leading-relaxed text-white/40 px-1">
+              ℹ️ The game is presented as the official Discord application — its name and
+              icon are fetched automatically. After adding, open the game to customize
+              state, details, party, buttons and enable its RPC.
+            </p>
+
+            {/* Actions */}
+            <div className="pt-2 flex justify-center gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                className="bg-[#1e1f26] hover:bg-[#282933] border border-white/10 text-white/80 font-medium text-xs tracking-widest uppercase px-6 py-3 rounded-xl transition-all active:scale-[0.98] cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleCreate}
+                disabled={saving}
+                className="purple-gradient text-white font-bold text-xs tracking-widest uppercase px-8 py-3 rounded-xl transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer shadow-lg shadow-purple-900/40"
+              >
+                {saving ? 'ADDING...' : 'Add Game'}
+              </button>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   )
