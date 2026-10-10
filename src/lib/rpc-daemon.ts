@@ -36,6 +36,14 @@ interface ActiveUserSocket {
   isConnecting: boolean
   connectingSince?: number
   lastPushAt?: number
+  /** Token sent with the last IDENTIFY — lets the close handler remember
+   *  exactly which token Discord rejected. */
+  identifiedWith?: string | null
+  /** The Discord token whose IDENTIFY was rejected with 4004 (Authentication
+   *  failed). 4004 means the token ITSELF is dead (revoked/reset) — retrying
+   *  the same token hits 4004 forever. Auth stays fatal until the stored
+   *  token CHANGES (re-login / new token), which auto-unblocks the user. */
+  failedAuthToken?: string | null
 }
 
 export class RpcDaemon {
@@ -111,6 +119,9 @@ export class RpcDaemon {
 
       // 3. Disconnected with no reconnect pending — revive the chain
       if (!userSock.connected && !userSock.isConnecting && !userSock.retryTimer) {
+        // Auth-fatal (4004) users stay down until their token changes —
+        // syncAllUsers unblocks them automatically once a new token lands.
+        if (userSock.failedAuthToken) continue
         console.warn(`[10X RPC Daemon] Watchdog: user ${userId} disconnected with no reconnect pending. Reviving...`)
         this.scheduleReconnect(userId, 1000)
         continue
@@ -309,6 +320,7 @@ export class RpcDaemon {
           expiresAt: { gt: now },
           discordAccessToken: { not: null },
         },
+        orderBy: { createdAt: 'desc' },
         include: {
           user: {
             include: {
@@ -329,6 +341,15 @@ export class RpcDaemon {
     }
 
     const activeUserIds = new Set<string>()
+
+    // Latest session per user. Auth-fatal (4004) decisions must compare against
+    // the SAME session the connector uses (latest = createdAt desc) — a user can
+    // hold several session rows with different tokens, and comparing against a
+    // stale row would unblock the guard every tick and resurrect the 4004 loop.
+    const latestTokenByUser = new Map<string, string | null>()
+    for (const s of activeSessions) {
+      if (!latestTokenByUser.has(s.userId)) latestTokenByUser.set(s.userId, s.discordAccessToken || null)
+    }
 
     for (const session of activeSessions) {
       // Check trial
@@ -375,6 +396,12 @@ export class RpcDaemon {
 
       // If socket is disconnected, connect it
       if (!userSock.connected && !userSock.isConnecting) {
+        // Auth-fatal guard (4004): skip while the FAILED token is still the
+        // user's LATEST token; auto-unblock as soon as a new token lands.
+        if (userSock.failedAuthToken) {
+          if (userSock.failedAuthToken === (latestTokenByUser.get(session.userId) ?? null)) continue
+          userSock.failedAuthToken = null // new token — allow a fresh attempt
+        }
         this.connectUserSocket(session.userId)
       }
     }
@@ -545,6 +572,7 @@ export class RpcDaemon {
     try {
       const session = await db.session.findFirst({
         where: { userId },
+        orderBy: { createdAt: 'desc' },
       })
       if (!session || !session.discordAccessToken) {
         userSock.isConnecting = false
@@ -571,6 +599,17 @@ export class RpcDaemon {
           }
         }
       }
+
+      // 4004 fatal-auth guard: if this exact token was already rejected by
+      // Discord, do NOT open another socket (infinite-loop protection). A NEW
+      // token (re-login) clears failedAuthToken in syncAllUsers/syncUser.
+      if (userSock.failedAuthToken && userSock.failedAuthToken === accessToken) {
+        userSock.isConnecting = false
+        userSock.connectingSince = undefined
+        return
+      }
+      userSock.identifiedWith = accessToken
+      userSock.failedAuthToken = null // proceeding with this token — clear any stale block
 
       // Check target platform based on active mode (Normal vs Gamer RPC are
       // exclusive — the socket platform follows the ACTIVE mode's own config).
@@ -729,10 +768,19 @@ export class RpcDaemon {
                     discordTokenExpiresAt: new Date(Date.now() + (refreshed.expires_in || 604800) * 1000),
                   },
                 })
+                userSock.failedAuthToken = null // fresh token — retry allowed
                 this.scheduleReconnect(userId, 2000)
                 return
               }
             }
+            // No refresh token / refresh failed → the token itself is dead
+            // (revoked, password change, expired raw user token). Retrying the
+            // SAME token would hit 4004 forever — mark auth-fatal and stop
+            // reconnecting until the user logs in with a new token.
+            console.warn(`[10X RPC Daemon] Token for user ${userId} cannot be refreshed — auth-fatal. No reconnects until a new token is set.`)
+            userSock.failedAuthToken = userSock.identifiedWith || null
+            userSock.retryCount = 0
+            return
           } else if (code === 4008) {
             // Rate limited — back off for 60 seconds to allow rate limit window to clear
             console.warn(`[10X RPC Daemon] Rate limited by Discord Gateway for user ${userId}. Backing off for 60s...`)
@@ -936,6 +984,7 @@ export class RpcDaemon {
       lastTickAt: this.lastTickAt,
       activeConnections: Array.from(this.sockets.values()).filter(s => s.connected).length,
       totalTrackedUsers: this.sockets.size,
+      authFailedUsers: Array.from(this.sockets.values()).filter(s => s.failedAuthToken).length,
       users: Array.from(this.sockets.values()).map(s => ({
         userId: s.userId,
         connected: s.connected,
