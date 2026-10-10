@@ -141,6 +141,10 @@
 .purple-gradient {
   background: linear-gradient(135deg, #a855f7 0%, #8b5cf6 100%);
 }
+/* Neutral fallback for game/app icon placeholders (no purple) */
+.icon-fallback {
+  background: linear-gradient(135deg, #2b2d3f 0%, #1f202c 100%);
+}
 .purple-glow {
   box-shadow: 0 0 30px -8px rgba(168, 85, 247, 0.5);
 }

@@ -295,7 +295,7 @@ function AssetImage({ assetKey, fallbackText, title }: { assetKey: string; fallb
     return (
       <div
         title={title}
-        className="w-14 h-14 rounded-xl purple-gradient flex items-center justify-center text-2xl font-bold text-white border border-white/10"
+        className="w-14 h-14 rounded-xl icon-fallback flex items-center justify-center text-2xl font-bold text-white/70 border border-white/10"
       >
         {fallbackText}
       </div>

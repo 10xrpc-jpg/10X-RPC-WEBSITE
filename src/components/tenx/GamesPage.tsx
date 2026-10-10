@@ -128,7 +128,7 @@ export function GamesPage() {
       >
         <div className="flex items-center gap-3.5 min-w-0">
           <div className="w-12 h-12 rounded-xl overflow-hidden bg-[#121319] border border-white/10 shrink-0 relative shadow-md">
-            <div className="absolute inset-0 purple-gradient flex items-center justify-center text-xs font-bold text-white select-none">
+            <div className="absolute inset-0 icon-fallback flex items-center justify-center text-xs font-bold text-white/70 select-none">
               {app.name.slice(0, 2).toUpperCase()}
             </div>
             {app.iconUrl && (
@@ -255,7 +255,7 @@ export function GamesPage() {
                   {/* Game Icon */}
                   <div className="w-12 h-12 rounded-xl overflow-hidden bg-[#121319] border border-white/10 shrink-0 relative shadow-md">
                     {/* Letter fallback (always behind the image layer) */}
-                    <div className="absolute inset-0 purple-gradient flex items-center justify-center text-xs font-bold text-white select-none">
+                    <div className="absolute inset-0 icon-fallback flex items-center justify-center text-xs font-bold text-white/70 select-none">
                       {g.name.slice(0, 2).toUpperCase()}
                     </div>
                     {g.iconUrl ? (
@@ -562,7 +562,7 @@ function AddGameDialog({
       >
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-11 h-11 rounded-xl overflow-hidden bg-[#121319] border border-white/10 shrink-0 relative shadow-md">
-            <div className="absolute inset-0 purple-gradient flex items-center justify-center text-xs font-bold text-white select-none">
+            <div className="absolute inset-0 icon-fallback flex items-center justify-center text-xs font-bold text-white/70 select-none">
               {app.name.slice(0, 2).toUpperCase()}
             </div>
             {app.iconUrl && (
@@ -772,7 +772,7 @@ function AddGameDialog({
             {foundApp && (
               <div className="flex items-center gap-3 p-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.07]">
                 <div className="w-10 h-10 rounded-lg overflow-hidden bg-[#121319] border border-white/10 shrink-0 relative">
-                  <div className="absolute inset-0 purple-gradient flex items-center justify-center text-[10px] font-bold text-white select-none">
+                  <div className="absolute inset-0 icon-fallback flex items-center justify-center text-[10px] font-bold text-white/70 select-none">
                     {foundApp.name.slice(0, 2).toUpperCase()}
                   </div>
                   {foundApp.iconUrl && (
