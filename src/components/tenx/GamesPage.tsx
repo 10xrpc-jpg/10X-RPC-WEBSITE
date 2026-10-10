@@ -1,11 +1,12 @@
 // 10X RPC — Games list page (#/games) with active game indicator + "Add Games"
 // Custom games (created via the Add Games dialog) appear after the presets and
 // can be configured or deleted from their own config page.
-// Game search sources (ALL results for every query):
+// Game search sources (ALL real-game results for every query):
 //   1. Discord's official TRENDING GAMES ranking (real games with real IDs)
 //   2. The full 24,600+ DETECTABLE GAMES catalog (scored search, like the
 //      reference standalone-profile-board.js implementation)
-//   3. The full Discord APP DIRECTORY (every published app — tools, RPCs…)
+// (The old "All Results On Discord" App-Directory section was removed on
+// request — search results are real games only.)
 // One click on a result runs the full flow: official Application ID grabbed,
 // game created, starred on the Favorite Game Board and applied live as Game RPC.
 'use client'
@@ -100,11 +101,9 @@ export function GamesPage() {
   }
 
   // Search results split by source: trending games rank first, then ALL
-  // matches from the 24,600+ detectable games catalog, then every other app
-  // from Discord's full App Directory.
+  // matches from the 24,600+ detectable games catalog.
   const trendingResults = discordResults.filter(r => (r.source ?? 'trending') === 'trending')
   const detectableResults = discordResults.filter(r => r.source === 'detectable')
-  const directoryResults = discordResults.filter(r => r.source === 'directory')
 
   const filtered = games.filter(g =>
     g.name.toLowerCase().includes(query.toLowerCase())
@@ -158,7 +157,7 @@ export function GamesPage() {
               )}
             </span>
             <span className="text-xs text-white/50 block truncate mt-0.5">
-              {app.description || (app.source === 'trending' ? 'Real game — trending on Discord' : app.source === 'detectable' ? 'Real game — Discord detectable catalog' : 'Discord application')}
+              {app.description || (app.source === 'trending' ? 'Real game — trending on Discord' : 'Real game — Discord detectable catalog')}
             </span>
           </div>
         </div>
@@ -302,9 +301,8 @@ export function GamesPage() {
             ))}
 
             {/* Search results — trending games first, then ALL matches from
-                the 24,600+ detectable games catalog, then every other app from
-                Discord's full App Directory (same row style, one click to add
-                with the official Application ID). */}
+                the 24,600+ detectable games catalog (same row style, one
+                click to add with the official Application ID). */}
             {showDiscordSection && (
               <div className="pt-1 space-y-2">
                 {discordSearching && (
@@ -338,17 +336,6 @@ export function GamesPage() {
                       </span>
                     </div>
                     {detectableResults.map(resultRow)}
-                  </div>
-                )}
-
-                {!discordSearching && directoryResults.length > 0 && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2 px-1 pt-2">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
-                        All Results On Discord
-                      </span>
-                    </div>
-                    {directoryResults.map(resultRow)}
                   </div>
                 )}
 
