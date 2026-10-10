@@ -34,6 +34,15 @@ export async function POST(req: Request) {
   const id = (body.id ?? '').trim()
   if (!id) return NextResponse.json({ error: 'id_required' }, { status: 400 })
 
+  // DISCORD LINK CHECK — enabling Game RPC without a live Discord OAuth token
+  // would flip the DB while NOTHING appears on Discord.
+  if (!session.discordAccessToken) {
+    return NextResponse.json(
+      { ok: false, error: 'discord_not_linked', message: 'Connect your Discord account first — click Reconnect Discord.' },
+      { status: 403 }
+    )
+  }
+
   const favorite = await db.favoriteGame.findUnique({ where: { id } })
   if (!favorite || favorite.userId !== session.userId) {
     return NextResponse.json({ error: 'favorite_not_found' }, { status: 404 })
@@ -58,7 +67,8 @@ export async function POST(req: Request) {
       targetSlug = existing.gameSlug
       targetName = existing.gameName
     } else {
-      const official = await fetchDiscordApplication(favorite.appId)
+      // hasApp (above) guarantees appId is a valid Discord Application ID.
+      const official = await fetchDiscordApplication(favorite.appId as string)
       if (!official) return NextResponse.json({ error: 'app_not_found' }, { status: 400 })
       targetSlug = `custom-${randomBytes(8).toString('hex')}`
       targetName = official.name

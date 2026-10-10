@@ -220,7 +220,9 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
         }
         const text = await res.text().catch(() => '')
         let msg = text
-        try { msg = JSON.parse(text).error || text } catch {}
+        // Prefer the human-readable `message` (e.g. "Connect your Discord
+        // account first…") over the raw error code in UI toasts.
+        try { const j = JSON.parse(text); msg = j.message || j.error || text } catch {}
         throw new Error(msg || `Request failed: ${res.status}`)
       }
       return (await res.json()) as T

@@ -775,11 +775,27 @@ export async function setStatusViaRest(
 
 /**
  * Refresh the Discord access token using the refresh token.
- * Returns new tokens or null on failure.
+ * Distinguishes a permanently-dead grant (invalid_grant → re-login needed)
+ * from a transient failure (network / 5xx / 429 → retry later, never clear).
  */
+export interface DiscordTokenRefreshResult {
+  ok: boolean
+  /**
+   * true  → the refresh grant is DEFINITIVELY dead (Discord answered 4xx
+   *         invalid_grant). Only a fresh login helps; the stored tokens must
+   *         be cleared so the site prompts "Reconnect Discord".
+   * false → transient failure (network error, Discord 5xx / 429). The stored
+   *         tokens are still potentially valid — retry later, NEVER clear.
+   */
+  permanent: boolean
+  access_token?: string
+  refresh_token?: string
+  expires_in?: number
+}
+
 export async function refreshDiscordToken(
   refreshToken: string
-): Promise<{ access_token: string; refresh_token: string; expires_in: number } | null> {
+): Promise<DiscordTokenRefreshResult> {
   try {
     const body = new URLSearchParams({
       client_id: CONFIG.discord.clientId,
@@ -792,10 +808,18 @@ export async function refreshDiscordToken(
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body,
     })
-    if (!res.ok) return null
-    return (await res.json()) as { access_token: string; refresh_token: string; expires_in: number }
+    if (res.ok) {
+      const data = await res.json() as { access_token: string; refresh_token: string; expires_in: number }
+      return { ok: true, permanent: false, ...data }
+    }
+    // Discord answered with an error status:
+    //  • 4xx (except 429) = the grant itself is dead (invalid_grant, bad client)
+    //  • 429 / 5xx        = transient (rate limit / Discord outage) — retryable
+    const permanent = res.status >= 400 && res.status < 500 && res.status !== 429
+    return { ok: false, permanent }
   } catch {
-    return null
+    // Network failure — never treat as a dead token.
+    return { ok: false, permanent: false }
   }
 }
 
@@ -834,7 +858,7 @@ export async function applyPresence(
   if (session.discordTokenExpiresAt && session.discordTokenExpiresAt < now) {
     if (session.discordRefreshToken) {
       const refreshed = await refreshDiscordToken(session.discordRefreshToken)
-      if (refreshed) {
+      if (refreshed.ok && refreshed.access_token) {
         accessToken = refreshed.access_token
         const { db } = await import('./db')
         await db.session.update({
@@ -845,18 +869,48 @@ export async function applyPresence(
             discordTokenExpiresAt: new Date(Date.now() + (refreshed.expires_in || 604800) * 1000),
           },
         })
-      } else {
+      } else if (refreshed.permanent) {
+        // The refresh grant is dead — clear the stored tokens so the site
+        // surfaces the "Reconnect Discord" banner and stops pretending.
+        const { db } = await import('./db')
+        await db.session.update({
+          where: { id: session.id },
+          data: {
+            discordAccessToken: null,
+            discordRefreshToken: null,
+            discordTokenExpiresAt: null,
+            gatewayReady: false,
+          },
+        }).catch(() => {})
         return {
           ok: false,
           method: 'none',
-          message: 'Discord token expired and refresh failed. Please sign in again.',
+          message: 'Discord connection expired. Please reconnect with Discord.',
+        }
+      } else {
+        // Transient refresh failure — the token may still be accepted.
+        return {
+          ok: false,
+          method: 'none',
+          message: 'Discord token refresh failed (temporary). Retrying automatically.',
         }
       }
     } else {
+      // Expired token with no refresh token (legacy login) — clear & prompt.
+      const { db } = await import('./db')
+      await db.session.update({
+        where: { id: session.id },
+        data: {
+          discordAccessToken: null,
+          discordRefreshToken: null,
+          discordTokenExpiresAt: null,
+          gatewayReady: false,
+        },
+      }).catch(() => {})
       return {
         ok: false,
         method: 'none',
-        message: 'Discord token expired. Please sign in again.',
+        message: 'Discord token expired. Please reconnect with Discord.',
       }
     }
   }

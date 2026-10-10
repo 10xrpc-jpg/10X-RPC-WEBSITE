@@ -217,12 +217,27 @@ function startDaemon() {
   lastDaemonStartAt = Date.now()
   blog('stage: spawn-child npx tsx scripts/rpc-daemon-standalone.ts')
 
+  // ════════════════════════════════════════════════════════════════════
+  // 24/7 DB-STABILITY FIX: the daemon is a LONG-LIVED process holding DB
+  // connections for days. Neon's POOLED endpoint aggressively recycles
+  // idle pooler connections → recurring "Can't reach database server"
+  // bursts (boot-log 04:21 / 08:07 / 15:45 / 17:59). Give the daemon the
+  // DIRECT (unpooled) endpoint when available — one long-running process
+  // is exactly what the direct endpoint is for. The transient-error
+  // retry logic in the daemon stays as a second line of defense.
+  // ════════════════════════════════════════════════════════════════════
+  const childEnv = { ...process.env }
+  if (childEnv.DATABASE_URL_UNPOOLED) {
+    childEnv.DATABASE_URL = childEnv.DATABASE_URL_UNPOOLED
+    blog('stage: child-db=unpooled (direct endpoint for long-lived connections)')
+  }
+
   const daemon = spawn('npx', ['tsx', 'scripts/rpc-daemon-standalone.ts'], {
     // Pipe (not inherit) so child crashes are ALSO captured in boot-log.txt —
     // the wings console isn't reachable via the client API, and a 2s-lifetime
     // crash-loop with invisible stderr is undiagnosable.
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: process.env,
+    env: childEnv,
     cwd: __dirname,
   })
   daemon.stdout.on('data', (d) => process.stdout.write(d))

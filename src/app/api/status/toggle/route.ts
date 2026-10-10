@@ -21,6 +21,15 @@ export async function POST(req: Request) {
     const enabled = !!body.enabled
 
     if (enabled) {
+      // 0. DISCORD LINK CHECK — enabling Status without a live Discord OAuth
+      //    token would flip the DB while NOTHING changes on Discord.
+      if (!session.discordAccessToken) {
+        return NextResponse.json(
+          { ok: false, error: 'discord_not_linked', message: 'Connect your Discord account first — click Reconnect Discord.' },
+          { status: 403 }
+        )
+      }
+
       // 1. Check trial
       const trial = await db.trial.findUnique({ where: { userId: session.userId } })
       if (!trial || !trial.active || trial.endsAt < new Date()) {

@@ -133,7 +133,16 @@ export class RpcDaemon {
         if (pushAge > 10 * 60 * 1000) {
           console.log(`[10X RPC Daemon] Watchdog: forcing presence refresh for user ${userId} (last push ${Math.round(pushAge / 1000)}s ago)`)
           try {
-            const session = await db.session.findFirst({ where: { userId }, orderBy: { createdAt: 'desc' } })
+            // Same filtered query as connectUserSocket — never push presence
+            // on behalf of an expired/tokenless session.
+            const session = await db.session.findFirst({
+              where: {
+                userId,
+                expiresAt: { gt: new Date() },
+                discordAccessToken: { not: null },
+              },
+              orderBy: { createdAt: 'desc' },
+            })
             if (session) {
               await this.pushPresenceForUser(userId, session, true)
             }
@@ -185,8 +194,10 @@ export class RpcDaemon {
     // 2. Iterate connected users
     for (const [userId, userSock] of this.sockets.entries()) {
       try {
+        // Same filtered query as connectUserSocket: latest VALID session that
+        // carries a Discord token. Keeps gatewayReady updates on the right row.
         const session = await db.session.findFirst({
-          where: { userId, expiresAt: { gt: now } },
+          where: { userId, expiresAt: { gt: now }, discordAccessToken: { not: null } },
           orderBy: { createdAt: 'desc' },
           include: {
             user: {
@@ -249,7 +260,7 @@ export class RpcDaemon {
           if (session.discordRefreshToken) {
             console.log(`[10X RPC Daemon] Refreshing Discord token for user ${userId}...`)
             const refreshed = await refreshDiscordToken(session.discordRefreshToken)
-            if (refreshed) {
+            if (refreshed.ok && refreshed.access_token) {
               await db.session.update({
                 where: { id: session.id },
                 data: {
@@ -259,7 +270,24 @@ export class RpcDaemon {
                 },
               })
               session.discordAccessToken = refreshed.access_token
+            } else if (refreshed.permanent) {
+              // Refresh grant definitively dead → clear tokens + drop the
+              // user; the site shows the "Reconnect Discord" banner.
+              console.warn(`[10X RPC Daemon] Refresh grant dead for user ${userId} — clearing tokens. Re-login required.`)
+              await db.session.update({
+                where: { id: session.id },
+                data: {
+                  discordAccessToken: null,
+                  discordRefreshToken: null,
+                  discordTokenExpiresAt: null,
+                  gatewayReady: false,
+                },
+              }).catch(() => {})
+              this.disconnectUser(userId)
+              continue
             }
+            // Transient refresh failure — keep the current token; the next
+            // tick (or the 4004 handler if the gateway rejects it) retries.
           }
         }
 
@@ -423,9 +451,9 @@ export class RpcDaemon {
    */
   public async stopUserRpc(userId: string): Promise<void> {
     const session = await db.session.findFirst({
-      where: { userId },
+      where: { userId, expiresAt: { gt: new Date() }, discordAccessToken: { not: null } },
       orderBy: { createdAt: 'desc' },
-    })
+    }).catch(() => null)
     if (!session || !session.discordAccessToken) return
 
     const userSock = this.sockets.get(userId)
@@ -477,7 +505,7 @@ export class RpcDaemon {
   public async syncUser(userId: string): Promise<PresenceResult> {
     const now = new Date()
     const session = await db.session.findFirst({
-      where: { userId, expiresAt: { gt: now } },
+      where: { userId, expiresAt: { gt: now }, discordAccessToken: { not: null } },
       orderBy: { createdAt: 'desc' },
       include: {
         user: {
@@ -488,7 +516,7 @@ export class RpcDaemon {
           },
         },
       },
-    })
+    }).catch(() => null)
 
     if (!session || !session.discordAccessToken) {
       this.disconnectUser(userId)
@@ -570,8 +598,20 @@ export class RpcDaemon {
     userSock.connectingSince = Date.now()
 
     try {
+      // ══════════════════════════════════════════════════════════════════
+      // 24/7 FIX (users with a newer tokenless session never connected):
+      // This query MUST match syncAllUsers/syncUser semantics — the LATEST
+      // session that is (a) still valid and (b) carries a Discord token.
+      // Previously it read the latest session with NO filters, so a newer
+      // expired/tokenless row (e.g. an aborted re-login) made this method
+      // call disconnectUser() and KILL a working user on every tick.
+      // ══════════════════════════════════════════════════════════════════
       const session = await db.session.findFirst({
-        where: { userId },
+        where: {
+          userId,
+          expiresAt: { gt: new Date() },
+          discordAccessToken: { not: null },
+        },
         orderBy: { createdAt: 'desc' },
       })
       if (!session || !session.discordAccessToken) {
@@ -586,7 +626,7 @@ export class RpcDaemon {
       if (session.discordTokenExpiresAt && session.discordTokenExpiresAt < now) {
         if (session.discordRefreshToken) {
           const refreshed = await refreshDiscordToken(session.discordRefreshToken)
-          if (refreshed) {
+          if (refreshed.ok && refreshed.access_token) {
             accessToken = refreshed.access_token
             await db.session.update({
               where: { id: session.id },
@@ -596,6 +636,32 @@ export class RpcDaemon {
                 discordTokenExpiresAt: new Date(Date.now() + (refreshed.expires_in || 604800) * 1000),
               },
             })
+          } else if (refreshed.permanent) {
+            // Refresh grant definitively dead → clear tokens so the site
+            // shows the "Reconnect Discord" banner and syncAllUsers drops
+            // the user cleanly instead of 4004-looping forever.
+            await db.session.update({
+              where: { id: session.id },
+              data: {
+                discordAccessToken: null,
+                discordRefreshToken: null,
+                discordTokenExpiresAt: null,
+                gatewayReady: false,
+              },
+            }).catch(() => {})
+            userSock.isConnecting = false
+            userSock.connectingSince = undefined
+            this.disconnectUser(userId)
+            return
+          } else {
+            // TRANSIENT refresh failure (network / Discord 5xx / 429) —
+            // the token may still be alive. Back off and retry later;
+            // NEVER clear tokens or mark auth-fatal on a transient error.
+            console.warn(`[10X RPC Daemon] Transient token refresh failure for user ${userId} — retrying in 60s`)
+            userSock.isConnecting = false
+            userSock.connectingSince = undefined
+            this.scheduleReconnect(userId, 60000)
+            return
           }
         }
       }
@@ -755,11 +821,21 @@ export class RpcDaemon {
           if (code === 4004) {
             // Auth failed — RE-READ the session from the DB (the connect-time
             // snapshot may hold an already-rotated refresh token) and refresh.
+            // Same filtered query as connectUserSocket: latest VALID session
+            // that carries a token.
             console.log(`[10X RPC Daemon] Auth failed (4004) for user ${userId}. Refreshing token...`)
-            const fresh = await db.session.findFirst({ where: { userId } })
+            const fresh = await db.session.findFirst({
+              where: {
+                userId,
+                expiresAt: { gt: new Date() },
+                discordAccessToken: { not: null },
+              },
+              orderBy: { createdAt: 'desc' },
+            }).catch(() => null)
+
             if (fresh && fresh.discordRefreshToken) {
               const refreshed = await refreshDiscordToken(fresh.discordRefreshToken)
-              if (refreshed) {
+              if (refreshed.ok && refreshed.access_token) {
                 await db.session.update({
                   where: { id: fresh.id },
                   data: {
@@ -772,12 +848,45 @@ export class RpcDaemon {
                 this.scheduleReconnect(userId, 2000)
                 return
               }
+              if (refreshed.permanent) {
+                // Refresh grant definitively dead → clear tokens so the site
+                // prompts re-login and syncAllUsers drops the user cleanly.
+                console.warn(`[10X RPC Daemon] Refresh grant dead for user ${userId} — clearing tokens. Re-login required.`)
+                await db.session.update({
+                  where: { id: fresh.id },
+                  data: {
+                    discordAccessToken: null,
+                    discordRefreshToken: null,
+                    discordTokenExpiresAt: null,
+                    gatewayReady: false,
+                  },
+                }).catch(() => {})
+                userSock.failedAuthToken = userSock.identifiedWith || null
+                userSock.retryCount = 0
+                return
+              }
+              // TRANSIENT refresh failure — tokens may still be valid after
+              // Discord recovers. Back off (self-heal), never mark auth-fatal.
+              console.warn(`[10X RPC Daemon] Transient refresh failure for user ${userId} after 4004 — retrying in 60s`)
+              this.scheduleReconnect(userId, 60000)
+              return
             }
-            // No refresh token / refresh failed → the token itself is dead
-            // (revoked, password change, expired raw user token). Retrying the
-            // SAME token would hit 4004 forever — mark auth-fatal and stop
-            // reconnecting until the user logs in with a new token.
-            console.warn(`[10X RPC Daemon] Token for user ${userId} cannot be refreshed — auth-fatal. No reconnects until a new token is set.`)
+
+            if (fresh && !fresh.discordRefreshToken) {
+              // Token with NO refresh path (legacy raw user token) is dead —
+              // clearing it lets the UI prompt re-login and stops the loop.
+              console.warn(`[10X RPC Daemon] Dead token without refresh token for user ${userId} — clearing. Re-login required.`)
+              await db.session.update({
+                where: { id: fresh.id },
+                data: {
+                  discordAccessToken: null,
+                  discordRefreshToken: null,
+                  discordTokenExpiresAt: null,
+                  gatewayReady: false,
+                },
+              }).catch(() => {})
+            }
+            // No valid token session left → nothing to authenticate with.
             userSock.failedAuthToken = userSock.identifiedWith || null
             userSock.retryCount = 0
             return

@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 import { api, type Me, type GameListItem, type DiscoveredApp, type FavoriteGameItem } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { BackButton } from './ui'
+import { ReconnectBanner } from './ReconnectBanner'
 import { User, Star, Plus, X, Gamepad2, BadgeCheck, Loader2, CheckCircle2, Search, Zap, ChevronDown } from 'lucide-react'
 
 export function ProfileBoardPage() {
@@ -124,6 +125,12 @@ export function ProfileBoardPage() {
         </div>
         <div className="min-w-[90px]" />
       </div>
+
+      {/* Discord-link health: without a live token the 24/7 daemon cannot run
+          anything — surface it instead of failing silently. */}
+      {me.session?.hasDiscordToken === false && (
+        <ReconnectBanner isDemo={me.user.id === 'demo-user-10x'} />
+      )}
 
       {/* Account card */}
       <div className="relative overflow-hidden bg-gradient-to-b from-[#13111d]/95 via-[#0e0d14]/95 to-[#0a0a0f] border border-white/10 rounded-[28px] p-6 shadow-2xl backdrop-blur-xl">

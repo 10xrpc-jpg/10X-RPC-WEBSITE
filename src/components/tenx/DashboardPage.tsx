@@ -6,6 +6,7 @@ import { useRouter } from './useRouter'
 import { ProfileSection } from './ProfileSection'
 import { SmartSleepTimerCard } from './SmartSleepTimerCard'
 import { RichPresenceForm } from './RichPresenceForm'
+import { ReconnectBanner } from './ReconnectBanner'
 
 export function DashboardPage() {
   const { navigate } = useRouter()
@@ -153,6 +154,12 @@ export function DashboardPage() {
       </header>
 
       <div className="space-y-4">
+        {/* Discord-link health: without a live token the 24/7 daemon cannot run
+            Status / RPC / Game RPC — surface it instead of failing silently. */}
+        {me.session?.hasDiscordToken === false && (
+          <ReconnectBanner isDemo={me.user?.id === 'demo-user-10x'} />
+        )}
+
         {/* Profile section */}
         <ProfileSection
           me={liveRpcConfig ? { ...me, rpcConfig: { ...me.rpcConfig, ...liveRpcConfig } } : me}
