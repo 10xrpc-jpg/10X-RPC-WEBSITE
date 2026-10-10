@@ -41,7 +41,7 @@ export interface DiscoveredApp {
   source: 'trending' | 'detectable'
 }
 
-const MAX_RESULTS = 36
+const MAX_RESULTS = 96
 
 export async function GET(req: Request) {
   const session = await getSession()
@@ -68,10 +68,16 @@ export async function GET(req: Request) {
   }
 
   // Both sources in parallel; a failure on either side degrades to an empty
-  // list so one broken source never blocks the other.
+  // list so one broken source never blocks the other. `limit` lets the UI ask
+  // for more results ("See more" button) — default 24, clamped 12..96.
+  const rawLimit = Number(searchParams.get('limit') || '24')
+  const limit = Number.isFinite(rawLimit)
+    ? Math.min(MAX_RESULTS, Math.max(12, Math.floor(rawLimit)))
+    : 24
+
   const [games, detectable] = await Promise.all([
     searchTrendingGames(q, 12).catch(() => []),
-    searchDetectableGames(q, 24).catch(() => []),
+    searchDetectableGames(q, limit).catch(() => []),
   ])
 
   // Trending first (real games, ranked), then the detectable-catalog matches
@@ -109,7 +115,7 @@ export async function GET(req: Request) {
       tags: [] as string[],
       source: 'detectable' as const,
     })),
-  ].slice(0, MAX_RESULTS)
+  ].slice(0, limit)
 
   return NextResponse.json({ ok: true, results, catalogSize: detectableCacheSize() })
 }

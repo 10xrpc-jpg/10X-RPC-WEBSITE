@@ -15,7 +15,7 @@ import { toast } from 'sonner'
 import { api, type GameListItem, type DiscoveredApp } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { BackButton } from './ui'
-import { Gamepad2, Search, ChevronRight, Plus, X, CheckCircle2, BadgeCheck, Loader2, Hash } from 'lucide-react'
+import { Gamepad2, Search, ChevronRight, ChevronDown, Plus, X, CheckCircle2, BadgeCheck, Loader2, Hash } from 'lucide-react'
 
 export function GamesPage() {
   const { navigate } = useRouter()
@@ -27,6 +27,9 @@ export function GamesPage() {
   const [discordResults, setDiscordResults] = useState<DiscoveredApp[]>([])
   const [discordSearching, setDiscordSearching] = useState(false)
   const [addingAppId, setAddingAppId] = useState<string | null>(null)
+  // "See more" pagination for the Game RPC search results
+  const [searchLimit, setSearchLimit] = useState(24)
+  const [loadingMore, setLoadingMore] = useState(false)
   const discordSeq = useRef(0)
 
   const refresh = () =>
@@ -45,6 +48,7 @@ export function GamesPage() {
   // Source: Discord's official trending-games ranking (real games only, no bots).
   useEffect(() => {
     const q = query.trim()
+    setSearchLimit(24)
     if (q.length < 2) {
       setDiscordResults([])
       setDiscordSearching(false)
@@ -97,6 +101,23 @@ export function GamesPage() {
       toast.error('Could not add this application — try the Add Games dialog')
     } finally {
       setAddingAppId(null)
+    }
+  }
+
+  // "See more" — re-fetch the same query with a higher limit, revealing a
+  // superset of the current results (trending stays, the catalog expands).
+  const seeMoreResults = async () => {
+    const q = query.trim()
+    if (loadingMore || q.length < 2) return
+    setLoadingMore(true)
+    try {
+      const r = await api.gamesDiscover(q, searchLimit + 24)
+      setDiscordResults(r.results || [])
+      setSearchLimit(searchLimit + 24)
+    } catch {
+      toast.error('Could not load more results')
+    } finally {
+      setLoadingMore(false)
     }
   }
 
@@ -337,6 +358,23 @@ export function GamesPage() {
                     </div>
                     {detectableResults.map(resultRow)}
                   </div>
+                )}
+
+                {/* See more — expand the catalog results */}
+                {!discordSearching && discordResults.length >= searchLimit && searchLimit < 96 && (
+                  <button
+                    type="button"
+                    onClick={seeMoreResults}
+                    disabled={loadingMore}
+                    className="w-full flex items-center justify-center gap-2 p-3 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition-all cursor-pointer disabled:opacity-60"
+                  >
+                    {loadingMore ? (
+                      <Loader2 className="w-3.5 h-3.5 text-purple-300 animate-spin" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5 text-purple-300" />
+                    )}
+                    {loadingMore ? 'Loading more...' : 'See more'}
+                  </button>
                 )}
 
                 {!discordSearching && discordResults.length === 0 && (

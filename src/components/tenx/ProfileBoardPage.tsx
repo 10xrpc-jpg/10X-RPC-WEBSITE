@@ -14,7 +14,7 @@ import { toast } from 'sonner'
 import { api, type Me, type GameListItem, type DiscoveredApp, type FavoriteGameItem } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { BackButton } from './ui'
-import { User, Star, Plus, X, Gamepad2, BadgeCheck, Loader2, CheckCircle2, Search, Zap } from 'lucide-react'
+import { User, Star, Plus, X, Gamepad2, BadgeCheck, Loader2, CheckCircle2, Search, Zap, ChevronDown } from 'lucide-react'
 
 export function ProfileBoardPage() {
   const { navigate } = useRouter()
@@ -311,6 +311,9 @@ function AddFavoriteGameDialog({
   const [discordIsPopular, setDiscordIsPopular] = useState(true)
   const [busyAppId, setBusyAppId] = useState<string | null>(null)
   const [starringName, setStarringName] = useState<string | null>(null)
+  // "See more" pagination for the dialog's Discord search results
+  const [searchLimit, setSearchLimit] = useState(24)
+  const [loadingMore, setLoadingMore] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const discordSeq = useRef(0)
 
@@ -328,6 +331,7 @@ function AddFavoriteGameDialog({
   // curated Popular Games so the dialog opens with instant suggestions.
   useEffect(() => {
     const q = query.trim()
+    setSearchLimit(24)
     if (q.length === 1) {
       // Too short for a real search — show only the matched catalog games.
       ++discordSeq.current
@@ -357,6 +361,24 @@ function AddFavoriteGameDialog({
 
   const isFavorited = (name: string) =>
     favorites.some(f => f.name.toLowerCase() === name.toLowerCase())
+
+  /** "See more" — re-fetch the same query with a higher limit, revealing a
+   * superset of the current results (trending stays, the catalog expands). */
+  const seeMoreResults = async () => {
+    const q = query.trim()
+    if (loadingMore || q.length < 2) return
+    setLoadingMore(true)
+    try {
+      const r = await api.gamesDiscover(q, searchLimit + 24)
+      setDiscordResults(r.results || [])
+      setDiscordIsPopular(false)
+      setSearchLimit(searchLimit + 24)
+    } catch {
+      toast.error('Could not load more results')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   const starGame = async (g: GameListItem) => {
     if (starringName) return
@@ -640,6 +662,23 @@ function AddFavoriteGameDialog({
                   </div>
                   {detectableResults.map(resultRow)}
                 </div>
+              )}
+
+              {/* See more — expand the catalog results */}
+              {!discordSearching && !discordIsPopular && discordResults.length >= searchLimit && searchLimit < 96 && (
+                <button
+                  type="button"
+                  onClick={seeMoreResults}
+                  disabled={loadingMore}
+                  className="w-full flex items-center justify-center gap-2 p-3 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition-all cursor-pointer disabled:opacity-60"
+                >
+                  {loadingMore ? (
+                    <Loader2 className="w-3.5 h-3.5 text-purple-300 animate-spin" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5 text-purple-300" />
+                  )}
+                  {loadingMore ? 'Loading more...' : 'See more'}
+                </button>
               )}
 
               {!discordSearching && !discordIsPopular && discordResults.length === 0 && (
