@@ -1,6 +1,8 @@
 // 10X RPC — frontend API client
 export interface Me {
   authenticated: boolean
+  /** True when the signed-in Discord ID is in the server's admin list. */
+  isAdmin?: boolean
   user?: {
     id: string
     username: string
@@ -163,6 +165,52 @@ export interface PlaceholderEntry {
   token: string
   desc: string
 }
+
+/** Live system health for the admin dashboard (from /api/admin/stats). */
+export interface AdminSystemHealth {
+  operational: boolean
+  degraded: boolean
+  serverRegion: string
+  database: { ok: boolean; latencyMs: number | null }
+  discord: { ok: boolean; latencyMs: number | null }
+  daemon: {
+    ok: boolean
+    latencyMs: number | null
+    configured: boolean
+    running?: boolean
+    daemonUptimeSeconds?: number
+    activeConnections?: number
+    totalTrackedUsers?: number
+  }
+}
+
+export interface AdminStats {
+  ok: boolean
+  counts: {
+    totalUsers: number
+    newUsers24h: number
+    activeSessions: number
+    sessionsWithToken: number
+    rpcLive: number
+    statusEnabled: number
+    vrActive: number
+    sleepTimersActive: number
+    gamesEnabled: number
+    customGames: number
+    rotatorPresets: number
+    rotatorEnabledUsers: number
+    favorites: number
+    mirrorAssets: number
+    discordAssets: number
+    trialsActive: number
+    trialsExpired: number
+    oauthStates: number
+  }
+  system: AdminSystemHealth
+  checkedAt: string
+}
+
+export type AdminUserAction = 'enable-rpc' | 'disable-rpc' | 'extend-trial' | 'revoke-sessions'
 
 export interface AdminUser {
   id: string
@@ -376,6 +424,13 @@ export const api = {
     activeRpcUsers: number
     users: AdminUser[]
   }>('/api/admin/users'),
+
+  adminStats: () => fetchJson<AdminStats>('/api/admin/stats'),
+
+  adminUserAction: (userId: string, action: AdminUserAction) =>
+    fetchJson<{ ok: boolean; action: string; message: string }>('/api/admin/user-action', {
+      method: 'POST', body: JSON.stringify({ userId, action }),
+    }),
 
   adminForceRpc: (enable: boolean) => fetchJson<{
     ok: boolean

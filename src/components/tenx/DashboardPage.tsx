@@ -133,6 +133,18 @@ export function DashboardPage() {
           <span className="text-lg font-bold text-white">10X RPC</span>
         </div>
         <div className="flex items-center gap-2">
+          {me.isAdmin && (
+            <button
+              onClick={() => navigate({ name: 'admin' })}
+              aria-label="Open admin dashboard"
+              className="flex items-center gap-1.5 text-xs text-amber-300 hover:text-white bg-amber-500/15 border border-amber-500/30 px-3 py-1.5 rounded-lg hover:bg-amber-500/25 transition-all"
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+              </svg>
+              Admin
+            </button>
+          )}
           <a
             href="https://discord.gg/FZvJfZx2V5"
             target="_blank"

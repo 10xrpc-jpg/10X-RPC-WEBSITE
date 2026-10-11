@@ -116,6 +116,9 @@ export async function GET() {
 
   return NextResponse.json({
     authenticated: true,
+    // Admin flag — drives the admin-dashboard entry point in the UI. The
+    // /api/admin/* endpoints re-check this server-side, so this is cosmetic.
+    isAdmin: CONFIG.admin.discordIds.includes(session.user.discordId),
     user: {
       id: session.user.discordId,
       username: session.user.username,
