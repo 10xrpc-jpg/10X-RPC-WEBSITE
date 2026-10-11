@@ -335,6 +335,13 @@ export interface AdminSettings {
     panelConfigured: boolean
     panelHost: string | null
   }
+  payments: {
+    razorpayConfigured: boolean
+    webhookConfigured: boolean
+    currency: string
+    webhookPath: string
+    plans: { id: 'plus' | 'pro'; label: string; amount: number; periodDays: number; display: string }[]
+  }
   admin: {
     adminDiscordIds: string[]
     yourDiscordId: string
@@ -346,6 +353,38 @@ export interface AdminSettings {
 export type AdminUserAction =
   | 'enable-rpc' | 'disable-rpc' | 'extend-trial' | 'revoke-sessions'
   | 'grant-subscription' | 'suspend-subscription' | 'reset-trial' | 'grant-lifetime'
+
+/** One Razorpay ledger row (admin Payments tab). */
+export interface AdminPaymentRow {
+  id: string
+  orderId: string
+  paymentId: string | null
+  plan: string
+  /** Paise — divide by 100 for ₹. */
+  amount: number
+  currency: string
+  status: 'created' | 'paid' | string
+  createdAt: string
+  username: string
+  discordId: string
+  avatar: string
+}
+
+export interface AdminPaymentsResponse {
+  ok: boolean
+  summary: {
+    revenueTotalPaise: number
+    revenue30dPaise: number
+    paidCount: number
+    paid30dCount: number
+    createdCount: number
+    payingUsers: number
+    plusPaid: number
+    proPaid: number
+  }
+  payments: AdminPaymentRow[]
+  checkedAt: string
+}
 
 export interface AdminUser {
   id: string
@@ -573,11 +612,14 @@ export const api = {
 
   adminStats: () => fetchJson<AdminStats>('/api/admin/stats'),
 
-  adminUserAction: (userId: string, action: AdminUserAction, days?: number) =>
+  adminUserAction: (userId: string, action: AdminUserAction, opts?: { days?: number; plan?: 'plus' | 'pro' }) =>
     fetchJson<{ ok: boolean; action: string; message: string }>('/api/admin/user-action', {
       method: 'POST',
-      body: JSON.stringify(days != null ? { userId, action, days } : { userId, action }),
+      body: JSON.stringify({ userId, action, ...(opts?.days != null ? { days: opts.days } : {}), ...(opts?.plan ? { plan: opts.plan } : {}) }),
     }),
+
+  /** Admin Payments tab — Razorpay ledger + revenue summary. */
+  adminPayments: () => fetchJson<AdminPaymentsResponse>('/api/admin/payments'),
 
   adminForceRpc: (enable: boolean) => fetchJson<{
     ok: boolean

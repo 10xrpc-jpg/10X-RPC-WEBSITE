@@ -1,13 +1,16 @@
 // 10X RPC — Admin dashboard page (/admin)
-// MENU (tabs): Overview · Users · Sessions · Control · Settings
+// MENU (tabs): Overview · Users · Payments · Sessions · Control · Settings
 //   Overview — System Health (live probes), platform stats, 7-day signup
 //              trend, newest users.
 //   Users    — User manager (search / filters / per-user actions) + CSV export.
+//   Payments — Razorpay ledger: revenue summary, plan split, latest payments,
+//              filter + CSV export.
 //   Sessions — Session monitor (active/expired, live flags, per-session
 //              revoke, purge expired).
 //   Control  — 24/7 RPC global control + maintenance (purge expired sessions,
 //              clean OAuth states).
-//   Settings — Non-secret platform settings + copy debug report.
+//   Settings — Non-secret platform settings (incl. payments config) + copy
+//              debug report.
 // Access: Discord IDs in ADMIN_DISCORD_IDS only — every /api/admin/* endpoint
 // re-checks server-side, this UI is just the window.
 'use client'
@@ -21,16 +24,21 @@ import {
   type AdminSessionRow,
   type AdminSessionAction,
   type AdminSettings,
+  type AdminPaymentRow,
+  type AdminPaymentsResponse,
 } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { Card, PrimaryButton, GhostButton, BackButton, Badge } from './ui'
 
 type UserFilter = 'all' | 'live' | 'notoken' | 'suspended' | 'trialing' | 'paid' | 'vr' | 'admins'
-type AdminTab = 'overview' | 'users' | 'sessions' | 'control' | 'settings'
+type AdminTab = 'overview' | 'users' | 'payments' | 'sessions' | 'control' | 'settings'
+
+type PaymentsFilter = 'all' | 'paid' | 'created'
 
 const TABS: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
   { id: 'overview', label: 'Overview', icon: <IconGrid /> },
   { id: 'users', label: 'Users', icon: <IconUsers /> },
+  { id: 'payments', label: 'Payments', icon: <IconCoin /> },
   { id: 'sessions', label: 'Sessions', icon: <IconClock /> },
   { id: 'control', label: 'Control', icon: <IconPower /> },
   { id: 'settings', label: 'Settings', icon: <IconGear /> },
@@ -55,6 +63,11 @@ export function AdminPage() {
   const [sessions, setSessions] = useState<AdminSessionRow[]>([])
   const [sessionSummary, setSessionSummary] = useState<AdminSessionsSummary | null>(null)
   const [sessionsLoading, setSessionsLoading] = useState(false)
+  // Payments tab
+  const [payments, setPayments] = useState<AdminPaymentRow[]>([])
+  const [paymentsSummary, setPaymentsSummary] = useState<AdminPaymentsResponse['summary'] | null>(null)
+  const [paymentsLoading, setPaymentsLoading] = useState(false)
+  const [paymentsFilter, setPaymentsFilter] = useState<PaymentsFilter>('all')
   const tabRef = useRef<AdminTab>('overview')
   tabRef.current = tab
 
@@ -120,6 +133,26 @@ export function AdminPage() {
     if (tab === 'sessions') loadSessions(sessionsScope)
   }, [tab, sessionsScope, loadSessions])
 
+  const loadPayments = useCallback(async () => {
+    setPaymentsLoading(true)
+    try {
+      const res = await api.adminPayments()
+      if (tabRef.current === 'payments') {
+        setPayments(res.payments)
+        setPaymentsSummary(res.summary)
+      }
+    } catch {
+      if (tabRef.current === 'payments') setPayments([])
+    } finally {
+      setPaymentsLoading(false)
+    }
+  }, [])
+
+  // Load payments whenever the Payments tab is opened.
+  useEffect(() => {
+    if (tab === 'payments') loadPayments()
+  }, [tab, loadPayments])
+
   const handleForceEnable = async () => {
     setBusy(true)
     try {
@@ -159,7 +192,7 @@ export function AdminPage() {
     }
   }
 
-  const runAction = async (u: AdminUser, action: AdminUserAction) => {
+  const runAction = async (u: AdminUser, action: AdminUserAction, opts?: { days?: number; plan?: 'plus' | 'pro' }) => {
     if (action === 'revoke-sessions' && !window.confirm(
       `Revoke ALL sessions for ${u.username}? They will be logged out everywhere and must sign in again.`
     )) return
@@ -172,7 +205,7 @@ export function AdminPage() {
     const key = `${u.id}:${action}`
     setActionBusy(key)
     try {
-      const r = await api.adminUserAction(u.id, action)
+      const r = await api.adminUserAction(u.id, action, opts)
       if (r.ok) toast.success(r.message, { duration: 4000 })
       else toast.error(r.message, { duration: 5000 })
       refresh()
@@ -218,6 +251,23 @@ export function AdminPage() {
     a.click()
     URL.revokeObjectURL(a.href)
     toast.success(`Exported ${users.length} users to CSV`)
+  }
+
+  const exportPaymentsCsv = () => {
+    const head = ['createdAt', 'username', 'discordId', 'plan', 'amountPaise', 'amountRupees', 'currency', 'status', 'orderId', 'paymentId']
+    const esc = (v: unknown) => `"${String(v).replace(/"/g, '""')}"`
+    const rows = payments.map(p => [
+      p.createdAt, p.username, p.discordId, p.plan,
+      p.amount, (p.amount / 100).toFixed(2), p.currency, p.status,
+      p.orderId, p.paymentId ?? '',
+    ].map(esc).join(','))
+    const csv = [head.map(esc).join(','), ...rows].join('\n')
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
+    a.download = `10x-payments-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(a.href)
+    toast.success(`Exported ${payments.length} payments to CSV`)
   }
 
   const copyReport = async () => {
@@ -292,6 +342,7 @@ export function AdminPage() {
 
   const tabBadge = (id: AdminTab): string | null => {
     if (id === 'users' && c) return String(c.totalUsers)
+    if (id === 'payments' && c) return String(c.paymentsPaid)
     if (id === 'sessions' && c) return String(c.activeSessions)
     return null
   }
@@ -413,6 +464,69 @@ export function AdminPage() {
             </div>
           </Card>
         )}
+
+        {tab === 'payments' && (() => {
+          const ps = paymentsSummary
+          const filteredPayments = paymentsFilter === 'all' ? payments : payments.filter(p => p.status === paymentsFilter)
+          return (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <StatCard label="Revenue ₹" value={ps ? Math.round(ps.revenueTotalPaise / 100) : 0} color="text-amber-300" />
+                <StatCard label="Revenue 30d ₹" value={ps ? Math.round(ps.revenue30dPaise / 100) : 0} color="text-emerald-400" />
+                <StatCard label="Paid" value={ps?.paidCount ?? 0} color="text-purple-400" />
+                <StatCard label="Paying users" value={ps?.payingUsers ?? 0} color="text-sky-400" />
+              </div>
+
+              <Card>
+                <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
+                  <h3 className="font-bold text-white">Payment Ledger</h3>
+                  <div className="flex items-center gap-2">
+                    <div className="flex bg-white/5 border border-white/10 rounded-lg overflow-hidden">
+                      {(['all', 'paid', 'created'] as PaymentsFilter[]).map(f => (
+                        <button
+                          key={f}
+                          onClick={() => setPaymentsFilter(f)}
+                          className={`text-[11px] px-3 py-1.5 capitalize transition-all ${paymentsFilter === f ? 'bg-purple-500/25 text-purple-200' : 'text-white/50 hover:text-white/80'}`}
+                        >
+                          {f}
+                        </button>
+                      ))}
+                    </div>
+                    <button
+                      onClick={exportPaymentsCsv}
+                      className="text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-lg hover:bg-emerald-500/20 transition-all"
+                    >
+                      ⬇ Export CSV
+                    </button>
+                  </div>
+                </div>
+
+                {ps && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-white/50 mb-3">
+                    <span>Plus sold: <b className="text-white/80">{ps.plusPaid}</b></span>
+                    <span>Pro sold: <b className="text-white/80">{ps.proPaid}</b></span>
+                    <span>Paid 30d: <b className="text-white/80">{ps.paid30dCount}</b></span>
+                    <span>Abandoned checkouts: <b className="text-white/80">{ps.createdCount}</b></span>
+                  </div>
+                )}
+
+                <div className="space-y-2 max-h-[60vh] overflow-y-auto styled-scroll">
+                  {paymentsLoading && payments.length === 0 ? (
+                    <p className="text-sm text-white/40 text-center py-6">Loading payments…</p>
+                  ) : filteredPayments.length === 0 ? (
+                    <p className="text-sm text-white/40 text-center py-6">
+                      {payments.length === 0
+                        ? 'No payments yet — rows appear here after the first Razorpay checkout.'
+                        : 'No payments with this filter.'}
+                    </p>
+                  ) : (
+                    filteredPayments.map(p => <PaymentRow key={p.id} payment={p} />)
+                  )}
+                </div>
+              </Card>
+            </div>
+          )
+        })()}
 
         {tab === 'sessions' && (
           <div className="space-y-4">
@@ -556,6 +670,15 @@ export function AdminPage() {
                     <SettingRow label="Server region" value={settings.infra.serverRegion} />
                     <SettingRow label="24/7 daemon" value={settings.infra.daemonConfigured ? `✓ ${settings.infra.daemonHost ?? 'configured'}` : '✗ not configured'} ok={settings.infra.daemonConfigured} />
                     <SettingRow label="Panel host" value={settings.infra.panelConfigured ? `✓ ${settings.infra.panelHost ?? 'configured'}` : '✗ not configured'} ok={settings.infra.panelConfigured} />
+                  </SettingsGroup>
+                  <SettingsGroup title="Payments">
+                    <SettingRow label="Razorpay" value={settings.payments.razorpayConfigured ? '✓ configured' : '✗ keys missing — checkout disabled'} ok={settings.payments.razorpayConfigured} />
+                    <SettingRow label="Webhook secret" value={settings.payments.webhookConfigured ? '✓ configured' : '✗ missing'} ok={settings.payments.webhookConfigured} />
+                    <SettingRow label="Webhook path" value={settings.payments.webhookPath} mono />
+                    <SettingRow label="Currency" value={settings.payments.currency} />
+                    {settings.payments.plans.map(p => (
+                      <SettingRow key={p.id} label={`${p.label} plan`} value={`${p.display} / ${p.periodDays}d (${p.amount} paise)`} />
+                    ))}
                   </SettingsGroup>
                   <SettingsGroup title={`Admins (${settings.admin.adminCount})`}>
                     {settings.admin.adminDiscordIds.map(id => (
@@ -915,8 +1038,11 @@ function UserRow({ user, expanded, onToggle, actionBusy, onAction }: {
             label="Disable RPC" tone="red" busy={busyFor('disable-rpc')}
             onClick={() => onAction(user, 'disable-rpc')} />
           <ActionButton
-            label="Grant 30d" tone="purple" busy={busyFor('grant-subscription')}
-            onClick={() => onAction(user, 'grant-subscription')} />
+            label="Grant Plus 30d" tone="purple" busy={busyFor('grant-subscription')}
+            onClick={() => onAction(user, 'grant-subscription', { plan: 'plus', days: 30 })} />
+          <ActionButton
+            label="Grant Pro 30d" tone="purple" busy={busyFor('grant-subscription')}
+            onClick={() => onAction(user, 'grant-subscription', { plan: 'pro', days: 30 })} />
           <ActionButton
             label="Reset Trial" tone="purple" busy={busyFor('reset-trial')}
             onClick={() => onAction(user, 'reset-trial')} />
@@ -931,6 +1057,35 @@ function UserRow({ user, expanded, onToggle, actionBusy, onAction }: {
             onClick={() => onAction(user, 'revoke-sessions')} />
         </div>
       )}
+    </div>
+  )
+}
+
+function PaymentRow({ payment: p }: { payment: AdminPaymentRow }) {
+  const paid = p.status === 'paid'
+  return (
+    <div className="glass-card-inner p-3 flex items-center gap-3">
+      <img src={p.avatar} alt={p.username} className="w-9 h-9 rounded-full" />
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-medium text-white truncate">{p.username}</span>
+          <Badge className={`text-[10px] ${p.plan === 'pro' ? 'bg-purple-500/20 text-purple-300' : 'bg-sky-500/20 text-sky-300'}`}>
+            {p.plan.toUpperCase()}
+          </Badge>
+          <Badge className={`text-[10px] ${paid ? 'bg-green-500/20 text-green-300' : 'bg-white/5 text-white/40'}`}>
+            {paid ? '✓ PAID' : 'CREATED'}
+          </Badge>
+        </div>
+        <p className="text-xs text-white/40 font-mono truncate">
+          {p.orderId}{p.paymentId ? ` → ${p.paymentId}` : ''}
+        </p>
+      </div>
+      <div className="text-right shrink-0">
+        <p className={`text-sm font-bold ${paid ? 'text-amber-300' : 'text-white/40'}`}>
+          ₹{(p.amount / 100).toLocaleString('en-IN')}
+        </p>
+        <p className="text-[11px] text-white/30">{fmtRel(p.createdAt)}</p>
+      </div>
     </div>
   )
 }
@@ -1044,6 +1199,9 @@ function IconUsers() {
 }
 function IconClock() {
   return <Icon d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2" />
+}
+function IconCoin() {
+  return <Icon d="M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM8.5 7h7M8.5 11h7M12 7c2.5 0 3.5 1.2 3.5 2.75S14.5 12.5 12 12.5H8.5L15 18" />
 }
 function IconPower() {
   return <Icon d="M18.36 6.64a9 9 0 1 1-12.73 0M12 2v10" />

@@ -49,6 +49,16 @@ export async function GET() {
       panelConfigured: !!process.env.PTERODACTYL_API_KEY,
       panelHost: hostOf(process.env.PTERODACTYL_URL),
     },
+    payments: {
+      razorpayConfigured: !!CONFIG.razorpay.keyId && !!CONFIG.razorpay.keySecret,
+      webhookConfigured: !!CONFIG.razorpay.webhookSecret,
+      currency: CONFIG.razorpay.currency,
+      webhookPath: '/api/subscription/webhook',
+      plans: (['plus', 'pro'] as const).map(id => {
+        const p = CONFIG.razorpay.plans[id]
+        return { id, label: p.label, amount: p.amount, periodDays: p.periodDays, display: p.display }
+      }),
+    },
     admin: {
       adminDiscordIds: CONFIG.admin.discordIds,
       yourDiscordId: session.user.discordId,

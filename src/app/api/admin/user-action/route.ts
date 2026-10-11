@@ -8,8 +8,9 @@
 //   revoke-sessions — delete every session row for the user (forces re-login).
 //                     Blocked for the acting admin's own account (self-logout).
 // Subscription lifecycle actions (the access source of truth):
-//   grant-subscription   — plan "pro", status "active", +N days (default 30)
-//                          appended to the current period end (or now).
+//   grant-subscription   — plan "pro" (default) or "plus" via { plan },
+//                          status "active", +N days (default 30) appended to
+//                          the current period end (or now).
 //   suspend-subscription — status "suspended" immediately + kill session RPC.
 //   reset-trial          — plan "free", status "trialing", fresh 3-day window.
 //   grant-lifetime       — plan "lifetime", status "active", never expires.
@@ -36,7 +37,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'forbidden', message: 'Admin access required' }, { status: 403 })
   }
 
-  const body = await req.json().catch(() => ({})) as { userId?: string; action?: string; days?: number }
+  const body = await req.json().catch(() => ({})) as { userId?: string; action?: string; days?: number; plan?: string }
   const userId = body.userId
   const action = body.action as Action | undefined
   if (!userId || !action || !ACTIONS.includes(action)) {
@@ -114,9 +115,12 @@ export async function POST(req: Request) {
     }
 
     case 'grant-subscription': {
-      // Optional { days } (default 30) — extends the paid period.
+      // Optional { days } (default 30) — extends the paid period. Optional
+      // { plan: 'plus' | 'pro' } (default 'pro') — which plan they get.
       const daysRaw = Number((body as { days?: number }).days)
       const days = Number.isFinite(daysRaw) && daysRaw > 0 && daysRaw <= 3650 ? Math.floor(daysRaw) : 30
+      const planRaw = String((body as { plan?: string }).plan || 'pro').toLowerCase()
+      const plan: 'plus' | 'pro' = planRaw === 'plus' ? 'plus' : 'pro'
       const existing = await db.subscription.findUnique({ where: { userId } })
       const base = existing?.status === 'active' && existing.currentPeriodEnd && existing.currentPeriodEnd > now
         ? existing.currentPeriodEnd
@@ -124,13 +128,13 @@ export async function POST(req: Request) {
       const endsAt = new Date(base.getTime() + days * 24 * 60 * 60 * 1000)
       await db.subscription.upsert({
         where: { userId },
-        create: { userId, plan: 'pro', status: 'active', currentPeriodEnd: endsAt },
-        update: { plan: 'pro', status: 'active', currentPeriodEnd: endsAt, suspendedAt: null },
+        create: { userId, plan, status: 'active', currentPeriodEnd: endsAt },
+        update: { plan, status: 'active', currentPeriodEnd: endsAt, suspendedAt: null },
       })
       return NextResponse.json({
         ok: true,
         action,
-        message: `${days}d subscription granted to ${user.username} — active until ${endsAt.toISOString().slice(0, 10)}`,
+        message: `${plan} · ${days}d granted to ${user.username} — active until ${endsAt.toISOString().slice(0, 10)}`,
       })
     }
 
