@@ -207,6 +207,83 @@ export interface AdminStats {
     oauthStates: number
   }
   system: AdminSystemHealth
+  /** Signups per day for the last 7 days (oldest → today). */
+  signupTrend?: { date: string; count: number }[]
+  /** Up to 5 most recently registered users. */
+  newestUsers?: { id: string; username: string; createdAt: string }[]
+  checkedAt: string
+}
+
+export type AdminSessionAction = 'revoke' | 'purge-expired' | 'purge-oauth'
+
+/** One row of the admin session monitor (/api/admin/sessions). */
+export interface AdminSessionRow {
+  id: string
+  userId: string
+  username: string
+  avatar: string
+  discordId: string
+  createdAt: string
+  expiresAt: string
+  statusEnabled: boolean
+  rpcEnabled: boolean
+  gatewayReady: boolean
+  userStatus: string
+  customStatus: string | null
+  customStatusEmoji: string | null
+  statusPlatform: string
+  vrStatusActive: boolean
+  hasDiscordToken: boolean
+  sleepTimerActive: boolean
+  lastPresenceUpdate: string | null
+  /** The session backing the admin's current request — revoke is blocked. */
+  isCurrent: boolean
+  isSelf: boolean
+}
+
+export interface AdminSessionsResponse {
+  ok: boolean
+  scope: 'active' | 'expired'
+  summary: {
+    activeCount: number
+    expiredCount: number
+    expiringSoon24h: number
+    withTokenActive: number
+    rpcLiveActive: number
+  }
+  sessions: AdminSessionRow[]
+}
+
+/** Non-secret platform settings for the admin Settings tab. */
+export interface AdminSettings {
+  ok: boolean
+  app: {
+    name: string
+    url: string
+    trialDays: number
+    sessionTtlDays: number
+    nodeEnv: string
+  }
+  discord: {
+    clientId: string
+    oauthScope: string
+    autoJoinGuildId: string | null
+    inviteUrl: string
+    botConfigured: boolean
+    oauthConfigured: boolean
+  }
+  infra: {
+    serverRegion: string
+    daemonConfigured: boolean
+    daemonHost: string | null
+    panelConfigured: boolean
+    panelHost: string | null
+  }
+  admin: {
+    adminDiscordIds: string[]
+    yourDiscordId: string
+    adminCount: number
+  }
   checkedAt: string
 }
 
@@ -441,10 +518,17 @@ export const api = {
     results: Array<{ userId: string; username: string; ok: boolean; message: string }>
   }>('/api/admin/force-rpc', { method: 'POST', body: JSON.stringify({ enable }) }),
 
+  adminSessions: (scope: 'active' | 'expired' = 'active') =>
+    fetchJson<AdminSessionsResponse>(`/api/admin/sessions?scope=${scope}`),
+
+  adminSessionAction: (action: AdminSessionAction, sessionId?: string) =>
+    fetchJson<{ ok: boolean; action: string; message: string }>('/api/admin/session-action', {
+      method: 'POST', body: JSON.stringify({ action, sessionId }),
+    }),
+
+  adminSettings: () => fetchJson<AdminSettings>('/api/admin/settings'),
+
   placeholders: () => fetchJson<{ placeholders: PlaceholderEntry[] }>('/api/placeholders'),
-  weather: (city: string) => fetchJson<{ tempC: number; condition: string; emoji: string; city: string }>(
-    `/api/weather?city=${encodeURIComponent(city)}`
-  ),
   resolvePlaceholders: (
     text: string,
     overrides?: { city?: string | null; timezone?: string; tempUnit?: 'C' | 'F'; rpcStartedAt?: number }

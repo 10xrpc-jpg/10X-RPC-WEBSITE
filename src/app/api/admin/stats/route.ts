@@ -22,6 +22,7 @@ export async function GET() {
 
   const now = new Date()
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+  const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
   const activeWhere = { expiresAt: { gt: now } }
 
   const [
@@ -43,6 +44,7 @@ export async function GET() {
     trialsActive,
     trialsExpired,
     oauthStates,
+    recentUsers,
   ] = await Promise.all([
     db.user.count(),
     db.user.count({ where: { createdAt: { gte: dayAgo } } }),
@@ -62,7 +64,30 @@ export async function GET() {
     db.trial.count({ where: { active: true, endsAt: { gt: now } } }),
     db.trial.count({ where: { active: true, endsAt: { lte: now } } }),
     db.oAuthState.count({ where: { expiresAt: { gt: now } } }),
+    // Newest users first (limit 5) — doubles as the source for the 7-day
+    // signup trend (older signups are excluded by the where clause).
+    db.user.findMany({
+      where: { createdAt: { gte: weekAgo } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, username: true, createdAt: true },
+    }),
   ])
+
+  // 7-day signup trend (oldest → today) computed from the recentUsers rows.
+  const signupTrend: { date: string; count: number }[] = []
+  for (let i = 6; i >= 0; i--) {
+    const day = new Date(now.getTime() - i * 24 * 60 * 60 * 1000)
+    const key = day.toISOString().slice(0, 10)
+    signupTrend.push({
+      date: key,
+      count: recentUsers.filter(u => u.createdAt.toISOString().slice(0, 10) === key).length,
+    })
+  }
+  const newestUsers = recentUsers.slice(0, 5).map(u => ({
+    id: u.id,
+    username: u.username,
+    createdAt: u.createdAt,
+  }))
 
   // System health — best-effort: the stats page must never fail because a
   // probe timed out.
@@ -120,6 +145,8 @@ export async function GET() {
       oauthStates,
     },
     system,
+    signupTrend,
+    newestUsers,
     checkedAt: now.toISOString(),
   })
 }
