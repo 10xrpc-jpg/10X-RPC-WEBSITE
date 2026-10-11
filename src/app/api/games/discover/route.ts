@@ -51,8 +51,14 @@ export async function GET(req: Request) {
   const q = (searchParams.get('q') || '').trim().slice(0, 64)
   if (q.length < 2) {
     // Empty/short query → curated Popular Games (used by the Add-a-Game
-    // dialogs so they open with instant, tappable suggestions).
-    const popular = await getPopularDetectableGames(12).catch(() => [])
+    // dialogs so they open with instant, tappable suggestions). `limit`
+    // lets the UI ask for the full curated pool ("See more" button) —
+    // default 12, clamped 12..48 (curated pool is small by design).
+    const rawPopLimit = Number(searchParams.get('limit') || '12')
+    const popLimit = Number.isFinite(rawPopLimit)
+      ? Math.min(48, Math.max(12, Math.floor(rawPopLimit)))
+      : 12
+    const popular = await getPopularDetectableGames(popLimit).catch(() => [])
     const results: DiscoveredApp[] = popular.map(d => ({
       appId: d.appId,
       name: d.name,

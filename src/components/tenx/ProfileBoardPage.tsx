@@ -328,6 +328,7 @@ function AddFavoriteGameDialog({
   const [starringName, setStarringName] = useState<string | null>(null)
   // "See more" pagination for the dialog's Discord search results
   const [searchLimit, setSearchLimit] = useState(24)
+  const [popularLimit, setPopularLimit] = useState(12)
   const [loadingMore, setLoadingMore] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const discordSeq = useRef(0)
@@ -347,6 +348,7 @@ function AddFavoriteGameDialog({
   useEffect(() => {
     const q = query.trim()
     setSearchLimit(24)
+    setPopularLimit(12) // new query → reset popular See More pagination
     if (q.length === 1) {
       // Too short for a real search — show only the matched catalog games.
       ++discordSeq.current
@@ -390,6 +392,23 @@ function AddFavoriteGameDialog({
       setSearchLimit(searchLimit + 24)
     } catch {
       toast.error('Could not load more results')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  /** "See more" (popular list) — fetch the full curated pool beyond the
+   * initial 12 suggestions. */
+  const seeMorePopular = async () => {
+    if (loadingMore) return
+    setLoadingMore(true)
+    try {
+      const r = await api.gamesDiscover('', 48)
+      setDiscordResults(r.results || [])
+      setDiscordIsPopular(true)
+      setPopularLimit(48)
+    } catch {
+      toast.error('Could not load more popular games')
     } finally {
       setLoadingMore(false)
     }
@@ -653,6 +672,22 @@ function AddFavoriteGameDialog({
                     </span>
                   </div>
                   {discordResults.map(resultRow)}
+                  {/* See more — load the full curated popular pool */}
+                  {!discordSearching && discordIsPopular && discordResults.length >= popularLimit && popularLimit < 48 && (
+                    <button
+                      type="button"
+                      onClick={seeMorePopular}
+                      disabled={loadingMore}
+                      className="w-full flex items-center justify-center gap-2 p-3 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition-all cursor-pointer disabled:opacity-60"
+                    >
+                      {loadingMore ? (
+                        <Loader2 className="w-3.5 h-3.5 text-purple-300 animate-spin" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5 text-purple-300" />
+                      )}
+                      {loadingMore ? 'Loading more...' : 'See more'}
+                    </button>
+                  )}
                 </div>
               )}
 

@@ -481,6 +481,11 @@ function AddGameDialog({
   const [results, setResults] = useState<DiscoveredApp[]>([])
   const [isPopular, setIsPopular] = useState(true)
   const [searching, setSearching] = useState(true)
+  // "See more" pagination — popular list starts at 12, search results at 24;
+  // both expand via the See More button (catalog caps at 96, curated pool 48).
+  const [searchLimit, setSearchLimit] = useState(24)
+  const [popularLimit, setPopularLimit] = useState(12)
+  const [loadingMore, setLoadingMore] = useState(false)
   const searchSeq = useRef(0)
   const searchRef = useRef<HTMLInputElement>(null)
 
@@ -510,6 +515,8 @@ function AddGameDialog({
   // character is too short for a real search: only the local list matches.
   useEffect(() => {
     const q = query.trim()
+    setSearchLimit(24) // new query → reset See More pagination
+    setPopularLimit(12)
     if (q.length === 1) {
       ++searchSeq.current
       setResults([])
@@ -535,6 +542,41 @@ function AddGameDialog({
     }, q ? 350 : 0)
     return () => clearTimeout(t)
   }, [query])
+
+  /** "See more" (popular list) — fetch the full curated pool beyond the
+   * initial 12 suggestions. */
+  const seeMorePopular = async () => {
+    if (loadingMore) return
+    setLoadingMore(true)
+    try {
+      const r = await api.gamesDiscover('', 48)
+      setResults(r.results || [])
+      setPopularLimit(48)
+    } catch {
+      toast.error('Could not load more popular games')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
+
+  /** "See more" (search results) — re-fetch the same query with a higher
+   * limit, revealing a superset of the current results (trending stays, the
+   * catalog expands). Same behavior as the Favorite-Game dialog. */
+  const seeMoreResults = async () => {
+    const q = query.trim()
+    if (loadingMore || q.length < 2) return
+    setLoadingMore(true)
+    try {
+      const r = await api.gamesDiscover(q, searchLimit + 24)
+      setResults(r.results || [])
+      setIsPopular(false)
+      setSearchLimit(searchLimit + 24)
+    } catch {
+      toast.error('Could not load more results')
+    } finally {
+      setLoadingMore(false)
+    }
+  }
 
   const handleAppIdLookup = async () => {
     const id = appId.trim()
@@ -748,6 +790,22 @@ function AddGameDialog({
                     </span>
                   </div>
                   {results.map(resultRow)}
+                  {/* See more — load the full curated popular pool */}
+                  {!searching && isPopular && results.length >= popularLimit && popularLimit < 48 && (
+                    <button
+                      type="button"
+                      onClick={seeMorePopular}
+                      disabled={loadingMore}
+                      className="w-full flex items-center justify-center gap-2 p-3 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition-all cursor-pointer disabled:opacity-60"
+                    >
+                      {loadingMore ? (
+                        <Loader2 className="w-3.5 h-3.5 text-purple-300 animate-spin" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5 text-purple-300" />
+                      )}
+                      {loadingMore ? 'Loading more...' : 'See more'}
+                    </button>
+                  )}
                 </div>
               )}
 
@@ -774,6 +832,23 @@ function AddGameDialog({
                   </div>
                   {detectableResults.map(resultRow)}
                 </div>
+              )}
+
+              {/* See more — expand the search results (same as the search bar) */}
+              {!searching && !isPopular && results.length >= searchLimit && searchLimit < 96 && (
+                <button
+                  type="button"
+                  onClick={seeMoreResults}
+                  disabled={loadingMore}
+                  className="w-full flex items-center justify-center gap-2 p-3 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition-all cursor-pointer disabled:opacity-60"
+                >
+                  {loadingMore ? (
+                    <Loader2 className="w-3.5 h-3.5 text-purple-300 animate-spin" />
+                  ) : (
+                    <ChevronDown className="w-3.5 h-3.5 text-purple-300" />
+                  )}
+                  {loadingMore ? 'Loading more...' : 'See more'}
+                </button>
               )}
 
               {!searching && !isPopular && results.length === 0 && (
