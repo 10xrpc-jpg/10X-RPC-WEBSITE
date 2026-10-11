@@ -72,7 +72,7 @@ export function LandingPage() {
             disabled={loading}
             className="bg-white text-black font-bold rounded-xl px-8 py-3.5 text-base shadow-xl hover:opacity-90 active:scale-[0.98] transition-all min-w-[180px]"
           >
-            {loading ? 'Loading...' : 'Start 30 Days Free'}
+            {loading ? 'Loading...' : `Start ${me?.trialDays ?? 3} Days Free`}
           </button>
           <GhostButton
             onClick={() => { const el = document.getElementById('pricing'); el?.scrollIntoView({ behavior: 'smooth' }) }}
