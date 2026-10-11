@@ -52,6 +52,8 @@ export async function GET() {
     subsTrialing,
     subsSuspended,
     subsLifetime,
+    paymentsPaid,
+    paymentsRevenue,
     oauthStates,
     recentUsers,
   ] = await Promise.all([
@@ -76,6 +78,8 @@ export async function GET() {
     db.subscription.count({ where: { status: 'trialing' } }),
     db.subscription.count({ where: { status: 'suspended' } }),
     db.subscription.count({ where: { plan: 'lifetime', status: 'active' } }),
+    db.payment.count({ where: { status: 'paid' } }),
+    db.payment.aggregate({ where: { status: 'paid' }, _sum: { amount: true } }).then(a => a._sum.amount || 0),
     db.oAuthState.count({ where: { expiresAt: { gt: now } } }),
     // Newest users first (limit 5) — doubles as the source for the 7-day
     // signup trend (older signups are excluded by the where clause).
@@ -159,6 +163,8 @@ export async function GET() {
       subsTrialing,
       subsSuspended,
       subsLifetime,
+      paymentsPaid,
+      paymentsRevenue,
       oauthStates,
     },
     system,

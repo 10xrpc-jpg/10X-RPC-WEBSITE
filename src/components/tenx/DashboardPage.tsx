@@ -7,6 +7,7 @@ import { ProfileSection } from './ProfileSection'
 import { SmartSleepTimerCard } from './SmartSleepTimerCard'
 import { RichPresenceForm } from './RichPresenceForm'
 import { ReconnectBanner } from './ReconnectBanner'
+import { startPlanCheckout } from './subscriptionCheckout'
 
 export function DashboardPage() {
   const { navigate } = useRouter()
@@ -174,7 +175,7 @@ export function DashboardPage() {
 
         {/* Subscription lifecycle — suspended (hard block + renew CTA) or a
             free trial ending within 24h (soft warning). */}
-        <SubscriptionBanner subscription={me.subscription} renewUrl={me.renewUrl} trialDays={me.trialDays} />
+        <SubscriptionBanner subscription={me.subscription} renewUrl={me.renewUrl} trialDays={me.trialDays} onRefresh={refresh} prefillName={me.user?.username ?? null} />
 
         {/* Profile section */}
         <ProfileSection
@@ -211,14 +212,83 @@ export function DashboardPage() {
   )
 }
 
+/** Self-serve plan buttons (Razorpay Checkout: UPI / cards / netbanking).
+ *  Shared by the suspended + trial-ending banners. */
+function PayButtons({ tone, onDone, prefillName }: {
+  tone: 'red' | 'amber'
+  onDone?: () => void
+  prefillName?: string | null
+}) {
+  const [busy, setBusy] = useState<'plus' | 'pro' | null>(null)
+  const [payError, setPayError] = useState<string | null>(null)
+
+  const launch = (plan: 'plus' | 'pro') => {
+    if (busy) return
+    setPayError(null)
+    setBusy(plan)
+    startPlanCheckout(plan, {
+      prefillName,
+      onSuccess: () => {
+        setBusy(null)
+        onDone?.()
+      },
+      onError: (message) => {
+        setBusy(null)
+        setPayError(message)
+      },
+      onDismiss: () => setBusy(null),
+    })
+  }
+
+  const primary = tone === 'red'
+    ? 'text-white bg-red-500/90 hover:bg-red-500'
+    : 'text-white bg-amber-500/90 hover:bg-amber-500'
+  const secondary = tone === 'red'
+    ? 'text-red-100 hover:text-white bg-red-500/20 hover:bg-red-500/40'
+    : 'text-amber-100 hover:text-white bg-amber-500/20 hover:bg-amber-500/40'
+
+  return (
+    <div className="mt-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          type="button"
+          onClick={() => launch('pro')}
+          disabled={busy !== null}
+          className={`text-xs font-semibold px-4 py-2.5 min-h-[44px] rounded-xl transition-all disabled:opacity-60 ${primary}`}
+        >
+          {busy === 'pro' ? 'Opening payment…' : '⚡ Pro — ₹399 / 3 Mo'}
+        </button>
+        <button
+          type="button"
+          onClick={() => launch('plus')}
+          disabled={busy !== null}
+          className={`text-xs font-semibold px-4 py-2.5 min-h-[44px] rounded-xl transition-all disabled:opacity-60 ${secondary}`}
+        >
+          {busy === 'plus' ? 'Opening payment…' : 'Plus — ₹199 / 1 Mo'}
+        </button>
+        <span className="text-[11px] text-white/40">UPI · cards · netbanking</span>
+      </div>
+      {payError && <p className="text-[11px] text-red-300 mt-2">{payError}</p>}
+    </div>
+  )
+}
+
 /** Subscription lifecycle banner: suspended → hard red block with renew CTA;
  *  free trial < 24h left → amber warning. Active/lifetime → nothing. */
-export function SubscriptionBanner({ subscription, renewUrl, trialDays }: {
+export function SubscriptionBanner({ subscription, renewUrl, trialDays, onRefresh, prefillName }: {
   subscription?: Me['subscription']
   renewUrl?: string
   trialDays?: number
+  onRefresh?: () => void
+  prefillName?: string | null
 }) {
+  const [paid, setPaid] = useState<string | null>(null)
+
   if (!subscription) return null
+
+  const paidNote = paid ? (
+    <p className="text-xs font-semibold text-emerald-300 mt-2" role="status">✓ {paid} — subscription active, RPC unlocked. Refreshing…</p>
+  ) : null
 
   if (subscription.status === 'suspended') {
     return (
@@ -232,18 +302,26 @@ export function SubscriptionBanner({ subscription, renewUrl, trialDays }: {
             <p className="font-bold text-red-200">Subscription suspended</p>
             <p className="text-sm text-red-100/70 mt-1 leading-relaxed">
               Your free trial has ended — 24/7 RPC, status and Game RPC are paused.
-              Renew to restore your presence instantly (your saved configs are untouched).
+              Pay to restore your presence instantly (your saved configs are untouched).
             </p>
-            <div className="flex flex-wrap items-center gap-2 mt-3">
+            {paidNote}
+            <PayButtons
+              tone="red"
+              prefillName={prefillName}
+              onDone={() => {
+                setPaid('Payment successful')
+                setTimeout(() => onRefresh?.(), 900)
+              }}
+            />
+            <div className="flex flex-wrap items-center gap-2 mt-2">
               <a
                 href={renewUrl || 'https://discord.gg/FZvJfZx2V5'}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-xs font-semibold text-white bg-red-500/80 hover:bg-red-500 px-4 py-2 rounded-xl transition-all"
+                className="text-[11px] font-semibold text-red-100/80 hover:text-white underline underline-offset-2 transition-all"
               >
-                ★ Renew on Discord
+                ★ Renew on Discord instead
               </a>
-              <span className="text-[11px] text-red-100/50">or ask an admin for an extension</span>
             </div>
           </div>
         </div>
@@ -267,16 +345,17 @@ export function SubscriptionBanner({ subscription, renewUrl, trialDays }: {
               Free trial ends in {hoursLeft} hour{hoursLeft === 1 ? '' : 's'}
             </p>
             <p className="text-xs text-amber-100/70 mt-0.5">
-              After that your subscription is suspended and 24/7 RPC stops. Renew to keep it running.
+              After that your subscription is suspended and 24/7 RPC stops. Grab a plan to keep it running.
             </p>
-            <a
-              href={renewUrl || 'https://discord.gg/FZvJfZx2V5'}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-block mt-2 text-xs font-semibold text-amber-100 hover:text-white bg-amber-500/30 hover:bg-amber-500/50 px-3 py-1.5 rounded-lg transition-all"
-            >
-              ★ Renew on Discord
-            </a>
+            {paidNote}
+            <PayButtons
+              tone="amber"
+              prefillName={prefillName}
+              onDone={() => {
+                setPaid('Payment successful')
+                setTimeout(() => onRefresh?.(), 900)
+              }}
+            />
           </div>
         </div>
       </div>
@@ -285,5 +364,6 @@ export function SubscriptionBanner({ subscription, renewUrl, trialDays }: {
 
   // Active paid plan or lifetime — nothing to warn about.
   void trialDays
+  void renewUrl
   return null
 }

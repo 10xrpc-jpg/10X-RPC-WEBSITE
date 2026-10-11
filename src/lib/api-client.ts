@@ -18,6 +18,29 @@ export interface SubscriptionInfo {
   admin: boolean
 }
 
+/** Self-serve purchasable plans (Razorpay). */
+export type PaidPlanId = 'plus' | 'pro'
+
+/** POST /api/subscription/checkout response — everything Checkout.js needs. */
+export interface SubscriptionCheckout {
+  ok: boolean
+  keyId: string
+  orderId: string
+  amount: number
+  currency: string
+  plan: PaidPlanId
+  planLabel: string
+  error?: string
+  message?: string
+}
+
+/** Razorpay Checkout.js success handler payload. */
+export interface RazorpayHandlerResponse {
+  razorpay_order_id: string
+  razorpay_payment_id: string
+  razorpay_signature: string
+}
+
 export interface Me {
   authenticated: boolean
   /** True when the signed-in Discord ID is in the server's admin list. */
@@ -233,6 +256,10 @@ export interface AdminStats {
     subsTrialing: number
     subsSuspended: number
     subsLifetime: number
+    /** Paid Razorpay payments in the ledger. */
+    paymentsPaid: number
+    /** Sum of paid amounts in paise (₹ = value / 100). */
+    paymentsRevenue: number
     oauthStates: number
   }
   system: AdminSystemHealth
@@ -406,6 +433,14 @@ export const api = {
   me: () => fetchJson<Me>('/api/me'),
   /** Current user's subscription state (runs the lazy suspension sweep). */
   subscription: () => fetchJson<{ ok: boolean; subscription: SubscriptionInfo; transitioned: boolean; renewUrl: string; trialDays: number }>('/api/subscription'),
+  /** Create a Razorpay order for a paid plan (Checkout.js). */
+  subscriptionCheckout: (plan: PaidPlanId) =>
+    fetchJson<SubscriptionCheckout>('/api/subscription/checkout', { method: 'POST', body: JSON.stringify({ plan }) }),
+  /** Verify a completed Razorpay payment → activate the subscription. */
+  subscriptionVerify: (payload: RazorpayHandlerResponse) =>
+    fetchJson<{ ok: boolean; repeat?: boolean; plan?: string; planLabel?: string; lifted?: boolean; subscription?: SubscriptionInfo; error?: string; message?: string }>('/api/subscription/verify', {
+      method: 'POST', body: JSON.stringify(payload),
+    }),
   logout: () => fetchJson<{ ok: boolean; redirect: string }>('/api/logout', { method: 'POST' }),
   demoLogin: () => fetchJson<{ ok: boolean; demo: boolean; sessionToken?: string; redirect?: string }>('/api/demo-login', { method: 'POST' }),
 

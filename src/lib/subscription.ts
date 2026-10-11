@@ -178,6 +178,35 @@ export function subscriptionView(
 }
 
 /**
+ * Activate/extend a paid plan (Razorpay verify + webhook share this path).
+ * Idempotent: safe to run twice for the same payment. Period stacking — if
+ * the user still has active paid time, the new period extends it; otherwise
+ * it starts now. Also lifts any suspension. Returns the fresh row + whether
+ * a suspension was lifted (for success messaging).
+ */
+export async function activatePaidSubscription(
+  userId: string,
+  plan: 'plus' | 'pro' | 'lifetime',
+  periodDays: number,
+): Promise<{ sub: NonNullable<Awaited<ReturnType<typeof ensureSubscription>>>; lifted: boolean }> {
+  const current = await ensureSubscription(userId)
+  const now = new Date()
+  const add = periodDays * 24 * 60 * 60 * 1000
+  const stacking = current.status === 'active' && current.currentPeriodEnd && current.currentPeriodEnd > now && plan !== 'lifetime'
+  const base = stacking ? current.currentPeriodEnd!.getTime() : now.getTime()
+  const sub = await db.subscription.update({
+    where: { userId },
+    data: {
+      plan,
+      status: 'active',
+      suspendedAt: null,
+      currentPeriodEnd: plan === 'lifetime' ? null : new Date(base + add),
+    },
+  })
+  return { sub, lifted: current.status === 'suspended' }
+}
+
+/**
  * Gate helper for mutating RPC endpoints. Returns null when access is allowed,
  * otherwise a ready 403 JSON payload (error code + human message).
  */

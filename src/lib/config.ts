@@ -32,6 +32,23 @@ export const CONFIG = {
     // Free trial length for new signups (Subscription lifecycle).
     trialDays: 3,
   },
+  razorpay: {
+    // Live keys live in env (RAZORPAY_KEY_ID / RAZORPAY_KEY_SECRET /
+    // RAZORPAY_WEBHOOK_SECRET). keyId is safe to expose to the browser for
+    // Checkout.js — the key secret never leaves the server.
+    keyId: process.env.RAZORPAY_KEY_ID || '',
+    keySecret: process.env.RAZORPAY_KEY_SECRET || '',
+    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
+    apiBase: 'https://api.razorpay.com/v1',
+    checkoutSrc: 'https://checkout.razorpay.com/v1/checkout.js',
+    currency: 'INR',
+    // Self-serve paid plans (amount in paise). The periodDays extend the
+    // Subscription.currentPeriodEnd (stacks on top of any remaining time).
+    plans: {
+      plus: { label: 'Plus', amount: 19900, periodDays: 30, display: '₹199', period: '/ 1 Mo' },
+      pro: { label: 'Pro', amount: 39900, periodDays: 90, display: '₹399', period: '/ 3 Mo' },
+    } as Record<'plus' | 'pro', { label: string; amount: number; periodDays: number; display: string; period: string }>,
+  },
   weather: {
     geocodeUrl: 'https://geocoding-api.open-meteo.com/v1/search',
     forecastUrl: 'https://api.open-meteo.com/v1/forecast',

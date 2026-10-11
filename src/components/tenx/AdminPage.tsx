@@ -700,6 +700,8 @@ function OverviewTab({ sys, stats, c }: { sys: AdminStats['system'] | undefined;
           <MiniChip label="Subs trialing" value={c.subsTrialing} />
           <MiniChip label="Subs suspended" value={c.subsSuspended} />
           <MiniChip label="Lifetime" value={c.subsLifetime} />
+          <MiniChip label="Paid payments" value={c.paymentsPaid} />
+          <MiniChip label="Revenue ₹" value={Math.round(c.paymentsRevenue / 100)} />
           <MiniChip label="Mirrored assets" value={c.mirrorAssets} />
           <MiniChip label="Discord assets" value={c.discordAssets} />
           <MiniChip label="OAuth states" value={c.oauthStates} />

@@ -32,6 +32,7 @@ model User {
   trial          Trial?
   subscription   Subscription?
   favoriteGames  FavoriteGame[]
+  payments       Payment[]
 }
 
 model Session {
@@ -253,4 +254,26 @@ model FavoriteGame {
 
   @@unique([userId, name])
   @@index([userId])
+}
+
+// Payments ledger — one row per Razorpay order created for a subscription
+// purchase. "created" → "paid" (verify/webhook) → subscription activated.
+// Keeps the admin platform honest about revenue without any Razorpay
+// dashboard access.
+model Payment {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider  String   @default("razorpay")
+  orderId   String   @unique
+  paymentId String?  @unique
+  plan      String // plus | pro
+  amount    Int // paise
+  currency  String   @default("INR")
+  status    String   @default("created")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
 }

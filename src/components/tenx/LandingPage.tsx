@@ -114,7 +114,7 @@ export function LandingPage() {
           <div className="text-center mb-10">
             <h2 className="text-3xl sm:text-5xl font-black text-white mb-4">Simple Pricing</h2>
             <p className="text-sm sm:text-base text-white/60 max-w-md mx-auto">
-              Just covering our cloud server bills. Every account starts with a 3-day free trial — no card needed.
+              Just covering our cloud server bills. Every account starts with a 3-day free trial — no card needed. Pay with UPI, cards or netbanking.
             </p>
           </div>
 
@@ -122,7 +122,7 @@ export function LandingPage() {
             {/* Trial */}
             <PricingCard
               name="Free Trial"
-              price="$0"
+              price="₹0"
               period="/ 3 Days"
               features={['Full feature access', '3 days validity', 'No card needed']}
               cta="Try Now"
@@ -133,8 +133,8 @@ export function LandingPage() {
             {/* Pro (3 Months) */}
             <PricingCard
               name="Pro (3 Months)"
-              price="$4"
-              originalPrice="$5"
+              price="₹399"
+              originalPrice="₹499"
               period="/ 3 Mo"
               badge="20% OFF"
               features={['Full feature Access', 'Priority Support', 'Game RPC Requests', 'Custom discord role']}
@@ -147,7 +147,7 @@ export function LandingPage() {
             {/* Plus (1 Month) */}
             <PricingCard
               name="Plus (1 Month)"
-              price="$2"
+              price="₹199"
               period="/ 1 Mo"
               features={['Full feature access', 'Standard Support', 'Basic discord role']}
               cta="Buy Now"
