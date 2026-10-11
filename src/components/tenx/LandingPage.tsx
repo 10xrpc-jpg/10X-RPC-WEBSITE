@@ -1,6 +1,7 @@
 // 10X RPC — Landing page (hero + seamless experience + pricing)
 'use client'
 import { PrimaryButton, GhostButton } from './ui'
+import { BrandMark } from './BrandMark'
 import { useRouter } from './useRouter'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
@@ -40,7 +41,7 @@ export function LandingPage() {
       {/* Nav */}
       <nav className="flex items-center justify-between px-4 sm:px-8 py-4 sm:py-6">
         <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-xl purple-gradient flex items-center justify-center font-black text-white">10</div>
+          <BrandMark className="w-9 h-9" />
           <span className="text-lg sm:text-xl font-bold text-white">10X RPC</span>
         </div>
         <div className="flex items-center gap-2">

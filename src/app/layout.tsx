@@ -18,7 +18,7 @@ export const metadata: Metadata = {
   description: "Take control of your Discord presence. Custom status, rich presence, VR status, game RPC, smart sleep timer, dynamic placeholders, and 24/7 reliability.",
   keywords: ["10X RPC", "Discord RPC", "Rich Presence", "Discord status", "VR status", "Meta Quest"],
   authors: [{ name: "10X RPC" }],
-  icons: { icon: "/logo.svg" },
+  icons: { icon: "/logo.png", apple: "/apple-touch-icon.png" },
   openGraph: {
     title: "10X RPC",
     description: "Premium Discord Rich Presence management.",

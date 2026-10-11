@@ -14,6 +14,7 @@ import { toast } from 'sonner'
 import { api, type Me, type GameListItem, type DiscoveredApp, type FavoriteGameItem } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { BackButton } from './ui'
+import { BrandMark } from './BrandMark'
 import { ReconnectBanner } from './ReconnectBanner'
 import { User, Star, Plus, X, Gamepad2, BadgeCheck, Loader2, CheckCircle2, Search, Zap, ChevronDown } from 'lucide-react'
 
@@ -96,7 +97,7 @@ export function ProfileBoardPage() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="w-12 h-12 rounded-xl purple-gradient flex items-center justify-center font-black text-white mx-auto mb-3 animate-pulse">10</div>
+          <BrandMark className="w-12 h-12 mx-auto mb-3 animate-pulse" />
           <p className="text-white/60 text-sm">Loading profile board...</p>
         </div>
       </div>
@@ -107,7 +108,7 @@ export function ProfileBoardPage() {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="glass-card p-8 max-w-md text-center">
-          <div className="w-14 h-14 rounded-2xl purple-gradient flex items-center justify-center font-black text-white mx-auto mb-4">10</div>
+          <BrandMark className="w-14 h-14 rounded-2xl mx-auto mb-4" />
           <h1 className="text-xl font-bold text-white mb-2">Profile Board</h1>
           <p className="text-sm text-white/60 mb-6">Sign in with Discord to manage your favorite games.</p>
           <button

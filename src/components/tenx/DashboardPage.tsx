@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { api, type Me, type RpcConfig } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { ProfileSection } from './ProfileSection'
+import { BrandMark } from './BrandMark'
 import { SmartSleepTimerCard } from './SmartSleepTimerCard'
 import { RichPresenceForm } from './RichPresenceForm'
 import { ReconnectBanner } from './ReconnectBanner'
@@ -56,7 +57,7 @@ export function DashboardPage() {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
-          <div className="w-12 h-12 rounded-xl purple-gradient flex items-center justify-center font-black text-white mx-auto mb-3 animate-pulse">10</div>
+          <BrandMark className="w-12 h-12 mx-auto mb-3 animate-pulse" />
           <p className="text-white/60 text-sm">Loading dashboard...</p>
         </div>
       </div>
@@ -85,7 +86,7 @@ export function DashboardPage() {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="glass-card p-8 max-w-md text-center">
-          <div className="w-14 h-14 rounded-2xl purple-gradient flex items-center justify-center font-black text-white mx-auto mb-4">10</div>
+          <BrandMark className="w-14 h-14 rounded-2xl mx-auto mb-4" />
           <h1 className="text-2xl font-bold text-white mb-2">Welcome to 10X RPC</h1>
           <p className="text-sm text-white/60 mb-6">
             Sign in with Discord to access your dashboard, or try the demo mode to preview the UI.
@@ -130,7 +131,7 @@ export function DashboardPage() {
       {/* Header */}
       <header className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-xl purple-gradient flex items-center justify-center font-black text-white">10</div>
+          <BrandMark className="w-9 h-9" />
           <span className="text-lg font-bold text-white">10X RPC</span>
         </div>
         <div className="flex items-center gap-2">

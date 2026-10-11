@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from './useRouter'
 import { GhostButton, Badge, Card } from './ui'
+import { BrandMark } from './BrandMark'
 import type { UptimeReport } from '@/lib/uptime'
 
 const REFRESH_MS = 20_000
@@ -169,7 +170,7 @@ export function UptimePage() {
       {/* Nav */}
       <nav className="flex items-center justify-between px-4 sm:px-8 py-4 sm:py-6">
         <button onClick={() => navigate({ name: 'home' })} className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-xl purple-gradient flex items-center justify-center font-black text-white">10</div>
+          <BrandMark className="w-9 h-9" />
           <span className="text-lg sm:text-xl font-bold text-white">10X RPC</span>
         </button>
         <div className="flex items-center gap-2">
