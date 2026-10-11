@@ -94,7 +94,7 @@ const CHIP_TONES: Record<string, string> = {
   green: 'bg-green-500/15 text-green-300 border-green-500/30',
   red: 'bg-red-500/15 text-red-300 border-red-500/30',
   amber: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  violet: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+  violet: 'bg-purple-500/15 text-red-300 border-purple-500/30',
   sky: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
   gray: 'bg-white/5 text-white/40 border-white/10',
 }
@@ -178,7 +178,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel, danger, 
             className={`text-xs px-3 py-2 rounded-lg border transition-all disabled:opacity-40 ${
               danger
                 ? 'bg-red-500/20 border-red-500/40 text-red-200 hover:bg-red-500/30'
-                : 'bg-purple-500/25 border-purple-500/50 text-purple-100 hover:bg-purple-500/35'
+                : 'bg-purple-500/25 border-purple-500/50 text-red-100 hover:bg-purple-500/35'
             }`}
           >
             {busy ? '…' : confirmLabel}

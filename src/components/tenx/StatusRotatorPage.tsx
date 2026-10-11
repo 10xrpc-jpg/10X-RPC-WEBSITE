@@ -499,7 +499,7 @@ function PresetRow({
           ▼
         </button>
       </div>
-      <button onClick={() => setEditing(true)} className="text-xs text-purple-300 hover:text-purple-200 px-2 py-1">
+      <button onClick={() => setEditing(true)} className="text-xs text-red-300 hover:text-red-200 px-2 py-1">
         Edit
       </button>
       <button onClick={onDelete} className="text-xs text-red-400 hover:text-red-300 px-2 py-1" aria-label="Delete preset">

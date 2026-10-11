@@ -18,3 +18,16 @@ export function BrandMark({ className = 'w-9 h-9', rounded = 'rounded-xl' }: { c
     </div>
   )
 }
+
+// The wordmark: "10" rendered white + "X" rendered red — matching the logo
+// tile. Use <BrandName /> for the bare name or suffix=" RPC" for the full
+// wordmark. Size/weight come in via className.
+export function BrandName({ className = '', suffix }: { className?: string; suffix?: string }) {
+  return (
+    <span className={className}>
+      <span className="text-white">10</span>
+      <span className="text-red-500">X</span>
+      {suffix ? <span className="text-white">{suffix}</span> : null}
+    </span>
+  )
+}

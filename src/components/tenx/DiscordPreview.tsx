@@ -65,7 +65,7 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
       <div className="relative z-10">
         {/* Header: LIVE PREVIEW + Status */}
         <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-bold tracking-widest text-purple-400 uppercase">
+          <span className="text-xs font-bold tracking-widest text-red-400 uppercase">
             LIVE PREVIEW
           </span>
           <div className="flex items-center gap-2">
@@ -127,13 +127,13 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
               </div>
               {rpcEnabled ? (
                 <div className="text-xs text-white/60 flex items-center gap-1.5 mt-0.5">
-                  <span className="text-purple-400 font-bold">{type}</span>
+                  <span className="text-red-400 font-bold">{type}</span>
                   <span className="truncate text-white/90 font-medium">{name}</span>
                   {elapsedStr && <span className="text-white/40 whitespace-nowrap">• {elapsedStr} elapsed</span>}
                 </div>
               ) : (
                 <div className="text-xs text-white/50 flex items-center gap-1.5 mt-0.5">
-                  <span className="text-purple-400 font-bold">{type}</span>
+                  <span className="text-red-400 font-bold">{type}</span>
                   <span className="truncate text-white/80 font-medium">{name}</span>
                   <span className="text-white/35 whitespace-nowrap">• (Offline Preview)</span>
                 </div>
@@ -201,7 +201,7 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
                 <button
                   type="button"
                   onClick={() => button1Url && window.open(button1Url, '_blank', 'noopener,noreferrer')}
-                  className="w-full text-xs font-semibold text-purple-200 hover:text-white bg-[#20212b] hover:bg-[#282937] border border-white/10 hover:border-purple-500/40 rounded-xl py-2 px-3 truncate transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-sm"
+                  className="w-full text-xs font-semibold text-red-200 hover:text-white bg-[#20212b] hover:bg-[#282937] border border-white/10 hover:border-purple-500/40 rounded-xl py-2 px-3 truncate transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-sm"
                   title={button1Url ? `${button1Label} (${button1Url})` : button1Label}
                 >
                   <span className="truncate">{button1Label}</span>
@@ -212,7 +212,7 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
                 <button
                   type="button"
                   onClick={() => button2Url && window.open(button2Url, '_blank', 'noopener,noreferrer')}
-                  className="w-full text-xs font-semibold text-purple-200 hover:text-white bg-[#20212b] hover:bg-[#282937] border border-white/10 hover:border-purple-500/40 rounded-xl py-2 px-3 truncate transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-sm"
+                  className="w-full text-xs font-semibold text-red-200 hover:text-white bg-[#20212b] hover:bg-[#282937] border border-white/10 hover:border-purple-500/40 rounded-xl py-2 px-3 truncate transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-sm"
                   title={button2Url ? `${button2Label} (${button2Url})` : button2Label}
                 >
                   <span className="truncate">{button2Label}</span>

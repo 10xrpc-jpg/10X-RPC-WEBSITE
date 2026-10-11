@@ -327,10 +327,10 @@ export function AdminPage() {
                     : 'border-transparent text-white/45 hover:text-white/80'
                 }`}
               >
-                <span className={active ? 'text-purple-300' : ''}>{t.icon}</span>
+                <span className={active ? 'text-red-300' : ''}>{t.icon}</span>
                 {t.label}
                 {badge && (
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${active ? 'bg-purple-500/30 text-purple-100' : 'bg-white/10 text-white/50'}`}>
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${active ? 'bg-purple-500/30 text-red-100' : 'bg-white/10 text-white/50'}`}>
                     {badge}
                   </span>
                 )}
@@ -357,7 +357,7 @@ export function AdminPage() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <StatCard label="Revenue ₹" value={ps ? Math.round(ps.revenueTotalPaise / 100) : 0} color="text-amber-300" />
                 <StatCard label="Revenue 30d ₹" value={ps ? Math.round(ps.revenue30dPaise / 100) : 0} color="text-emerald-400" />
-                <StatCard label="Paid" value={ps?.paidCount ?? 0} color="text-purple-400" />
+                <StatCard label="Paid" value={ps?.paidCount ?? 0} color="text-red-400" />
                 <StatCard label="Paying users" value={ps?.payingUsers ?? 0} color="text-sky-400" />
               </div>
 
@@ -370,7 +370,7 @@ export function AdminPage() {
                         <button
                           key={f}
                           onClick={() => setPaymentsFilter(f)}
-                          className={`text-[11px] px-3 py-1.5 capitalize transition-all ${paymentsFilter === f ? 'bg-purple-500/25 text-purple-200' : 'text-white/50 hover:text-white/80'}`}
+                          className={`text-[11px] px-3 py-1.5 capitalize transition-all ${paymentsFilter === f ? 'bg-purple-500/25 text-red-200' : 'text-white/50 hover:text-white/80'}`}
                         >
                           {f}
                         </button>
@@ -422,7 +422,7 @@ export function AdminPage() {
               <StatCard label="Active" value={sessionSummary?.activeCount ?? c?.activeSessions ?? 0} color="text-green-400" />
               <StatCard label="Expiring 24h" value={sessionSummary?.expiringSoon24h ?? 0} color="text-amber-300" />
               <StatCard label="With Token" value={sessionSummary?.withTokenActive ?? c?.sessionsWithToken ?? 0} color="text-sky-400" />
-              <StatCard label="RPC Live" value={sessionSummary?.rpcLiveActive ?? c?.rpcLive ?? 0} color="text-fuchsia-400" />
+              <StatCard label="RPC Live" value={sessionSummary?.rpcLiveActive ?? c?.rpcLive ?? 0} color="text-red-400" />
               <StatCard label="Expired" value={sessionSummary?.expiredCount ?? 0} color="text-white/60" />
             </div>
 
@@ -433,13 +433,13 @@ export function AdminPage() {
                   <div className="flex bg-white/5 border border-white/10 rounded-lg overflow-hidden">
                     <button
                       onClick={() => setSessionsScope('active')}
-                      className={`text-[11px] px-3 py-1.5 transition-all ${sessionsScope === 'active' ? 'bg-purple-500/25 text-purple-200' : 'text-white/50 hover:text-white/80'}`}
+                      className={`text-[11px] px-3 py-1.5 transition-all ${sessionsScope === 'active' ? 'bg-purple-500/25 text-red-200' : 'text-white/50 hover:text-white/80'}`}
                     >
                       Active
                     </button>
                     <button
                       onClick={() => setSessionsScope('expired')}
-                      className={`text-[11px] px-3 py-1.5 transition-all ${sessionsScope === 'expired' ? 'bg-purple-500/25 text-purple-200' : 'text-white/50 hover:text-white/80'}`}
+                      className={`text-[11px] px-3 py-1.5 transition-all ${sessionsScope === 'expired' ? 'bg-purple-500/25 text-red-200' : 'text-white/50 hover:text-white/80'}`}
                     >
                       Expired
                     </button>
@@ -534,7 +534,7 @@ export function AdminPage() {
                 <h3 className="font-bold text-white">Platform Settings</h3>
                 <button
                   onClick={copyReport}
-                  className="text-[11px] text-purple-300 bg-purple-500/10 border border-purple-500/30 px-2.5 py-1 rounded-lg hover:bg-purple-500/20 transition-all"
+                  className="text-[11px] text-red-300 bg-purple-500/10 border border-purple-500/30 px-2.5 py-1 rounded-lg hover:bg-purple-500/20 transition-all"
                 >
                   ⧉ Copy Debug Report
                 </button>
@@ -651,10 +651,10 @@ function OverviewTab({ sys, stats, c }: { sys: AdminStats['system'] | undefined;
 
       {/* Platform stats */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-        <StatCard label="Users" value={c ? c.totalUsers : 0} color="text-purple-300" />
+        <StatCard label="Users" value={c ? c.totalUsers : 0} color="text-red-300" />
         <StatCard label="RPC Live" value={c?.rpcLive ?? 0} color="text-green-400" />
         <StatCard label="With Token" value={c?.sessionsWithToken ?? 0} color="text-sky-400" />
-        <StatCard label="Status On" value={c?.statusEnabled ?? 0} color="text-fuchsia-400" />
+        <StatCard label="Status On" value={c?.statusEnabled ?? 0} color="text-red-400" />
         <StatCard label="VR Active" value={c?.vrActive ?? 0} color="text-cyan-300" />
         <StatCard label="New 24h" value={c?.newUsers24h ?? 0} color="text-amber-300" />
       </div>
@@ -669,7 +669,7 @@ function OverviewTab({ sys, stats, c }: { sys: AdminStats['system'] | undefined;
           <div className="flex items-end gap-2 h-24">
             {trend.map(p => (
               <div key={p.date} className="flex-1 flex flex-col items-center justify-end h-full gap-1" title={`${p.date}: ${p.count}`}>
-                <span className={`text-[10px] ${p.count > 0 ? 'text-purple-200' : 'text-white/30'}`}>{p.count}</span>
+                <span className={`text-[10px] ${p.count > 0 ? 'text-red-200' : 'text-white/30'}`}>{p.count}</span>
                 <div
                   className={`w-full rounded-t-md transition-all ${p.count > 0 ? 'bg-gradient-to-t from-purple-600/60 to-purple-400/80' : 'bg-white/5'}`}
                   style={{ height: `${p.count > 0 ? Math.max(8, (p.count / maxCount) * 100) : 4}%` }}
@@ -688,7 +688,7 @@ function OverviewTab({ sys, stats, c }: { sys: AdminStats['system'] | undefined;
           <div className="space-y-2">
             {newest.map(u => (
               <div key={u.id} className="flex items-center gap-3">
-                <div className="w-7 h-7 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-purple-200 text-xs font-bold shrink-0">
+                <div className="w-7 h-7 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-red-200 text-xs font-bold shrink-0">
                   {u.username.charAt(0).toUpperCase()}
                 </div>
                 <span className="text-sm text-white/85 truncate flex-1">{u.username}</span>
@@ -820,7 +820,7 @@ function SettingRow({ label, value, mono, ok, link }: { label: string; value: st
           href={value.startsWith('http') ? value : `https://${value}`}
           target="_blank"
           rel="noreferrer"
-          className="text-xs text-purple-300 hover:text-purple-200 truncate underline underline-offset-2"
+          className="text-xs text-red-300 hover:text-red-200 truncate underline underline-offset-2"
         >
           {value}
         </a>
@@ -841,7 +841,7 @@ function PaymentRow({ payment: p }: { payment: AdminPaymentRow }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-medium text-white truncate">{p.username}</span>
-          <Badge className={`text-[10px] ${p.plan === 'pro' ? 'bg-purple-500/20 text-purple-300' : 'bg-sky-500/20 text-sky-300'}`}>
+          <Badge className={`text-[10px] ${p.plan === 'pro' ? 'bg-purple-500/20 text-red-300' : 'bg-sky-500/20 text-sky-300'}`}>
             {p.plan.toUpperCase()}
           </Badge>
           <Badge className={`text-[10px] ${paid ? 'bg-green-500/20 text-green-300' : 'bg-white/5 text-white/40'}`}>
@@ -888,7 +888,7 @@ function SessionRow({ session: s, busy, onRevoke }: {
               RPC LIVE
             </Badge>
           ) : s.statusEnabled ? (
-            <Badge className="bg-fuchsia-500/20 text-fuchsia-300 text-[10px]">STATUS ON</Badge>
+            <Badge className="bg-fuchsia-500/20 text-red-300 text-[10px]">STATUS ON</Badge>
           ) : (
             <Badge className="bg-white/5 text-white/40 text-[10px]">IDLE</Badge>
           )}

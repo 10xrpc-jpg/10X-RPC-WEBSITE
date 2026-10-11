@@ -61,7 +61,7 @@ export function SmartSleepTimerCard({ currentEndsAt, onSaved }: { currentEndsAt?
       <div className="relative z-10">
         {/* Title: 🕒 Smart Sleep Timer (centered) */}
         <div className="flex items-center justify-center gap-2.5 mb-2.5">
-          <Clock className="w-6 h-6 text-purple-400 stroke-[2.2]" />
+          <Clock className="w-6 h-6 text-red-400 stroke-[2.2]" />
           <h2 className="text-2xl font-bold text-white tracking-tight">Smart Sleep Timer</h2>
         </div>
 

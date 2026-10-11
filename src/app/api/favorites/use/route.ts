@@ -1,4 +1,4 @@
-// 10X RPC — /api/favorites/use — "Use for Game RPC" (Profile Board one-click)
+// 10X RPC — /api/favorites/use — "Use for Game RPC" (one-click)
 // Resolves a favorite into the user's live Game RPC:
 //   1. App favorite (appId)    → reuse the user's existing custom game for that
 //      Application ID, or CREATE it on the spot (official name + icon are

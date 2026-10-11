@@ -96,7 +96,7 @@ export function GamesPage() {
       // 1. Create the custom game — the official identity (App ID + name +
       //    icon) is fetched from Discord automatically.
       await api.gameCustomCreate({ appId: app.appId })
-      // 2. Star it as a favorite on the Profile Board (Favorite Game widget).
+      // 2. Star it as a favorite to your Favorites (Favorite Game widget).
       const f = await api.favoriteAdd({ name: app.name, appId: app.appId, iconUrl: app.iconUrl })
       // 3. Apply it as the live Game RPC (mutual exclusivity + daemon push
       //    handled server-side).
@@ -173,7 +173,7 @@ export function GamesPage() {
           </div>
           <div className="min-w-0">
             <span className="flex items-center gap-1.5 min-w-0">
-              <span className="text-sm sm:text-base font-bold text-white group-hover:text-purple-200 transition-colors truncate">
+              <span className="text-sm sm:text-base font-bold text-white group-hover:text-red-200 transition-colors truncate">
                 {app.name}
               </span>
               {app.verified && (
@@ -193,15 +193,15 @@ export function GamesPage() {
 
         <div className="flex items-center gap-2 shrink-0 ml-3">
           {already ? (
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 inline-flex items-center gap-1 whitespace-nowrap">
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-red-300 border border-purple-500/30 inline-flex items-center gap-1 whitespace-nowrap">
               <CheckCircle2 className="w-3 h-3" />
               <span>Added</span>
             </span>
           ) : busy ? (
-            <Loader2 className="w-4 h-4 text-purple-300 animate-spin" />
+            <Loader2 className="w-4 h-4 text-red-300 animate-spin" />
           ) : (
             <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
-              <Plus className="w-3.5 h-3.5 text-purple-300 stroke-[2.5]" />
+              <Plus className="w-3.5 h-3.5 text-red-300 stroke-[2.5]" />
             </span>
           )}
         </div>
@@ -215,7 +215,7 @@ export function GamesPage() {
       <div className="flex items-center justify-between">
         <BackButton onClick={() => navigate({ name: 'dashboard' })} />
         <div className="flex items-center gap-2.5">
-          <Gamepad2 className="w-6 h-6 text-purple-400 stroke-[2.2]" />
+          <Gamepad2 className="w-6 h-6 text-red-400 stroke-[2.2]" />
           <h1 className="text-2xl font-bold text-white tracking-tight">Games</h1>
         </div>
         <div className="min-w-[90px] flex justify-end">
@@ -265,7 +265,7 @@ export function GamesPage() {
                 {query && (
                   <button
                     onClick={() => setQuery('')}
-                    className="text-xs text-purple-300 hover:text-purple-200 mt-2 font-medium"
+                    className="text-xs text-red-300 hover:text-red-200 mt-2 font-medium"
                   >
                     Clear search
                   </button>
@@ -303,11 +303,11 @@ export function GamesPage() {
                   {/* Title & Details */}
                   <div className="min-w-0">
                     <span className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-sm sm:text-base font-bold text-white group-hover:text-purple-200 transition-colors truncate">
+                      <span className="text-sm sm:text-base font-bold text-white group-hover:text-red-200 transition-colors truncate">
                         {g.name}
                       </span>
                       {g.custom && (
-                        <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-purple-500/15 text-purple-300 border border-purple-500/30">
+                        <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-purple-500/15 text-red-300 border border-purple-500/30">
                           Custom
                         </span>
                       )}
@@ -340,7 +340,7 @@ export function GamesPage() {
                     <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
                       Searching Discord...
                     </span>
-                    <Loader2 className="w-3.5 h-3.5 text-purple-300/70 animate-spin" />
+                    <Loader2 className="w-3.5 h-3.5 text-red-300/70 animate-spin" />
                   </div>
                 )}
 
@@ -361,7 +361,7 @@ export function GamesPage() {
                       <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
                         All Games On Discord
                       </span>
-                      <span className="text-[9px] font-semibold text-purple-300/70 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
+                      <span className="text-[9px] font-semibold text-red-300/70 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
                         24,600+ catalog
                       </span>
                     </div>
@@ -378,9 +378,9 @@ export function GamesPage() {
                     className="w-full flex items-center justify-center gap-2 p-3 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition-all cursor-pointer disabled:opacity-60"
                   >
                     {loadingMore ? (
-                      <Loader2 className="w-3.5 h-3.5 text-purple-300 animate-spin" />
+                      <Loader2 className="w-3.5 h-3.5 text-red-300 animate-spin" />
                     ) : (
-                      <ChevronDown className="w-3.5 h-3.5 text-purple-300" />
+                      <ChevronDown className="w-3.5 h-3.5 text-red-300" />
                     )}
                     {loadingMore ? 'Loading more...' : 'See more'}
                   </button>
@@ -394,7 +394,7 @@ export function GamesPage() {
                     <button
                       type="button"
                       onClick={() => setAddOpen(true)}
-                      className="text-purple-300 hover:text-purple-200 font-medium inline-flex items-center gap-1 cursor-pointer"
+                      className="text-red-300 hover:text-red-200 font-medium inline-flex items-center gap-1 cursor-pointer"
                     >
                       <Plus className="w-3 h-3" />
                       Add it by Application ID instead
@@ -412,9 +412,9 @@ export function GamesPage() {
                 className="w-full flex items-center justify-center gap-2 p-3.5 bg-transparent hover:bg-purple-500/5 border border-dashed border-white/15 hover:border-purple-500/50 rounded-2xl transition-all text-left cursor-pointer group active:scale-[0.99]"
               >
                 <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
-                  <Plus className="w-3.5 h-3.5 text-purple-300 stroke-[2.5]" />
+                  <Plus className="w-3.5 h-3.5 text-red-300 stroke-[2.5]" />
                 </span>
-                <span className="text-sm font-bold text-white/60 group-hover:text-purple-200 transition-colors">
+                <span className="text-sm font-bold text-white/60 group-hover:text-red-200 transition-colors">
                   Add Games
                 </span>
               </button>
@@ -668,7 +668,7 @@ function AddGameDialog({
           </div>
           <div className="min-w-0">
             <span className="flex items-center gap-1.5 min-w-0">
-              <span className="text-sm font-bold text-white group-hover:text-purple-200 transition-colors truncate">
+              <span className="text-sm font-bold text-white group-hover:text-red-200 transition-colors truncate">
                 {app.name}
               </span>
               {app.verified && (
@@ -683,15 +683,15 @@ function AddGameDialog({
 
         <div className="flex items-center gap-2 shrink-0 ml-3">
           {already ? (
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 inline-flex items-center gap-1 whitespace-nowrap">
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-red-300 border border-purple-500/30 inline-flex items-center gap-1 whitespace-nowrap">
               <CheckCircle2 className="w-3 h-3" />
               <span>Added</span>
             </span>
           ) : busy ? (
-            <Loader2 className="w-4 h-4 text-purple-300 animate-spin" />
+            <Loader2 className="w-4 h-4 text-red-300 animate-spin" />
           ) : (
             <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
-              <Plus className="w-3.5 h-3.5 text-purple-300 stroke-[2.5]" />
+              <Plus className="w-3.5 h-3.5 text-red-300 stroke-[2.5]" />
             </span>
           )}
         </div>
@@ -723,7 +723,7 @@ function AddGameDialog({
         <div className="flex items-center justify-between pb-4 border-b border-white/8">
           <div className="flex items-center gap-2.5">
             <span className="w-9 h-9 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center">
-              <Plus className="w-4.5 h-4.5 text-purple-300 stroke-[2.5]" />
+              <Plus className="w-4.5 h-4.5 text-red-300 stroke-[2.5]" />
             </span>
             <div>
               <h2 className="text-base font-bold text-white tracking-tight">Add a Game</h2>
@@ -775,7 +775,7 @@ function AddGameDialog({
                   <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
                     {isPopular ? 'Loading popular games...' : 'Searching Discord...'}
                   </span>
-                  <Loader2 className="w-3.5 h-3.5 text-purple-300/70 animate-spin" />
+                  <Loader2 className="w-3.5 h-3.5 text-red-300/70 animate-spin" />
                 </div>
               )}
 
@@ -785,7 +785,7 @@ function AddGameDialog({
                     <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
                       Popular On Discord
                     </span>
-                    <span className="text-[9px] font-semibold text-purple-300/70 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
+                    <span className="text-[9px] font-semibold text-red-300/70 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
                       24,600+ catalog
                     </span>
                   </div>
@@ -799,9 +799,9 @@ function AddGameDialog({
                       className="w-full flex items-center justify-center gap-2 p-3 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition-all cursor-pointer disabled:opacity-60"
                     >
                       {loadingMore ? (
-                        <Loader2 className="w-3.5 h-3.5 text-purple-300 animate-spin" />
+                        <Loader2 className="w-3.5 h-3.5 text-red-300 animate-spin" />
                       ) : (
-                        <ChevronDown className="w-3.5 h-3.5 text-purple-300" />
+                        <ChevronDown className="w-3.5 h-3.5 text-red-300" />
                       )}
                       {loadingMore ? 'Loading more...' : 'See more'}
                     </button>
@@ -826,7 +826,7 @@ function AddGameDialog({
                     <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
                       All Games On Discord
                     </span>
-                    <span className="text-[9px] font-semibold text-purple-300/70 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
+                    <span className="text-[9px] font-semibold text-red-300/70 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
                       24,600+ catalog
                     </span>
                   </div>
@@ -843,9 +843,9 @@ function AddGameDialog({
                   className="w-full flex items-center justify-center gap-2 p-3 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition-all cursor-pointer disabled:opacity-60"
                 >
                   {loadingMore ? (
-                    <Loader2 className="w-3.5 h-3.5 text-purple-300 animate-spin" />
+                    <Loader2 className="w-3.5 h-3.5 text-red-300 animate-spin" />
                   ) : (
-                    <ChevronDown className="w-3.5 h-3.5 text-purple-300" />
+                    <ChevronDown className="w-3.5 h-3.5 text-red-300" />
                   )}
                   {loadingMore ? 'Loading more...' : 'See more'}
                 </button>
@@ -867,7 +867,7 @@ function AddGameDialog({
           <div className="space-y-4 pt-4">
             {/* Application ID — the classic power-user flow (official name + icon auto-fill) */}
             <div className="space-y-1.5">
-              <label htmlFor="custom-game-appid" className="text-xs font-bold tracking-wider text-[#a855f7] uppercase block">
+              <label htmlFor="custom-game-appid" className="text-xs font-bold tracking-wider text-red-400 uppercase block">
                 Application ID
               </label>
               <input

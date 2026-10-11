@@ -63,7 +63,7 @@ export function QuickStatusPanel({ currentStatus, onStatusChange }: QuickStatusP
   return (
     <div className="glass-card-inner p-3 space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-wider text-purple-400 font-semibold">Quick Status</span>
+        <span className="text-[10px] uppercase tracking-wider text-red-400 font-semibold">Quick Status</span>
         {feedback && (
           <span className="text-[10px] text-green-400">{feedback}</span>
         )}

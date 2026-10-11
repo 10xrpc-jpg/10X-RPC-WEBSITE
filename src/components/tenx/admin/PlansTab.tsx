@@ -79,7 +79,7 @@ export function PlansTab() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <StatCard label="Plans" value={plans.filter(p => !p.archived).length} color="text-purple-300" />
+        <StatCard label="Plans" value={plans.filter(p => !p.archived).length} color="text-red-300" />
         <StatCard label="Active" value={plans.filter(p => p.active && !p.archived).length} color="text-green-400" />
         <StatCard label="Subscribers" value={totalSubs} color="text-sky-400" />
         <StatCard label="Revenue" value={rupees(totalRevenue)} color="text-amber-300" />
@@ -90,7 +90,7 @@ export function PlansTab() {
           <h3 className="font-bold text-white">Plan Catalog</h3>
           <button
             onClick={() => setEditor({ mode: 'create' })}
-            className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 border border-purple-500/40 text-purple-200 hover:bg-purple-500/30 transition-all"
+            className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 border border-purple-500/40 text-red-200 hover:bg-purple-500/30 transition-all"
           >
             + New Plan
           </button>
@@ -315,7 +315,7 @@ function PlanEditor({ mode, plan, onClose, onSaved }: {
           <button
             onClick={save}
             disabled={busy}
-            className="text-xs px-4 py-2 rounded-lg bg-purple-500/25 border border-purple-500/50 text-purple-100 hover:bg-purple-500/35 transition-all disabled:opacity-40"
+            className="text-xs px-4 py-2 rounded-lg bg-purple-500/25 border border-purple-500/50 text-red-100 hover:bg-purple-500/35 transition-all disabled:opacity-40"
           >
             {busy ? 'Saving…' : mode === 'create' ? 'Create plan' : 'Save changes'}
           </button>

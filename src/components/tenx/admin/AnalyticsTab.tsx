@@ -38,9 +38,9 @@ export function AnalyticsTab() {
     <div className="space-y-4">
       {/* lifecycle */}
       <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-        <StatCard label="Subscriptions" value={s.total} color="text-purple-300" />
+        <StatCard label="Subscriptions" value={s.total} color="text-red-300" />
         <StatCard label="Active paid" value={s.active} color="text-green-400" sub={`${s.lifetime} lifetime`} />
-        <StatCard label="Trialing" value={s.trialing} color="text-fuchsia-300" />
+        <StatCard label="Trialing" value={s.trialing} color="text-red-300" />
         <StatCard label="Expired" value={s.expired} color="text-red-300" />
         <StatCard label="Admin-suspended" value={s.adminSuspended} color="text-amber-300" />
       </div>
@@ -49,7 +49,7 @@ export function AnalyticsTab() {
         <StatCard label="Trial→Paid" value={`${data.conversion.rate}%`} color="text-emerald-300" sub={`${data.conversion.payingUsers}/${data.conversion.everTrialed}`} />
         <StatCard label="Revenue all-time" value={rupees(data.revenue.allTimePaise)} color="text-amber-300" />
         <StatCard label="Revenue 30d" value={rupees(data.revenue.last30dPaise)} color="text-emerald-400" />
-        <StatCard label="Payments paid" value={data.revenue.paidCount} color="text-purple-400" sub={`${data.conversion.renewals} renewals`} />
+        <StatCard label="Payments paid" value={data.revenue.paidCount} color="text-red-400" sub={`${data.conversion.renewals} renewals`} />
         <StatCard label="Expiring ≤7d" value={s.expiring7d} color="text-amber-300" sub={`${s.expiring30d} in 30d`} />
       </div>
 

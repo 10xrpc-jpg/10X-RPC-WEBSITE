@@ -6,7 +6,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRouter } from './useRouter'
 import { GhostButton, Badge, Card } from './ui'
-import { BrandMark } from './BrandMark'
+import { BrandMark, BrandName } from './BrandMark'
 import type { UptimeReport } from '@/lib/uptime'
 
 const REFRESH_MS = 20_000
@@ -171,7 +171,7 @@ export function UptimePage() {
       <nav className="flex items-center justify-between px-4 sm:px-8 py-4 sm:py-6">
         <button onClick={() => navigate({ name: 'home' })} className="flex items-center gap-2">
           <BrandMark className="w-9 h-9" />
-          <span className="text-lg sm:text-xl font-bold text-white">10X RPC</span>
+          <BrandName className="text-lg sm:text-xl font-bold" suffix=" RPC" />
         </button>
         <div className="flex items-center gap-2">
           <a href="/games" className="hidden sm:block text-sm text-white/70 hover:text-white px-3 py-1.5">Games</a>
@@ -231,7 +231,7 @@ export function UptimePage() {
           {/* Regions & ping */}
           <section aria-label="Regions and ping">
             <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <span className="text-purple-400">🌍</span> Regions &amp; Ping
+              <span className="text-red-400">🌍</span> Regions &amp; Ping
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <RegionCard
@@ -280,7 +280,7 @@ export function UptimePage() {
           {/* 24/7 daemon details */}
           <section aria-label="Daemon details">
             <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <span className="text-purple-400">🤖</span> 24/7 Daemon
+              <span className="text-red-400">🤖</span> 24/7 Daemon
             </h2>
             <Card className="space-y-4">
               {!report ? (
@@ -319,7 +319,7 @@ export function UptimePage() {
           {/* Your ping */}
           <section aria-label="Your ping">
             <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <span className="text-purple-400">⚡</span> Your Ping
+              <span className="text-red-400">⚡</span> Your Ping
             </h2>
             <Card className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">

@@ -217,7 +217,7 @@ export function RichPresenceForm({
 
         {/* Centered Card Title: 🎮 Rich Presence */}
         <div className="relative z-10 flex items-center justify-center gap-2.5 mb-7 pt-1">
-          <Gamepad2 className="w-6 h-6 text-purple-400 stroke-[2.2]" />
+          <Gamepad2 className="w-6 h-6 text-red-400 stroke-[2.2]" />
           <h2 className="text-2xl font-bold text-white tracking-tight">Rich Presence</h2>
         </div>
 
@@ -358,7 +358,7 @@ export function RichPresenceForm({
                 {appLookup.iconUrl ? (
                   <img src={appLookup.iconUrl} alt={`${appLookup.name} icon`} className="w-6 h-6 rounded-md object-cover flex-shrink-0" />
                 ) : (
-                  <span className="w-6 h-6 rounded-md bg-purple-600/30 flex items-center justify-center text-[10px] font-bold text-purple-200 flex-shrink-0" aria-hidden>
+                  <span className="w-6 h-6 rounded-md bg-purple-600/30 flex items-center justify-center text-[10px] font-bold text-red-200 flex-shrink-0" aria-hidden>
                     {(appLookup.name || '?').slice(0, 1).toUpperCase()}
                   </span>
                 )}
@@ -381,7 +381,7 @@ export function RichPresenceForm({
                   href="https://discord.com/developers/applications"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-purple-300 hover:text-purple-200 underline underline-offset-2"
+                  className="text-red-300 hover:text-red-200 underline underline-offset-2"
                 >
                   discord.com/developers/applications
                 </a>{' '}
@@ -562,7 +562,7 @@ export function RichPresenceForm({
           <div className="border-t border-white/10 pt-6 mt-6">
             {/* ENABLE RPC Toggle Row */}
             <div className="flex items-center justify-between px-1 mb-5">
-              <span className="text-sm sm:text-base font-extrabold tracking-widest text-[#a855f7] uppercase">
+              <span className="text-sm sm:text-base font-extrabold tracking-widest text-red-400 uppercase">
                 ENABLE RPC
               </span>
               <PurpleSwitch checked={enabled} onCheckedChange={handleToggle} />
@@ -596,7 +596,7 @@ export function RichPresenceForm({
           </div>
 
           <div className="flex justify-center py-1">
-            <ChevronsDown className="w-8 h-8 text-purple-400 stroke-[2.5] animate-bounce" />
+            <ChevronsDown className="w-8 h-8 text-red-400 stroke-[2.5] animate-bounce" />
           </div>
 
           {/* Giant Game RPC Button */}
@@ -605,10 +605,10 @@ export function RichPresenceForm({
             onClick={onGameRpcClick}
             className="w-full py-7 px-4 rounded-[28px] bg-gradient-to-r from-[#221b36] via-[#352554] to-[#221b36] border border-purple-500/35 hover:border-purple-400/60 shadow-2xl shadow-purple-950/50 text-center transition-all cursor-pointer group active:scale-[0.99]"
           >
-            <div className="text-2xl sm:text-3xl font-black tracking-wider text-purple-200 group-hover:text-white transition-colors">
+            <div className="text-2xl sm:text-3xl font-black tracking-wider text-red-200 group-hover:text-white transition-colors">
               TRY GAME RPC
             </div>
-            <div className="text-2xl sm:text-3xl font-black tracking-wider text-purple-200 group-hover:text-white transition-colors mt-0.5">
+            <div className="text-2xl sm:text-3xl font-black tracking-wider text-red-200 group-hover:text-white transition-colors mt-0.5">
               NOW
             </div>
           </button>
@@ -621,7 +621,7 @@ export function RichPresenceForm({
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-bold tracking-wider text-[#a855f7] uppercase block">
+      <label className="text-xs font-bold tracking-wider text-red-400 uppercase block">
         {label}
       </label>
       {children}

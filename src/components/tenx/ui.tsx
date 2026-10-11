@@ -19,7 +19,7 @@ export function SectionTitle({ icon, children, right }: { icon?: ReactNode; chil
   return (
     <div className="flex items-center justify-between mb-4">
       <h2 className="text-xl sm:text-2xl font-bold text-white flex items-center gap-2">
-        {icon && <span className="text-purple-400">{icon}</span>}
+        {icon && <span className="text-red-400">{icon}</span>}
         {children}
       </h2>
       {right}
@@ -30,7 +30,7 @@ export function SectionTitle({ icon, children, right }: { icon?: ReactNode; chil
 export function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-[11px] uppercase tracking-wider text-purple-400 font-semibold">{label}</Label>
+      <Label className="text-[11px] uppercase tracking-wider text-red-400 font-semibold">{label}</Label>
       {children}
       {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>

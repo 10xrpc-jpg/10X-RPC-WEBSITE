@@ -161,7 +161,7 @@ export interface DiscoveredApp {
   source: 'trending' | 'detectable'
 }
 
-/** Profile Board → Favorite Game entry (starred game shortlist). */
+/** Favorite Game entry (starred game shortlist). */
 export interface FavoriteGameItem {
   id: string
   name: string

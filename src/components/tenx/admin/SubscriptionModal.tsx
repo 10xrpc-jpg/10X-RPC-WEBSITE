@@ -461,8 +461,8 @@ function SmallBtn({ tone, onClick, children }: { tone: 'green' | 'red' | 'purple
   const tones: Record<string, string> = {
     green: 'bg-green-500/15 border-green-500/30 text-green-300 hover:bg-green-500/25',
     red: 'bg-red-500/10 border-red-500/30 text-red-300 hover:bg-red-500/20',
-    purple: 'bg-purple-500/15 border-purple-500/30 text-purple-300 hover:bg-purple-500/25',
-    violet: 'bg-fuchsia-500/15 border-fuchsia-500/30 text-fuchsia-300 hover:bg-fuchsia-500/25',
+    purple: 'bg-purple-500/15 border-purple-500/30 text-red-300 hover:bg-purple-500/25',
+    violet: 'bg-fuchsia-500/15 border-fuchsia-500/30 text-red-300 hover:bg-fuchsia-500/25',
   }
   return (
     <button onClick={onClick} className={`text-[11px] px-2.5 py-1.5 rounded-lg border transition-all ${tones[tone]}`}>

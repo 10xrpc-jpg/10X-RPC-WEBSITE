@@ -272,7 +272,7 @@ export function GlobalConfigPage({ initialCity, initialTimezone, initialTempUnit
       <Card className="mb-6">
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
-            <p className="text-[11px] uppercase tracking-wider text-purple-400 font-semibold">Live local time</p>
+            <p className="text-[11px] uppercase tracking-wider text-red-400 font-semibold">Live local time</p>
             <p className="text-3xl font-black text-white font-mono mt-1 tabular-nums">{localTime}</p>
             <p className="text-sm text-white/50 mt-0.5">{localDate} · {timezone}{city ? ` · ${city}` : ''}</p>
           </div>
@@ -352,7 +352,7 @@ export function GlobalConfigPage({ initialCity, initialTimezone, initialTempUnit
                         role="option"
                         aria-selected={tz === timezone}
                         onClick={() => { setTimezone(tz); setTzOpen(false) }}
-                        className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-purple-500/10 transition-colors ${tz === timezone ? 'text-purple-300' : 'text-white/80'}`}
+                        className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between hover:bg-purple-500/10 transition-colors ${tz === timezone ? 'text-red-300' : 'text-white/80'}`}
                       >
                         <span className="truncate">{tz}</span>
                         <span className="text-xs text-white/35 ml-2">{tzOffsetLabel(tz, now)}</span>
@@ -418,7 +418,7 @@ export function GlobalConfigPage({ initialCity, initialTimezone, initialTempUnit
         </div>
         <div className="mt-4 glass-card-inner p-4">
           <div className="flex items-center justify-between mb-2">
-            <p className="text-[11px] uppercase tracking-wider text-purple-400 font-semibold">Rendered output</p>
+            <p className="text-[11px] uppercase tracking-wider text-red-400 font-semibold">Rendered output</p>
             {previewBusy && <span className="text-xs text-white/40">resolving…</span>}
           </div>
           <p className="text-lg text-white font-medium break-words" aria-live="polite">
@@ -430,7 +430,7 @@ export function GlobalConfigPage({ initialCity, initialTimezone, initialTempUnit
       {/* Placeholders Cheat Sheet */}
       <Card className="mt-6">
         <SectionTitle icon={<span className="text-xl">ℹ️</span>}>
-          <span className="text-purple-400">Placeholder Cheat Sheet</span>
+          <span className="text-red-400">Placeholder Cheat Sheet</span>
         </SectionTitle>
         <p className="text-sm text-white/60 mb-4">
           Use these in your RPC <strong className="text-white">State</strong> and <strong className="text-white">Details</strong> fields — they auto-update 24/7. Click any token to copy it.
@@ -452,11 +452,11 @@ export function GlobalConfigPage({ initialCity, initialTimezone, initialTempUnit
                       className="w-full flex items-center gap-3 glass-card-inner p-2.5 text-left hover:border-purple-500/40 transition-colors group"
                       title={`Click to copy ${p.token}`}
                     >
-                      <code className="px-2.5 py-1 rounded-lg bg-purple-500/20 text-purple-300 text-xs font-mono whitespace-nowrap group-hover:bg-purple-500/30 transition-colors">
+                      <code className="px-2.5 py-1 rounded-lg bg-purple-500/20 text-red-300 text-xs font-mono whitespace-nowrap group-hover:bg-purple-500/30 transition-colors">
                         {p.token}
                       </code>
                       <span className="text-xs text-white/70 flex-1">{p.desc}</span>
-                      <span className="text-xs text-white/25 group-hover:text-purple-400 transition-colors">copy</span>
+                      <span className="text-xs text-white/25 group-hover:text-red-400 transition-colors">copy</span>
                     </button>
                   ))}
                 </div>
@@ -473,7 +473,7 @@ export function GlobalConfigPage({ initialCity, initialTimezone, initialTempUnit
                 key={ex}
                 type="button"
                 onClick={() => { setPreviewText(ex); window.scrollTo({ top: 0, behavior: 'smooth' }) }}
-                className="block text-xs text-white/70 font-mono whitespace-pre-wrap leading-relaxed hover:text-purple-300 transition-colors text-left"
+                className="block text-xs text-white/70 font-mono whitespace-pre-wrap leading-relaxed hover:text-red-300 transition-colors text-left"
               >
                 {ex}
               </button>

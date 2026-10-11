@@ -1,4 +1,4 @@
-// 10X RPC — /api/favorites — Profile Board "Favorite Game" list
+// 10X RPC — /api/favorites — "Favorite Game" list
 // GET    → the user's favorite games (newest first)
 // POST   → add/favorite a game { name, appId?, slug?, iconUrl? }
 //          • appId  = a Discord application found via the directory search

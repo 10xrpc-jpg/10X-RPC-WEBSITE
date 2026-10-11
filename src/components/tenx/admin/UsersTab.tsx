@@ -68,9 +68,9 @@ export function UsersTab() {
       {/* summary cards */}
       {s && (
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-          <StatCard label="Users" value={s.total} color="text-purple-300" />
+          <StatCard label="Users" value={s.total} color="text-red-300" />
           <StatCard label="Paid active" value={s.active} color="text-green-400" />
-          <StatCard label="Trials" value={s.trialing} color="text-fuchsia-300" />
+          <StatCard label="Trials" value={s.trialing} color="text-red-300" />
           <StatCard label="Expiring 7d" value={s.expiringSoon} color="text-amber-300" />
           <StatCard label="Suspended" value={s.suspended} color="text-red-300" />
           <StatCard label="Lifetime" value={s.lifetime} color="text-sky-300" />
@@ -99,7 +99,7 @@ export function UsersTab() {
               key={f.id}
               onClick={() => { setStatus(f.id); setPage(1) }}
               className={`text-[11px] px-2.5 py-1 rounded-full border transition-all ${
-                status === f.id ? 'bg-purple-500/25 border-purple-500/50 text-purple-200' : 'bg-white/5 border-white/10 text-white/50 hover:text-white/80'
+                status === f.id ? 'bg-purple-500/25 border-purple-500/50 text-red-200' : 'bg-white/5 border-white/10 text-white/50 hover:text-white/80'
               }`}
             >
               {f.label}
@@ -201,7 +201,7 @@ function UserSubRow({ user, onOpen }: { user: AdminSubUser; onOpen: () => void }
               </span>
             )}
             {user.session?.rpcEnabled && <span className="text-green-400">● RPC live</span>}
-            {user.adminNote && <span className="text-purple-300/70 truncate max-w-[180px]">📝 {user.adminNote}</span>}
+            {user.adminNote && <span className="text-red-300/70 truncate max-w-[180px]">📝 {user.adminNote}</span>}
           </div>
         </div>
         <span className="text-white/30 text-xs shrink-0">Manage ▸</span>

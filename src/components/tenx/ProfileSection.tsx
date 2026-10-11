@@ -123,7 +123,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
       ? 'text-red-300'
       : sub?.status === 'active'
         ? 'text-emerald-300'
-        : 'text-purple-300'
+        : 'text-red-300'
 
   const handleStatusSelect = (status: string) => {
     setStatusDropdown(false)
@@ -305,14 +305,6 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                 </div>
                 <button
                   type="button"
-                  onClick={() => { setUserMenuOpen(false); navigate({ name: 'profile' }) }}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-left transition-colors"
-                >
-                  <span>👤</span>
-                  <span>Profile Board</span>
-                </button>
-                <button
-                  type="button"
                   onClick={() => { setUserMenuOpen(false); navigate({ name: 'config' }) }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-left transition-colors"
                 >
@@ -331,7 +323,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                   <button
                     type="button"
                     onClick={() => { setUserMenuOpen(false); navigate({ name: 'admin' }) }}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-purple-300 hover:text-white hover:bg-white/5 text-left transition-colors"
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-red-300 hover:text-white hover:bg-white/5 text-left transition-colors"
                   >
                     <span>⚙️</span>
                     <span>Admin Dashboard</span>
@@ -487,7 +479,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                 <button
                   type="button"
                   onClick={() => setEmojiDraft('<:name:id>')}
-                  className="block font-mono text-[13px] text-purple-400 hover:text-purple-300 transition-colors cursor-pointer"
+                  className="block font-mono text-[13px] text-red-400 hover:text-red-300 transition-colors cursor-pointer"
                   title="Click to insert this format — replace name & id with your emoji"
                 >
                   {'<:wsp:1329393881881>'}
@@ -518,7 +510,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
 
         {/* ENABLE STATUS Toggle Row */}
         <div className="relative z-10 flex items-center justify-between px-1 mb-4 pt-1">
-          <span className="text-xs sm:text-sm font-extrabold tracking-widest text-[#a855f7] uppercase">
+          <span className="text-xs sm:text-sm font-extrabold tracking-widest text-red-400 uppercase">
             ENABLE STATUS
           </span>
           <PurpleSwitch checked={statusEnabled} onCheckedChange={handleToggleStatus} />
@@ -622,7 +614,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
             <h2 className="text-xl font-bold text-white text-center">Set Background</h2>
 
             <div className="space-y-1.5">
-              <label className="text-xs uppercase tracking-wider text-purple-400 font-semibold">Image URL</label>
+              <label className="text-xs uppercase tracking-wider text-red-400 font-semibold">Image URL</label>
               <input
                 type="url"
                 value={bgUrl}
