@@ -68,6 +68,8 @@ export interface RpcConfig {
   partySecret?: string | null
   startMinsAgo?: number
   endTotalMins?: number | null
+  /** Discord Application ID (user's own app) — presence is presented as that application; empty = 10X identity. */
+  appId?: string | null
   enabled?: boolean
 }
 

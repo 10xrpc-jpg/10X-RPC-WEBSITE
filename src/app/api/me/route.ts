@@ -30,6 +30,7 @@ function serializeRpcConfig(cfg: any) {
     partySecret: cfg.partySecret,
     startMinsAgo: cfg.startMinsAgo,
     endTotalMins: cfg.endTotalMins,
+    appId: cfg.appId,
     enabled: cfg.enabled,
   }
 }

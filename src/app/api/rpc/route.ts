@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
 import { resolveRpcActivityName } from '@/lib/constants'
 import { capStr, capNum, LIMIT_TEXT, LIMIT_ASSET_REF, LIMIT_URL, LIMIT_SHORT } from '@/lib/validate'
+import { DISCORD_APP_ID_RE } from '@/lib/games'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,7 +29,22 @@ export interface RpcSaveInput {
   partySecret?: string | null
   startMinsAgo?: number | null
   endTotalMins?: number | null
+  /** Discord Application ID (user's own app) — presence is presented as that application. */
+  appId?: string | null
   enabled?: boolean
+}
+
+/**
+ * Sanitize a client-supplied Discord Application ID: trim, drop empties, and
+ * only keep syntactically valid snowflake IDs (15-21 digits). Invalid input
+ * is silently discarded (null) rather than failing the whole save — the form
+ * validates with a visible error before ever calling this endpoint.
+ */
+function normalizeAppId(v: unknown): string | null {
+  if (typeof v !== 'string') return null
+  const t = v.trim()
+  if (!t) return null
+  return DISCORD_APP_ID_RE.test(t) ? t : null
 }
 
 export async function POST(req: Request) {
@@ -74,6 +90,7 @@ export async function POST(req: Request) {
       partySecret: capStr(body.partySecret, LIMIT_SHORT),
       startMinsAgo: capNum(body.startMinsAgo, 0, 10080) ?? 0,
       endTotalMins: capNum(body.endTotalMins, 0, 10080),
+      appId: normalizeAppId(body.appId),
       enabled, // ← unchanged from DB: config save cannot disable the RPC
     }
 

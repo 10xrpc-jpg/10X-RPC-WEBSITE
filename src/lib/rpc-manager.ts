@@ -36,6 +36,28 @@ export async function fetchGameAppId(userId: string, gameSlug: string | null | u
   }
 }
 
+/**
+ * The Normal RPC config's user-supplied Discord Application ID ("Application
+ * ID" field on the Rich Presence form), read via $queryRaw so this works on
+ * EVERY Prisma client generation — including the Orihost standalone daemon,
+ * whose client may predate the RpcConfig.appId column (same reasoning as
+ * fetchGameAppId above). Returns null when unset/invalid/DB error.
+ */
+export async function fetchRpcAppId(userId: string): Promise<string | null> {
+  try {
+    const { db } = await import('./db')
+    const rows = await db.$queryRaw<Array<{ appId: string | null }>>`
+      SELECT "appId" FROM "RpcConfig"
+      WHERE "userId" = ${userId}
+      ORDER BY "updatedAt" DESC
+      LIMIT 1`
+    const id = rows?.[0]?.appId ?? null
+    return id && DISCORD_APP_ID_RE.test(id) ? id : null
+  } catch {
+    return null
+  }
+}
+
 // Activity types mapped to Discord's numeric values
 export const ACTIVITY_TYPE_MAP: Record<string, number> = {
   PLAYING: 0,
@@ -118,9 +140,15 @@ export async function buildActivityPayload(
   // Converted into WIRE-RENDERABLE values: URLs → mp:external references
   // (animated GIF capable) and asset keys → uploaded asset IDs. Gateway
   // presences never render raw URLs or bare keys (see discord-assets.ts).
+  // With a custom Application ID the activity runs under the USER's own
+  // application — 10X-scoped uploaded asset IDs would never render there, so
+  // resolution is constrained to application-independent mp:external refs
+  // (and pass-through of values the user owns, e.g. their app's asset IDs).
+  const customAppId = cfg.appId && DISCORD_APP_ID_RE.test(cfg.appId) ? cfg.appId : null
   const assets: Record<string, string> = {}
-  const largeImageRef = await resolveAssetRef(cfg.largeImage, assetOpts)
-  const smallImageRef = await resolveAssetRef(cfg.smallImage, assetOpts)
+  const assetOptsWithApp: ResolveOpts = { ...assetOpts, externalOnly: !!customAppId }
+  const largeImageRef = await resolveAssetRef(cfg.largeImage, assetOptsWithApp)
+  const smallImageRef = await resolveAssetRef(cfg.smallImage, assetOptsWithApp)
   if (largeImageRef) assets.large_image = largeImageRef
   if (cfg.largeText) assets.large_text = cfg.largeText
   if (smallImageRef) assets.small_image = smallImageRef
@@ -151,9 +179,11 @@ export async function buildActivityPayload(
   // Platform — send-side field for headless/embedded sessions
   if (cfg.platform) activity.platform = cfg.platform
 
-  // Application ID — required for Discord to accept the activity
-  // Use the Discord client ID as the application ID
-  activity.application_id = CONFIG.discord.clientId
+  // Application ID — required for Discord to accept the activity.
+  // A user-supplied Application ID presents the presence as THEIR application
+  // (their own Discord app from the Developer Portal); otherwise the 10X app
+  // identity is used.
+  activity.application_id = customAppId || CONFIG.discord.clientId
 
   return activity
 }
@@ -282,6 +312,13 @@ export async function buildPresenceActivities(options: {
   selectedGameSlug?: string | null
   /** Discord Application ID for CUSTOM games ("Add Games") — spoofs that application. */
   selectedGameAppId?: string | null
+  /**
+   * Discord Application ID for the NORMAL RPC config ("Application ID" field).
+   * Resolved via fetchRpcAppId (queryRaw) by the daemon — covers Prisma clients
+   * generated before the RpcConfig.appId column existed. cfg.appId (fresh
+   * client) takes precedence; game mode ignores it entirely.
+   */
+  rpcAppId?: string | null
 }): Promise<Array<Record<string, unknown>>> {
   const activities: Array<Record<string, unknown>> = []
 
@@ -303,7 +340,18 @@ export async function buildPresenceActivities(options: {
       timezone: 'UTC',
       rpcStartedAt: Date.now(),
     }
-    const rpcActivity = (await buildActivityPayload(options.rpcConfig, ctx, {
+    // Normal-RPC custom Application ID: prefer the row's own (fresh-client)
+    // value, fall back to the daemon's queryRaw read. Only syntactically valid
+    // snowflakes are honored; game mode never reads this (its own spoof logic
+    // overrides application_id after the payload is built).
+    let rpcCfgForBuild = options.rpcConfig
+    if (options.rpcAppId && !DISCORD_APP_ID_RE.test(rpcCfgForBuild.appId || '')) {
+      const raw = options.rpcAppId
+      if (DISCORD_APP_ID_RE.test(raw)) {
+        rpcCfgForBuild = { ...rpcCfgForBuild, appId: raw }
+      }
+    }
+    const rpcActivity = (await buildActivityPayload(rpcCfgForBuild, ctx, {
       userAccessToken: options.userAccessToken,
     })) as Record<string, unknown>
     if (isVr) {

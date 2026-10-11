@@ -14,6 +14,7 @@ const DEFAULT_CONFIG: RpcConfig = {
   platform: 'desktop',
   state: '',
   details: '',
+  appId: '',
   largeImage: '',
   largeText: '',
   smallImage: '',
@@ -30,6 +31,16 @@ const DEFAULT_CONFIG: RpcConfig = {
   endTotalMins: null,
   enabled: false,
 }
+
+// Discord Application IDs are snowflakes — 15-21 digits (same rule the server enforces).
+const APP_ID_RE = /^\d{15,21}$/
+
+type AppLookupState =
+  | { status: 'idle' }
+  | { status: 'invalid' }
+  | { status: 'checking' }
+  | { status: 'found'; name: string; iconUrl: string | null }
+  | { status: 'not_found' }
 
 export function RichPresenceForm({
   initial, onSaved, onToggle, onGameRpcClick, onChange, rpcMode, activeGameName,
@@ -53,6 +64,36 @@ export function RichPresenceForm({
   const platformRef = useRef<HTMLDivElement>(null)
   const typeRef = useRef<HTMLDivElement>(null)
 
+  // Application ID live verification — debounced lookup against Discord via
+  // /api/games/app-lookup (server-side proxy). Shows the app's official name
+  // + icon so the user can confirm the ID before saving.
+  const [appLookup, setAppLookup] = useState<AppLookupState>({ status: 'idle' })
+  useEffect(() => {
+    const raw = (cfg.appId || '').trim()
+    if (!raw) {
+      setAppLookup({ status: 'idle' })
+      return
+    }
+    if (!APP_ID_RE.test(raw)) {
+      setAppLookup({ status: 'invalid' })
+      return
+    }
+    setAppLookup({ status: 'checking' })
+    let cancelled = false
+    const t = setTimeout(async () => {
+      try {
+        const r = await api.appLookup(raw)
+        if (!cancelled) setAppLookup({ status: 'found', name: r.name, iconUrl: r.iconUrl })
+      } catch {
+        if (!cancelled) setAppLookup({ status: 'not_found' })
+      }
+    }, 700)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [cfg.appId])
+
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       const target = e.target as Node
@@ -75,6 +116,7 @@ export function RichPresenceForm({
         platform: initial.platform ?? 'desktop',
         state: initial.state ?? '',
         details: initial.details ?? '',
+        appId: initial.appId ?? '',
         largeImage: initial.largeImage ?? '',
         largeText: initial.largeText ?? '',
         smallImage: initial.smallImage ?? '',
@@ -119,6 +161,9 @@ export function RichPresenceForm({
     }
     if (cfg.startMinsAgo != null && cfg.startMinsAgo < 0) errors.push('Start time cannot be negative')
     if (cfg.endTotalMins != null && cfg.endTotalMins < 1) errors.push('End time must be at least 1 minute')
+    if ((cfg.appId || '').trim() && !APP_ID_RE.test(cfg.appId!.trim())) {
+      errors.push('Application ID must be 15-21 digits (numbers only)')
+    }
     if (errors.length > 0) {
       errors.forEach(e => toast.error(e))
       return
@@ -126,7 +171,7 @@ export function RichPresenceForm({
 
     setSaving(true)
     try {
-      const res = await api.rpcSave({ ...cfg, enabled })
+      const res = await api.rpcSave({ ...cfg, appId: (cfg.appId || '').trim() || undefined, enabled })
       if (res.ok) {
         // Server owns the enabled state (config save can never disable the RPC) —
         // surface its authoritative message instead of the local switch value.
@@ -276,7 +321,76 @@ export function RichPresenceForm({
             />
           </FormField>
 
-          {/* 6. LARGE IMAGE (URL OR ID) */}
+          {/* 6. APPLICATION ID (OPTIONAL) — present the presence as the user's own Discord application */}
+          <FormField label="APPLICATION ID (OPTIONAL)">
+            <input
+              type="text"
+              value={cfg.appId || ''}
+              onChange={e => set('appId', e.target.value.replace(/[^\d]/g, '').slice(0, 21))}
+              placeholder="Your Discord Application ID — e.g. 1402418491272986635"
+              inputMode="numeric"
+              autoComplete="off"
+              className={`w-full h-12 bg-[#12131a] border rounded-xl px-4 text-sm text-white placeholder:text-white/35 outline-none transition-colors ${
+                appLookup.status === 'invalid'
+                  ? 'border-amber-500/50 focus:border-amber-400/70'
+                  : appLookup.status === 'found'
+                    ? 'border-emerald-500/40 focus:border-emerald-400/60'
+                    : appLookup.status === 'not_found'
+                      ? 'border-red-500/40 focus:border-red-400/60'
+                      : 'border-white/10 hover:border-white/20 focus:border-purple-500/50'
+              }`}
+            />
+
+            {/* Live verification chip (debounced Discord lookup) */}
+            {appLookup.status === 'checking' && (
+              <p className="flex items-center gap-2 text-[11px] text-white/50 px-1" role="status" aria-live="polite">
+                <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-purple-400 rounded-full animate-spin" aria-hidden />
+                Verifying application…
+              </p>
+            )}
+            {appLookup.status === 'invalid' && (
+              <p className="text-[11px] text-amber-300/90 px-1" role="status" aria-live="polite">
+                Application IDs are 15-21 digits (numbers only). You can find yours in the Discord Developer Portal → your app → General Information → Application ID → Copy.
+              </p>
+            )}
+            {appLookup.status === 'found' && (
+              <div className="flex items-center gap-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-2" role="status" aria-live="polite">
+                {appLookup.iconUrl ? (
+                  <img src={appLookup.iconUrl} alt={`${appLookup.name} icon`} className="w-6 h-6 rounded-md object-cover flex-shrink-0" />
+                ) : (
+                  <span className="w-6 h-6 rounded-md bg-purple-600/30 flex items-center justify-center text-[10px] font-bold text-purple-200 flex-shrink-0" aria-hidden>
+                    {(appLookup.name || '?').slice(0, 1).toUpperCase()}
+                  </span>
+                )}
+                <span className="text-xs text-emerald-200">
+                  ✓ <strong className="font-semibold">{appLookup.name}</strong> — this presence will run as that application
+                </span>
+              </div>
+            )}
+            {appLookup.status === 'not_found' && (
+              <p className="text-[11px] text-red-300/90 px-1" role="status" aria-live="polite">
+                Application not found — double-check the ID in the Discord Developer Portal.
+              </p>
+            )}
+            {appLookup.status === 'idle' && (
+              <p className="text-[11px] text-white/40 px-1">
+                Paste a Discord Application ID and your Rich Presence is presented as{' '}
+                <strong className="text-white/60">that application</strong> (your own app identity, with a live verification check above).{' '}
+                Leave empty to use the 10X identity. Find your ID at{' '}
+                <a
+                  href="https://discord.com/developers/applications"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-purple-300 hover:text-purple-200 underline underline-offset-2"
+                >
+                  discord.com/developers/applications
+                </a>{' '}
+                → your app → General Information → Application ID.
+              </p>
+            )}
+          </FormField>
+
+          {/* 7. LARGE IMAGE (URL OR ID) */}
           <FormField label="LARGE IMAGE (URL OR ID)">
             <input
               type="text"

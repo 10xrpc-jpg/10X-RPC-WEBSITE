@@ -155,6 +155,15 @@ const MIRROR_DB_MAX = 4_000_000
 export interface ResolveOpts {
   /** The acting user's OAuth access token — required for the external-assets endpoint. */
   userAccessToken?: string | null
+  /**
+   * Restrict output to APPLICATION-INDEPENDENT wire values (mp:external/...
+   * references and pass-through of already-renderable input). Used when the
+   * activity's application_id is NOT the 10X app (user-supplied Application
+   * ID / game spoof): uploaded asset IDs are scoped to the 10X application and
+   * can never render under a different application_id, so both the asset-key
+   * lookup and the upload fallback are skipped.
+   */
+  externalOnly?: boolean
 }
 
 interface AppAsset {
@@ -710,11 +719,21 @@ export async function resolveAssetRef(value: string | null | undefined, opts?: R
   const v = value.trim()
   if (!v) return null
 
-  // Already renderable — pass through untouched.
+  // Already renderable — pass through untouched. (Snowflake asset IDs pass
+  // through even in externalOnly mode: under a user-supplied application_id
+  // they resolve against THAT application, which is exactly what a user
+  // pasting their own app's asset ID expects.)
   if (isWireFormat(v)) return v
 
   // Plain asset key → resolve to its uploaded asset ID.
   if (!isImageUrl(v)) {
+    if (opts?.externalOnly) {
+      // 10X-app-scoped lookup is useless here (and the key could never render
+      // under another application_id anyway) — omit instead of reserving a
+      // dead image slot.
+      console.error(`[DiscordAssets] externalOnly: dropping asset key "${v}" (only mp:external refs / your own app's asset IDs render under a custom Application ID)`)
+      return null
+    }
     const map = await getAppAssetMap()
     const asset = map.get(v.toLowerCase())
     if (asset?.asset_id) return asset.asset_id
@@ -723,14 +742,18 @@ export async function resolveAssetRef(value: string | null | undefined, opts?: R
   }
 
   // URL input
+  const extOnly = !!opts?.externalOnly
+  // In externalOnly mode a cached/uploaded asset ID is 10X-app-scoped and
+  // would never render under a different application_id — only mp:external
+  // cache entries are acceptable there.
   const mem = memCache.get(v)
-  if (mem) return mem
+  if (mem && (!extOnly || mem.startsWith('mp:'))) return mem
 
   const neg = negCache.get(v)
   if (neg && Date.now() < neg) return null
 
   const dbCached = await findCachedWireValueForUrl(v)
-  if (dbCached) {
+  if (dbCached && (!extOnly || dbCached.startsWith('mp:'))) {
     memCache.set(v, dbCached)
     return dbCached
   }
@@ -779,7 +802,14 @@ export async function resolveAssetRef(value: string | null | undefined, opts?: R
 
     // 3) Fallback: uploaded application asset → asset ID (static image).
     //    Prefer a previously uploaded asset (legacy cache rows hold its key)
-    //    before uploading a fresh copy.
+    //    before uploading a fresh copy. SKIPPED in externalOnly mode — the
+    //    upload would land on the 10X application and never render under a
+    //    custom application_id.
+    if (extOnly) {
+      console.error(`[DiscordAssets] externalOnly: no external reference produced for ${v.slice(0, 140)} — image omitted (10X upload fallback not applicable)`)
+      negCache.set(v, Date.now() + NEGATIVE_TTL_MS)
+      return null
+    }
     let wire: string | null = null
     const legacy = await findCachedLegacyValueForUrl(v)
     if (legacy && !isWireFormat(legacy)) {

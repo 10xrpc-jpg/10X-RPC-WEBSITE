@@ -10,6 +10,7 @@ import {
   buildPresenceActivities,
   buildCustomStatusActivity,
   fetchGameAppId,
+  fetchRpcAppId,
   refreshDiscordToken,
   selectActiveRpc,
   type PresenceResult,
@@ -980,6 +981,13 @@ export class RpcDaemon {
       ? await fetchGameAppId(userId, selection.gameSlug)
       : null
 
+    // Normal RPC may carry a user-supplied Application ID (their own Discord
+    // app) — queryRaw read keeps this working even when this process runs a
+    // Prisma client generated before the RpcConfig.appId column existed.
+    const rpcAppId = isRpcActive && selection.mode === 'normal'
+      ? await fetchRpcAppId(userId)
+      : null
+
     const activities = await buildPresenceActivities({
       rpcConfig: isRpcActive ? selection.config : null,
       customStatus: isStatusActive ? session.customStatus : null,
@@ -994,6 +1002,8 @@ export class RpcDaemon {
       // (real app_id/name/icon). Normal mode never spoofs.
       selectedGameSlug: isRpcActive && selection.mode === 'game' ? selection.gameSlug : null,
       selectedGameAppId,
+      // Normal mode's user-supplied Application ID (presence runs as THEIR app)
+      rpcAppId,
     })
 
     // Defense-in-depth: raw http(s) URLs inside assets are silently dropped by
