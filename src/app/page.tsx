@@ -10,6 +10,7 @@ import { GameConfigPage } from '@/components/tenx/GameConfigPage'
 import { GlobalConfigPage } from '@/components/tenx/GlobalConfigPage'
 import { StatusRotatorPage } from '@/components/tenx/StatusRotatorPage'
 import { AdminPage } from '@/components/tenx/AdminPage'
+import { UptimePage } from '@/components/tenx/UptimePage'
 import { api, type Me } from '@/lib/api-client'
 
 export default function Home() {
@@ -45,5 +46,6 @@ export default function Home() {
   if (route.name === 'rotator') {
     return <StatusRotatorPage initial={me || undefined} />
   }
+  if (route.name === 'uptime') return <UptimePage />
   return <LandingPage />
 }

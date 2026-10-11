@@ -13,6 +13,7 @@ const SPA_SHELL_REWRITES = [
   { source: "/games/:slug", destination: "/" },
   { source: "/config", destination: "/" },
   { source: "/rotator", destination: "/" },
+  { source: "/uptime", destination: "/" },
   { source: "/oauth-consent", destination: "/" },
   { source: "/login", destination: "/" },
   { source: "/admin", destination: "/" },

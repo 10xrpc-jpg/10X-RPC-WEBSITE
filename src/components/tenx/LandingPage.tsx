@@ -45,6 +45,7 @@ export function LandingPage() {
         <div className="flex items-center gap-2">
           <a href="#seamless" className="hidden sm:block text-sm text-white/70 hover:text-white px-3 py-1.5">Experience</a>
           <a href="#pricing" className="hidden sm:block text-sm text-white/70 hover:text-white px-3 py-1.5">Pricing</a>
+          <a href="/uptime" className="hidden sm:block text-sm text-white/70 hover:text-white px-3 py-1.5">Uptime</a>
           <GhostButton onClick={onStart} className="text-sm">
             {me?.authenticated ? 'Open Dashboard' : 'Sign in'}
           </GhostButton>
@@ -161,6 +162,8 @@ export function LandingPage() {
       <footer className="px-4 sm:px-8 py-10 border-t border-white/5">
         <div className="max-w-2xl mx-auto text-center space-y-4">
           <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-white/60">
+            <a href="/uptime" className="hover:text-white">Uptime</a>
+            <a href="/games" className="hover:text-white">Games</a>
             <a href="#" className="hover:text-white">Terms of Service</a>
             <a href="#" className="hover:text-white">Privacy Policy</a>
             <a href="#" className="hover:text-white">Refund Policy</a>
