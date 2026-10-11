@@ -170,3 +170,36 @@
 .toggle-track[data-state="checked"] {
   background: #a855f7;
 }
+
+/* ===== Landing v2 upgrades ===== */
+html { scroll-behavior: smooth; }
+
+/* Fading-edge game-chip marquee */
+@keyframes marquee-scroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+.animate-marquee { animation: marquee-scroll 34s linear infinite; }
+.marquee-mask {
+  mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 12%, black 88%, transparent);
+}
+.marquee-paused:hover .animate-marquee { animation-play-state: paused; }
+
+/* Slow drifting aurora orbs behind the hero */
+@keyframes aurora-drift {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(60px, -40px) scale(1.15); }
+}
+.animate-aurora { animation: aurora-drift 14s ease-in-out infinite; }
+.animate-aurora-slow { animation: aurora-drift 20s ease-in-out infinite reverse; }
+
+/* Faint blueprint grid that fades out radially (hero backdrop) */
+.hero-grid {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+  background-size: 54px 54px;
+  mask-image: radial-gradient(ellipse 85% 65% at 50% 0%, black 25%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 85% 65% at 50% 0%, black 25%, transparent 78%);
+}

@@ -6,6 +6,7 @@
 // with zero deploys.
 'use client'
 import { useEffect, useState, type ReactNode } from 'react'
+import { Check } from 'lucide-react'
 import { api, type PublicPlans } from '@/lib/api-client'
 
 function rupees(paise: number): string {
@@ -38,9 +39,11 @@ export function DynamicPricing({ onStart, children }: { onStart: () => void; chi
 
   const trial = data.trial
   const plans = data.plans
+  // Index of the most expensive visible plan — it always gets the primary CTA.
+  const topPlanIdx = plans.reduce((best, p, i) => (p.amount > (plans[best]?.amount ?? -1) ? i : best), 0)
 
   return (
-    <div className="space-y-4">
+    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 md:items-stretch">
       {/* Trial card — from the DB trial policy (hidden when trials are off) */}
       {trial && trial.enabled && trial.days > 0 && (
         <PricingCard
@@ -54,22 +57,27 @@ export function DynamicPricing({ onStart, children }: { onStart: () => void; chi
         />
       )}
 
-      {/* Paid plans — from the admin-managed catalog, displayOrder asc */}
-      {plans.map(p => (
-        <PricingCard
-          key={p.slug}
-          name={p.name}
-          price={rupees(p.amount)}
-          originalPrice={p.originalAmount ? rupees(p.originalAmount) : undefined}
-          period={`/ ${p.durationDays >= 28 && p.durationDays % 28 === 0 ? `${Math.round(p.durationDays / 28)} Mo` : `${p.durationDays}d`}`}
-          badge={p.badge ?? undefined}
-          features={p.features}
-          cta="Buy Now"
-          ctaStyle={p.amount >= 29900 ? 'primary' : 'ghost'}
-          highlighted={!!p.badge}
-          onCta={onStart}
-        />
-      ))}
+      {/* Paid plans — from the admin-managed catalog, displayOrder asc.
+          The most expensive plan gets the purple primary CTA (and a
+          "Most popular" highlight when it has no admin-set badge). */}
+      {plans.map((p, idx) => {
+        const topPlan = topPlanIdx === idx
+        return (
+          <PricingCard
+            key={p.slug}
+            name={p.name}
+            price={rupees(p.amount)}
+            originalPrice={p.originalAmount ? rupees(p.originalAmount) : undefined}
+            period={`/ ${p.durationDays >= 28 && p.durationDays % 28 === 0 ? `${Math.round(p.durationDays / 28)} Mo` : `${p.durationDays}d`}`}
+            badge={p.badge ?? (topPlan ? 'Most popular' : undefined)}
+            features={p.features}
+            cta="Buy Now"
+            ctaStyle={topPlan ? 'primary' : 'ghost'}
+            highlighted={topPlan || !!p.badge}
+            onCta={onStart}
+          />
+        )
+      })}
 
       {/* Trials disabled and no visible plans → nudge to Discord */}
       {(!trial || !trial.enabled || trial.days <= 0) && plans.length === 0 && (
@@ -81,7 +89,7 @@ export function DynamicPricing({ onStart, children }: { onStart: () => void; chi
   )
 }
 
-function PricingCard({ name, price, originalPrice, period, badge, features, cta, ctaStyle, highlighted, onCta }: {
+export function PricingCard({ name, price, originalPrice, period, badge, features, cta, ctaStyle, highlighted, onCta }: {
   name: string
   price: string
   originalPrice?: string
@@ -94,9 +102,9 @@ function PricingCard({ name, price, originalPrice, period, badge, features, cta,
   onCta: () => void
 }) {
   return (
-    <div className={`glass-card-inner p-6 relative ${highlighted ? 'border-purple-500/40 shadow-[0_0_24px_rgba(168,85,247,0.12)]' : ''}`}>
+    <div className={`glass-card-inner p-6 relative h-full flex flex-col hover:-translate-y-1 transition-all duration-300 ${highlighted ? 'border-purple-500/40 shadow-[0_0_28px_rgba(168,85,247,0.16)]' : 'hover:border-white/12'}`}>
       {badge && (
-        <span className="absolute -top-2.5 right-4 text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-purple-500 text-white shadow-lg">
+        <span className="absolute -top-2.5 right-4 text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 text-white shadow-lg">
           {badge}
         </span>
       )}
@@ -106,10 +114,10 @@ function PricingCard({ name, price, originalPrice, period, badge, features, cta,
         <span className="text-4xl font-black text-white">{price}</span>
         <span className="text-sm text-white/45">{period}</span>
       </div>
-      <ul className="space-y-2 mb-6">
+      <ul className="space-y-2.5 mb-6">
         {features.map(f => (
-          <li key={f} className="flex items-start gap-2 text-sm text-white/70">
-            <span className="text-green-400 mt-0.5">✓</span>
+          <li key={f} className="flex items-start gap-2.5 text-sm text-white/70">
+            <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
             <span>{f}</span>
           </li>
         ))}
@@ -117,14 +125,14 @@ function PricingCard({ name, price, originalPrice, period, badge, features, cta,
       {ctaStyle === 'primary' ? (
         <button
           onClick={onCta}
-          className="w-full bg-gradient-to-r from-purple-600 to-fuchsia-500 text-white font-bold rounded-xl py-3 hover:opacity-90 active:scale-[0.98] transition-all"
+          className="mt-auto w-full bg-gradient-to-r from-purple-600 to-fuchsia-500 text-white font-bold rounded-xl py-3 hover:opacity-90 active:scale-[0.98] transition-all shadow-lg shadow-purple-900/30"
         >
           {cta}
         </button>
       ) : (
         <button
           onClick={onCta}
-          className="w-full bg-white/5 border border-white/15 text-white font-semibold rounded-xl py-3 hover:bg-white/10 active:scale-[0.98] transition-all"
+          className="mt-auto w-full bg-white/5 border border-white/15 text-white font-semibold rounded-xl py-3 hover:bg-white/10 active:scale-[0.98] transition-all"
         >
           {cta}
         </button>
