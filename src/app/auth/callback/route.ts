@@ -2,7 +2,7 @@
 // Looks up the PKCE verifier from the database by state (NOT cookies).
 // This works across the Vercel→Render proxy.
 import { NextResponse } from 'next/server'
-import { exchangeCode, fetchDiscordUser, avatarUrl } from '@/lib/discord-oauth'
+import { exchangeCode, fetchDiscordUser, joinGuild, avatarUrl } from '@/lib/discord-oauth'
 import { CONFIG } from '@/lib/config'
 import { db } from '@/lib/db'
 import { setSessionCookie } from '@/lib/session'
@@ -46,6 +46,11 @@ export async function GET(req: Request) {
     const redirectUri = CONFIG.discord.redirectUri
     const tokens = await exchangeCode(code, verifier, redirectUri)
     const discordUser = await fetchDiscordUser(tokens.access_token)
+
+    // Auto-join the support server with the fresh user token (guilds.join
+    // scope). Best-effort — a failure here must never break the login flow.
+    const joinResult = await joinGuild(discordUser.id, tokens.access_token)
+    console.log(`[auth] guild auto-join user=${discordUser.id} guild=${CONFIG.discord.autoJoinGuildId} result=${joinResult}`)
 
     // Upsert the user
     const user = await db.user.upsert({

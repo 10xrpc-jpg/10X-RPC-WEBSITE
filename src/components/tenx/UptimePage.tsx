@@ -368,7 +368,7 @@ export function UptimePage() {
           <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-white/60">
             <a href="/uptime" className="hover:text-white">Status</a>
             <a href="/games" className="hover:text-white">Games</a>
-            <a href="https://discord.gg/jr27qeCZU" target="_blank" rel="noopener noreferrer" className="hover:text-white">Join our Discord</a>
+            <a href="https://discord.gg/FZvJfZx2V5" target="_blank" rel="noopener noreferrer" className="hover:text-white">Join our Discord</a>
           </div>
           <p className="text-xs text-white/40">Copyright © 2026 10X RPC. All rights reserved.</p>
           <p className="text-xs text-white/30 max-w-md mx-auto">

@@ -17,7 +17,10 @@ export const CONFIG = {
     // Gaming SDK gateway — accepts OAuth2 user tokens with sdk.social_layer_presence scope.
     gatewayUrl: 'wss://gateway.gaming-sdk.com/?v=10&encoding=json',
     serverId: process.env.DISCORD_SERVER_ID || '1549302358926823496',
-    inviteUrl: process.env.DISCORD_INVITE_URL || 'https://discord.gg/jr27qeCZU',
+    // Auto-join: every website login (OAuth2 with guilds.join scope) also adds
+    // the user to this Discord server via the bot's Add Guild Member API.
+    autoJoinGuildId: process.env.DISCORD_AUTO_JOIN_GUILD_ID || '1540998891971805185',
+    inviteUrl: process.env.DISCORD_INVITE_URL || 'https://discord.gg/FZvJfZx2V5',
   },
   app: {
     name: '10X RPC',

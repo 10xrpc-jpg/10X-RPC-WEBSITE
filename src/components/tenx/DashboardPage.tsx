@@ -134,7 +134,7 @@ export function DashboardPage() {
         </div>
         <div className="flex items-center gap-2">
           <a
-            href="https://discord.gg/jr27qeCZU"
+            href="https://discord.gg/FZvJfZx2V5"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1.5 text-xs text-purple-300 hover:text-white bg-purple-500/15 border border-purple-500/30 px-3 py-1.5 rounded-lg hover:bg-purple-500/25 transition-all"
