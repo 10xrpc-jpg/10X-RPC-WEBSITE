@@ -7,9 +7,9 @@
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
-import { getPlan, fetchPayment, verifyPaymentSignature, razorpayConfigured } from '@/lib/razorpay'
+import { fetchPayment, verifyPaymentSignature, razorpayConfigured } from '@/lib/razorpay'
+import { resolvePaidPlan } from '@/lib/plans'
 import { activatePaidSubscription, subscriptionView } from '@/lib/subscription'
-import type { PaidPlan } from '@/lib/razorpay'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,7 +41,9 @@ export async function POST(request: Request) {
   // 2) Idempotency: already-verified payment → return current state.
   const existing = await db.payment.findUnique({ where: { paymentId } })
   if (existing && existing.status === 'paid' && existing.userId === session.userId) {
-    const { sub } = await activatePaidSubscription(existing.userId, existing.plan as PaidPlan | 'lifetime', getPlan(existing.plan)?.periodDays ?? 30)
+    // Entitlement duration = the snapshot taken at checkout (plan edits
+    // never reprice or shorten an already-paid period).
+    const { sub } = await activatePaidSubscription(existing.userId, existing.plan, existing.periodDays ?? 30)
     return NextResponse.json({ ok: true, repeat: true, subscription: subscriptionView(sub, session.user.discordId) })
   }
 
@@ -61,23 +63,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'payment_not_completed', message: 'The payment has not completed yet.' }, { status: 402 })
   }
 
-  // Order lookup: authoritative plan/user binding.
+  // Order lookup: authoritative plan/user binding. planLabel/periodDays are
+  // the checkout-time snapshots — later plan edits cannot reprice or alter
+  // what this payment grants.
   const order = await db.payment.findUnique({ where: { orderId } })
-  const plan = (order?.plan || payment.notes?.plan || '') as PaidPlan
+  const plan = (order?.plan || payment.notes?.plan || '') as string
   const orderUserId = order?.userId || payment.notes?.userId || ''
-  const p = getPlan(plan)
+  const p = await resolvePaidPlan(plan)
+  const periodDays = order?.periodDays ?? p?.durationDays ?? 30
+  const planLabel = order?.planLabel ?? p?.label ?? plan
   if (!p || orderUserId !== session.userId) {
     return NextResponse.json({ error: 'order_mismatch', message: 'Order does not belong to this account.' }, { status: 403 })
   }
 
   // 4) Ledger + activation.
   await db.payment.updateMany({ where: { orderId }, data: { paymentId, status: 'paid' } })
-  const { sub, lifted } = await activatePaidSubscription(session.userId, plan, p.periodDays)
+  const { sub, lifted } = await activatePaidSubscription(session.userId, plan, periodDays)
 
   return NextResponse.json({
     ok: true,
     plan,
-    planLabel: p.label,
+    planLabel,
     lifted,
     subscription: subscriptionView(sub, session.user.discordId),
   })

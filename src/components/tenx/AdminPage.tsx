@@ -1,26 +1,30 @@
 // 10X RPC — Admin dashboard page (/admin)
-// MENU (tabs): Overview · Users · Payments · Sessions · Control · Settings
-//   Overview — System Health (live probes), platform stats, 7-day signup
-//              trend, newest users.
-//   Users    — User manager (search / filters / per-user actions) + CSV export.
-//   Payments — Razorpay ledger: revenue summary, plan split, latest payments,
-//              filter + CSV export.
-//   Sessions — Session monitor (active/expired, live flags, per-session
-//              revoke, purge expired).
-//   Control  — 24/7 RPC global control + maintenance (purge expired sessions,
-//              clean OAuth states).
-//   Settings — Non-secret platform settings (incl. payments config) + copy
-//              debug report.
+// MENU (tabs): Overview · Plans · Users · Payments · Trials · Analytics ·
+//              Sessions · Control · Audit · Settings
+//   Overview  — System Health (live probes), platform stats, 7-day signup
+//               trend, newest users.
+//   Plans     — plan catalog CRUD (price/duration/features/visibility) that
+//               powers the pricing page + checkout.
+//   Users     — subscription management (server-side search / filters /
+//               sorting / pagination) → per-user subscription modal.
+//   Payments  — Razorpay ledger: revenue summary, plan split, latest
+//               payments, filter + CSV export.
+//   Trials    — trial policy (DB-backed) + live trial roster.
+//   Analytics — subscription analytics from the live DB (conversion, plan
+//               popularity, revenue, 14-day trends).
+//   Sessions  — Session monitor (active/expired, live flags, per-session
+//               revoke, purge expired).
+//   Control   — 24/7 RPC global control + maintenance.
+//   Audit     — tamper-resistant log of every privileged admin action.
+//   Settings  — Non-secret platform settings + copy debug report.
 // Access: Discord IDs in ADMIN_DISCORD_IDS only — every /api/admin/* endpoint
 // re-checks server-side, this UI is just the window.
 'use client'
-import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { toast } from 'sonner'
 import {
   api,
-  type AdminUser,
   type AdminStats,
-  type AdminUserAction,
   type AdminSessionRow,
   type AdminSessionAction,
   type AdminSettings,
@@ -29,35 +33,38 @@ import {
 } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { Card, PrimaryButton, GhostButton, BackButton, Badge } from './ui'
+import { PlansTab } from './admin/PlansTab'
+import { UsersTab } from './admin/UsersTab'
+import { TrialsTab } from './admin/TrialsTab'
+import { AnalyticsTab } from './admin/AnalyticsTab'
+import { AuditTab } from './admin/AuditTab'
 
-type UserFilter = 'all' | 'live' | 'notoken' | 'suspended' | 'trialing' | 'paid' | 'vr' | 'admins'
-type AdminTab = 'overview' | 'users' | 'payments' | 'sessions' | 'control' | 'settings'
+type AdminTab = 'overview' | 'plans' | 'users' | 'payments' | 'trials' | 'analytics' | 'sessions' | 'control' | 'audit' | 'settings'
 
 type PaymentsFilter = 'all' | 'paid' | 'created'
 
 const TABS: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
   { id: 'overview', label: 'Overview', icon: <IconGrid /> },
+  { id: 'plans', label: 'Plans', icon: <IconTag /> },
   { id: 'users', label: 'Users', icon: <IconUsers /> },
   { id: 'payments', label: 'Payments', icon: <IconCoin /> },
+  { id: 'trials', label: 'Trials', icon: <IconClock /> },
+  { id: 'analytics', label: 'Analytics', icon: <IconChart /> },
   { id: 'sessions', label: 'Sessions', icon: <IconClock /> },
   { id: 'control', label: 'Control', icon: <IconPower /> },
+  { id: 'audit', label: 'Audit', icon: <IconShield /> },
   { id: 'settings', label: 'Settings', icon: <IconGear /> },
 ]
 
 export function AdminPage() {
   const { navigate } = useRouter()
   const [tab, setTab] = useState<AdminTab>('overview')
-  const [users, setUsers] = useState<AdminUser[]>([])
   const [stats, setStats] = useState<AdminStats | null>(null)
   const [settings, setSettings] = useState<AdminSettings | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [actionBusy, setActionBusy] = useState<string | null>(null)
-  // Users tab
-  const [search, setSearch] = useState('')
-  const [filter, setFilter] = useState<UserFilter>('all')
-  const [expanded, setExpanded] = useState<string | null>(null)
   // Sessions tab
   const [sessionsScope, setSessionsScope] = useState<'active' | 'expired'>('active')
   const [sessions, setSessions] = useState<AdminSessionRow[]>([])
@@ -82,13 +89,11 @@ export function AdminPage() {
 
   const refresh = useCallback(async () => {
     try {
-      // Users are the core payload; stats/settings are best-effort.
-      const [usersRes, statsRes, settingsRes] = await Promise.all([
-        api.adminUsers(),
+      // stats/settings are best-effort; the heavy tabs load on demand.
+      const [statsRes, settingsRes] = await Promise.all([
         api.adminStats().catch(() => null),
         api.adminSettings().catch(() => null),
       ])
-      setUsers(usersRes.users)
       setStats(statsRes)
       setSettings(settingsRes)
       setError(null)
@@ -192,30 +197,6 @@ export function AdminPage() {
     }
   }
 
-  const runAction = async (u: AdminUser, action: AdminUserAction, opts?: { days?: number; plan?: 'plus' | 'pro' }) => {
-    if (action === 'revoke-sessions' && !window.confirm(
-      `Revoke ALL sessions for ${u.username}? They will be logged out everywhere and must sign in again.`
-    )) return
-    if (action === 'suspend-subscription' && !window.confirm(
-      `SUSPEND ${u.username}? Their 24/7 RPC stops immediately until you grant/renew.`
-    )) return
-    if (action === 'grant-lifetime' && !window.confirm(
-      `Grant LIFETIME access to ${u.username}? Their subscription will never expire.`
-    )) return
-    const key = `${u.id}:${action}`
-    setActionBusy(key)
-    try {
-      const r = await api.adminUserAction(u.id, action, opts)
-      if (r.ok) toast.success(r.message, { duration: 4000 })
-      else toast.error(r.message, { duration: 5000 })
-      refresh()
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : 'Action failed')
-    } finally {
-      setActionBusy(null)
-    }
-  }
-
   const runSessionAction = async (action: AdminSessionAction, sessionId?: string, confirmMsg?: string) => {
     if (confirmMsg && !window.confirm(confirmMsg)) return
     const key = `sess:${action}:${sessionId ?? 'all'}`
@@ -231,26 +212,6 @@ export function AdminPage() {
     } finally {
       setActionBusy(null)
     }
-  }
-
-  const exportCsv = () => {
-    const head = ['username', 'discordId', 'createdAt', 'subPlan', 'subStatus', 'subDaysLeft', 'trialActive', 'rpcEnabled', 'hasToken', 'vrActive', 'userStatus', 'customStatus', 'platform', 'isAdmin']
-    const esc = (v: unknown) => `"${String(v).replace(/"/g, '""')}"`
-    const rows = users.map(u => [
-      u.username, u.discordId, u.createdAt,
-      u.subscription?.plan ?? '', u.subscription?.status ?? '', u.subscription?.daysLeft ?? 0,
-      u.trial?.active ?? false,
-      u.rpc?.rpcEnabled ?? false, u.rpc?.hasDiscordToken ?? false,
-      u.rpc?.vrStatusActive ?? false, u.rpc?.userStatus ?? '',
-      u.rpc?.customStatus ?? '', u.rpcConfig?.platform ?? '', u.isAdmin,
-    ].map(esc).join(','))
-    const csv = [head.map(esc).join(','), ...rows].join('\n')
-    const a = document.createElement('a')
-    a.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
-    a.download = `10x-users-${new Date().toISOString().slice(0, 10)}.csv`
-    a.click()
-    URL.revokeObjectURL(a.href)
-    toast.success(`Exported ${users.length} users to CSV`)
   }
 
   const exportPaymentsCsv = () => {
@@ -289,23 +250,6 @@ export function AdminPage() {
       toast.error('Clipboard unavailable')
     }
   }
-
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    return users.filter(u => {
-      if (q && !u.username.toLowerCase().includes(q) && !u.discordId.includes(q)) return false
-      switch (filter) {
-        case 'live': return !!u.rpc?.rpcEnabled
-        case 'notoken': return !u.rpc?.hasDiscordToken
-        case 'suspended': return u.subscription?.status === 'suspended' && !u.isAdmin
-        case 'trialing': return u.subscription?.status === 'trialing'
-        case 'paid': return u.subscription?.status === 'active' && u.subscription?.plan !== 'lifetime' && !u.isAdmin
-        case 'vr': return !!u.rpc?.vrStatusActive
-        case 'admins': return u.isAdmin
-        default: return true
-      }
-    })
-  }, [users, search, filter])
 
   if (loading) {
     return (
@@ -401,69 +345,9 @@ export function AdminPage() {
           <OverviewTab sys={sys} stats={stats} c={c} />
         )}
 
-        {tab === 'users' && (
-          <Card>
-            <div className="flex items-center justify-between mb-3 gap-2">
-              <h3 className="font-bold text-white">All Users ({users.length})</h3>
-              <div className="flex items-center gap-2">
-                <span className="text-xs text-white/40 hidden sm:inline">showing {filtered.length}</span>
-                <button
-                  onClick={exportCsv}
-                  className="text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-lg hover:bg-emerald-500/20 transition-all"
-                >
-                  ⬇ Export CSV
-                </button>
-              </div>
-            </div>
+        {tab === 'plans' && <PlansTab />}
 
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search username or Discord ID…"
-              aria-label="Search users"
-              className="w-full bg-[#13141a] border border-white/10 rounded-lg px-3 py-2 text-sm text-white placeholder:text-white/30 mb-2 focus:outline-none focus:border-purple-500/50"
-            />
-
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {(['all', 'live', 'notoken', 'suspended', 'trialing', 'paid', 'vr', 'admins'] as UserFilter[]).map(f => (
-                <button
-                  key={f}
-                  onClick={() => setFilter(f)}
-                  className={`text-[11px] px-2.5 py-1 rounded-full border transition-all ${
-                    filter === f
-                      ? 'bg-purple-500/25 border-purple-500/50 text-purple-200'
-                      : 'bg-white/5 border-white/10 text-white/50 hover:text-white/80'
-                  }`}
-                >
-                  {f === 'all' ? 'All'
-                    : f === 'live' ? 'RPC Live'
-                    : f === 'notoken' ? 'No Token'
-                    : f === 'suspended' ? '⛔ Suspended'
-                    : f === 'trialing' ? 'Trial'
-                    : f === 'paid' ? 'Paid'
-                    : f === 'vr' ? 'VR' : 'Admins'}
-                </button>
-              ))}
-            </div>
-
-            <div className="space-y-2 max-h-[60vh] overflow-y-auto styled-scroll">
-              {filtered.length === 0 ? (
-                <p className="text-sm text-white/40 text-center py-6">No users match this search/filter.</p>
-              ) : (
-                filtered.map(u => (
-                  <UserRow
-                    key={u.id}
-                    user={u}
-                    expanded={expanded === u.id}
-                    onToggle={() => setExpanded(expanded === u.id ? null : u.id)}
-                    actionBusy={actionBusy}
-                    onAction={runAction}
-                  />
-                ))
-              )}
-            </div>
-          </Card>
-        )}
+        {tab === 'users' && <UsersTab />}
 
         {tab === 'payments' && (() => {
           const ps = paymentsSummary
@@ -527,6 +411,10 @@ export function AdminPage() {
             </div>
           )
         })()}
+
+        {tab === 'trials' && <TrialsTab />}
+
+        {tab === 'analytics' && <AnalyticsTab />}
 
         {tab === 'sessions' && (
           <div className="space-y-4">
@@ -637,6 +525,8 @@ export function AdminPage() {
           </div>
         )}
 
+        {tab === 'audit' && <AuditTab />}
+
         {tab === 'settings' && (
           <div className="space-y-4">
             <Card>
@@ -703,8 +593,9 @@ export function AdminPage() {
                 Every admin API endpoint re-verifies the session server-side — this dashboard is only
                 the window. Subscriptions: every account starts with a {settings?.app.trialDays ?? 3}-day free trial;
                 when it (or a paid period) ends the account is SUSPENDED — 24/7 RPC stops until you grant
-                days (Grant 30d), reset the trial, or give lifetime. Admins bypass gating. Per-user actions:
-                enable/disable RPC, subscription lifecycle, revoke sessions.
+                days (Users tab → Manage), reset the trial, or give lifetime. Plans, prices, durations and
+                the trial policy are managed from the Plans / Trials tabs and served from the database.
+                Admins bypass gating. All privileged actions land in the Audit tab with the reason.
               </p>
             </Card>
           </div>
@@ -911,25 +802,6 @@ function MiniChip({ label, value }: { label: string; value: number }) {
   )
 }
 
-/** Subscription lifecycle badge for the admin user list. */
-function SubBadge({ sub, isAdmin }: { sub: AdminUser['subscription']; isAdmin: boolean }) {
-  if (isAdmin) {
-    return <span className="text-amber-300/90">★ Admin access</span>
-  }
-  if (!sub) return <span className="text-white/30">no subscription</span>
-  if (sub.status === 'suspended') {
-    return <span className="text-red-300">⛔ Suspended</span>
-  }
-  if (sub.status === 'trialing') {
-    return <span className="text-purple-300">⏳ Trial · {sub.daysLeft}d left</span>
-  }
-  // active
-  if (sub.plan === 'lifetime' || sub.neverExpires) {
-    return <span className="text-emerald-300">∞ Lifetime</span>
-  }
-  return <span className="text-emerald-300">★ {sub.plan === 'free' ? 'Pro' : sub.plan} · {sub.daysLeft}d left</span>
-}
-
 function SettingsGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
@@ -956,106 +828,6 @@ function SettingRow({ label, value, mono, ok, link }: { label: string; value: st
         <span className={`text-xs text-right truncate ${mono ? 'font-mono' : ''} ${ok === true ? 'text-green-300' : ok === false ? 'text-red-300' : 'text-white/80'}`}>
           {value}
         </span>
-      )}
-    </div>
-  )
-}
-
-function UserRow({ user, expanded, onToggle, actionBusy, onAction }: {
-  user: AdminUser
-  expanded: boolean
-  onToggle: () => void
-  actionBusy: string | null
-  onAction: (u: AdminUser, action: AdminUserAction) => void
-}) {
-  const rpc = user.rpc
-  const busyFor = (action: AdminUserAction) => actionBusy === `${user.id}:${action}`
-  return (
-    <div className="glass-card-inner p-3 space-y-2">
-      <div className="flex items-center gap-3">
-        <img src={user.avatar} alt={user.username} className="w-10 h-10 rounded-full" />
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-white truncate">{user.username}</span>
-            {user.isAdmin && (
-              <Badge className="bg-purple-500/20 text-purple-300 text-[10px]">ADMIN</Badge>
-            )}
-          </div>
-          <p className="text-xs text-white/40 font-mono">{user.discordId}</p>
-        </div>
-        <div className="flex flex-col gap-1 items-end">
-          {rpc?.rpcEnabled ? (
-            <Badge className="bg-green-500/20 text-green-300 text-[10px] gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
-              RPC LIVE
-            </Badge>
-          ) : (
-            <Badge className="bg-white/5 text-white/40 text-[10px]">RPC OFF</Badge>
-          )}
-          {rpc?.vrStatusActive && (
-            <Badge className="bg-cyan-500/20 text-cyan-300 text-[10px]">🥽 VR</Badge>
-          )}
-        </div>
-        <button
-          onClick={onToggle}
-          aria-label={expanded ? 'Hide user actions' : 'Show user actions'}
-          aria-expanded={expanded}
-          className="text-white/40 hover:text-white text-xs px-2 py-1 rounded-md hover:bg-white/5 transition-all shrink-0"
-        >
-          {expanded ? '▲' : '▼'}
-        </button>
-      </div>
-      <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-white/50">
-        <SubBadge sub={user.subscription} isAdmin={user.isAdmin} />
-        {rpc?.customStatus && (
-          <span>💬 {rpc.customStatusEmoji} {rpc.customStatus}</span>
-        )}
-        {rpc?.userStatus && (
-          <span className={`uppercase ${rpc.userStatus === 'online' ? 'text-green-400' : rpc.userStatus === 'idle' ? 'text-yellow-400' : rpc.userStatus === 'dnd' ? 'text-red-400' : 'text-gray-400'}`}>
-            {rpc.userStatus}
-          </span>
-        )}
-        {user.rpcConfig && (
-          <span>🎮 {user.rpcConfig.name}</span>
-        )}
-        {rpc?.hasDiscordToken ? (
-          <span className="text-green-400">🔑 Token</span>
-        ) : (
-          <span className="text-yellow-400/60">⚠ No Token</span>
-        )}
-        {rpc?.lastPresenceUpdate && (
-          <span className="text-white/30">
-            {new Date(rpc.lastPresenceUpdate).toLocaleTimeString()}
-          </span>
-        )}
-      </div>
-      {expanded && (
-        <div className="flex flex-wrap gap-1.5 pt-1 border-t border-white/5">
-          <ActionButton
-            label="Enable RPC" tone="green" busy={busyFor('enable-rpc')}
-            onClick={() => onAction(user, 'enable-rpc')} />
-          <ActionButton
-            label="Disable RPC" tone="red" busy={busyFor('disable-rpc')}
-            onClick={() => onAction(user, 'disable-rpc')} />
-          <ActionButton
-            label="Grant Plus 30d" tone="purple" busy={busyFor('grant-subscription')}
-            onClick={() => onAction(user, 'grant-subscription', { plan: 'plus', days: 30 })} />
-          <ActionButton
-            label="Grant Pro 30d" tone="purple" busy={busyFor('grant-subscription')}
-            onClick={() => onAction(user, 'grant-subscription', { plan: 'pro', days: 30 })} />
-          <ActionButton
-            label="Reset Trial" tone="purple" busy={busyFor('reset-trial')}
-            onClick={() => onAction(user, 'reset-trial')} />
-          <ActionButton
-            label="Lifetime" tone="purple" busy={busyFor('grant-lifetime')}
-            onClick={() => onAction(user, 'grant-lifetime')} />
-          <ActionButton
-            label="Suspend" tone="red" busy={busyFor('suspend-subscription')}
-            onClick={() => onAction(user, 'suspend-subscription')} />
-          <ActionButton
-            label="Revoke Sessions" tone="red" busy={busyFor('revoke-sessions')}
-            onClick={() => onAction(user, 'revoke-sessions')} />
-        </div>
       )}
     </div>
   )
@@ -1152,28 +924,6 @@ function SessionRow({ session: s, busy, onRevoke }: {
   )
 }
 
-function ActionButton({ label, tone, busy, onClick }: {
-  label: string
-  tone: 'green' | 'red' | 'purple'
-  busy: boolean
-  onClick: () => void
-}) {
-  const tones: Record<string, string> = {
-    green: 'bg-green-500/15 border-green-500/30 text-green-300 hover:bg-green-500/25',
-    red: 'bg-red-500/10 border-red-500/30 text-red-300 hover:bg-red-500/20',
-    purple: 'bg-purple-500/15 border-purple-500/30 text-purple-300 hover:bg-purple-500/25',
-  }
-  return (
-    <button
-      onClick={onClick}
-      disabled={busy}
-      className={`text-[11px] px-2.5 py-1 rounded-lg border transition-all disabled:opacity-50 ${tones[tone]}`}
-    >
-      {busy ? '…' : label}
-    </button>
-  )
-}
-
 // --- menu icons (14x14 stroke SVGs) ---
 function Icon({ d }: { d: string }) {
   return (
@@ -1208,4 +958,18 @@ function IconPower() {
 }
 function IconGear() {
   return <Icon d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+}
+function IconTag() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M20.59 13.41 11 3.83A2 2 0 0 0 9.59 3.24H4a2 2 0 0 0-2 2v5.59c0 .53.21 1.04.59 1.41l9.58 9.59a2 2 0 0 0 2.83 0l5.59-5.59a2 2 0 0 0 0-2.83z" />
+      <circle cx="6.5" cy="7.5" r="1" />
+    </svg>
+  )
+}
+function IconChart() {
+  return <Icon d="M3 3v18h18M7 15v3M12 10v8M17 6v12" />
+}
+function IconShield() {
+  return <Icon d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
 }

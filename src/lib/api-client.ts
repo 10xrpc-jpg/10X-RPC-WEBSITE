@@ -647,4 +647,275 @@ export const api = {
   ) => fetchJson<{ original: string; resolved: string }>(
     '/api/placeholders', { method: 'POST', body: JSON.stringify({ text, ...overrides }) }
   ),
+
+  // ---------- Admin: plans ----------
+  adminPlans: () => fetchJson<AdminPlansResponse>('/api/admin/plans'),
+  adminPlanCreate: (data: AdminPlanInput) =>
+    fetchJson<{ ok: boolean; plan: AdminPlan }>('/api/admin/plans', { method: 'POST', body: JSON.stringify(data) }),
+  adminPlanUpdate: (id: string, data: Partial<AdminPlanInput>) =>
+    fetchJson<{ ok: boolean; plan: AdminPlan }>(`/api/admin/plans/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  adminPlanDelete: (id: string) =>
+    fetchJson<{ ok: boolean }>(`/api/admin/plans/${id}`, { method: 'DELETE' }),
+
+  // ---------- Admin: trial policy ----------
+  adminTrialConfig: () => fetchJson<AdminTrialConfigResponse>('/api/admin/trial-config'),
+  adminTrialConfigUpdate: (data: Partial<AdminTrialConfig> & { reason?: string }) =>
+    fetchJson<{ ok: boolean; config: AdminTrialConfig }>('/api/admin/trial-config', { method: 'PUT', body: JSON.stringify(data) }),
+
+  // ---------- Admin: subscriptions ----------
+  adminSubscriptions: (params: {
+    q?: string
+    status?: AdminSubFilter
+    plan?: string
+    sort?: string
+    page?: number
+    pageSize?: number
+  } = {}) => {
+    const sp = new URLSearchParams()
+    if (params.q) sp.set('q', params.q)
+    if (params.status && params.status !== 'all') sp.set('status', params.status)
+    if (params.plan && params.plan !== 'all') sp.set('plan', params.plan)
+    if (params.sort) sp.set('sort', params.sort)
+    if (params.page) sp.set('page', String(params.page))
+    if (params.pageSize) sp.set('pageSize', String(params.pageSize))
+    const qs = sp.toString()
+    return fetchJson<AdminSubscriptionsResponse>(`/api/admin/subscriptions${qs ? `?${qs}` : ''}`)
+  },
+  /** Subscription surgery — every action requires a reason (server-enforced). */
+  adminSubscriptionAdjust: (payload: {
+    userId: string
+    action: AdminAdjustAction
+    reason: string
+    days?: number
+    date?: string
+    plan?: string
+    note?: string
+    expectedUpdatedAt?: string
+  }) =>
+    fetchJson<{ ok: boolean; action: string; message: string; subscription?: SubscriptionInfo }>(
+      '/api/admin/subscriptions/adjust', { method: 'POST', body: JSON.stringify(payload) },
+    ),
+  adminUserDetail: (userId: string) => fetchJson<AdminUserDetail>(`/api/admin/users/${userId}`),
+
+  // ---------- Admin: audit + analytics ----------
+  adminAudit: (params: { action?: string; actorId?: string; targetType?: string; q?: string; page?: number; pageSize?: number } = {}) => {
+    const sp = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) if (v) sp.set(k, String(v))
+    const qs = sp.toString()
+    return fetchJson<AdminAuditResponse>(`/api/admin/audit${qs ? `?${qs}` : ''}`)
+  },
+  adminAnalytics: () => fetchJson<AdminAnalytics>('/api/admin/analytics'),
+
+  /** Public pricing catalog (GET /api/plans) — DB plans + trial policy. */
+  publicPlans: () => fetchJson<PublicPlans>('/api/plans'),
+}
+
+// ---------- Admin subscription-management types ----------
+
+/** Public pricing catalog (GET /api/plans) — the landing page renders this. */
+export interface PublicPlans {
+  ok: boolean
+  currency: string
+  plans: {
+    slug: string
+    name: string
+    description: string | null
+    amount: number // paise
+    originalAmount: number | null
+    durationDays: number
+    badge: string | null
+    features: string[]
+    displayOrder: number
+  }[]
+  trial: { enabled: boolean; days: number; name: string; description: string; features: string[] } | null
+}
+
+export interface AdminPlan {
+  id: string
+  slug: string
+  name: string
+  description: string | null
+  amount: number // paise
+  originalAmount: number | null
+  durationDays: number
+  badge: string | null
+  features: string[]
+  active: boolean
+  visible: boolean
+  displayOrder: number
+  trial: boolean
+  archived: boolean
+  createdAt: string
+  updatedAt: string
+  subscribers: number
+  paidCount: number
+  revenuePaise: number
+}
+
+export interface AdminPlanInput {
+  slug?: string
+  name: string
+  description?: string | null
+  amount: number
+  originalAmount?: number | null
+  durationDays: number
+  badge?: string | null
+  features?: string[]
+  active?: boolean
+  visible?: boolean
+  archived?: boolean
+  displayOrder?: number
+  reason?: string
+}
+
+export interface AdminPlansResponse {
+  ok: boolean
+  plans: AdminPlan[]
+  checkedAt: string
+}
+
+export interface AdminTrialConfig {
+  enabled: boolean
+  days: number
+  name: string
+  description: string
+  features: string[]
+  allowRepeat: boolean
+  updatedAt?: string
+}
+
+export interface AdminTrialConfigResponse {
+  ok: boolean
+  config: AdminTrialConfig
+  stats: { trialing: number; expired: number; converted: number }
+  checkedAt: string
+}
+
+export type AdminSubFilter = 'all' | 'trialing' | 'active' | 'suspended' | 'expired' | 'expiring'
+
+export interface AdminSubUser {
+  id: string
+  discordId: string
+  username: string
+  avatar: string
+  createdAt: string
+  adminNote: string | null
+  subscription: SubscriptionInfo
+  subscriptionRaw: { createdAt: string; updatedAt: string } | null
+  session: { rpcEnabled: boolean; hasDiscordToken: boolean; userStatus: string } | null
+  lastPayment: { plan: string; planLabel: string | null; amount: number; status: string; createdAt: string } | null
+  isAdmin: boolean
+}
+
+export interface AdminSubscriptionsResponse {
+  ok: boolean
+  page: number
+  pageSize: number
+  filtered: number
+  totalPages: number
+  summary: { total: number; trialing: number; active: number; suspended: number; expiringSoon: number; lifetime: number }
+  users: AdminSubUser[]
+  checkedAt: string
+}
+
+export type AdminAdjustAction =
+  | 'add_days' | 'subtract_days' | 'set_expiry' | 'set_start' | 'set_plan'
+  | 'grant_plan' | 'grant_trial' | 'suspend' | 'reactivate' | 'expire_now'
+  | 'cancel' | 'clear_expiry' | 'add_note'
+
+export interface AdminAuditRow {
+  id: string
+  action: string
+  actorId: string
+  actorName: string | null
+  targetType: string | null
+  targetId: string | null
+  targetLabel: string | null
+  beforeJson: string | null
+  afterJson: string | null
+  reason: string | null
+  outcome: string
+  createdAt: string
+}
+
+export interface AdminAuditResponse {
+  ok: boolean
+  page: number
+  pageSize: number
+  total: number
+  totalPages: number
+  logs: AdminAuditRow[]
+}
+
+export interface AdminUserDetail {
+  ok: boolean
+  user: {
+    id: string
+    discordId: string
+    username: string
+    discriminator: string | null
+    avatar: string
+    createdAt: string
+    adminNote: string | null
+    isAdmin: boolean
+    session: {
+      rpcEnabled: boolean
+      statusEnabled: boolean
+      hasDiscordToken: boolean
+      vrStatusActive: boolean
+      userStatus: string
+      lastPresenceUpdate: string | null
+    } | null
+  }
+  subscription: (SubscriptionInfo & {
+    raw: {
+      id: string
+      plan: string
+      status: string
+      createdAt: string
+      updatedAt: string
+      trialEndsAt: string | null
+      currentPeriodEnd: string | null
+      suspendedAt: string | null
+      trialUsed: boolean
+    }
+  }) | null
+  payments: {
+    id: string
+    orderId: string
+    paymentId: string | null
+    plan: string
+    planLabel: string | null
+    amount: number
+    currency: string
+    status: string
+    periodDays: number | null
+    createdAt: string
+  }[]
+  audits: AdminAuditRow[]
+  plans: { slug: string; name: string; amount: number; durationDays: number; active: boolean }[]
+  checkedAt: string
+}
+
+export interface AdminAnalytics {
+  ok: boolean
+  subscriptions: {
+    total: number
+    trialing: number
+    active: number
+    suspended: number
+    expired: number
+    adminSuspended: number
+    lifetime: number
+    expiring7d: number
+    expiring30d: number
+  }
+  conversion: { everTrialed: number; payingUsers: number; rate: number; renewals: number }
+  revenue: { allTimePaise: number; last30dPaise: number; paidCount: number; paid30dCount: number; payingUsers: number }
+  planPopularity: {
+    subscriptions: { plan: string; count: number }[]
+    payments: { plan: string; count: number; revenuePaise: number }[]
+  }
+  trend: { date: string; signups: number; paid: number; revenuePaise: number }[]
+  checkedAt: string
 }

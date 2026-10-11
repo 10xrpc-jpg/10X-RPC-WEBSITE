@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
 import { setSessionCookie } from '@/lib/session'
 import { CONFIG } from '@/lib/config'
+import { getTrialConfig } from '@/lib/trial-config'
 import { clientIp, isRateLimited } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
@@ -55,7 +56,7 @@ export async function POST(req: Request) {
       data: {
         userId: user.id,
         startsAt: new Date(),
-        endsAt: new Date(Date.now() + CONFIG.app.trialDays * 24 * 60 * 60 * 1000),
+        endsAt: new Date(Date.now() + (await getTrialConfig()).days * 24 * 60 * 60 * 1000),
       },
     })
     // Create global config
@@ -90,20 +91,22 @@ export async function POST(req: Request) {
     })
   }
 
-  // Subscription: the demo account is shared by every visitor, so its 3-day
-  // trial window ROLLS on each demo login (never suspends mid-preview).
+  // Subscription: the demo account is shared by every visitor, so its trial
+  // window ROLLS on each demo login (never suspends mid-preview).
+  const demoTrialDays = Math.max(1, (await getTrialConfig()).days)
   await db.subscription.upsert({
     where: { userId: user.id },
     create: {
       userId: user.id,
       plan: 'free',
       status: 'trialing',
-      trialEndsAt: new Date(Date.now() + CONFIG.app.trialDays * 24 * 60 * 60 * 1000),
+      trialEndsAt: new Date(Date.now() + demoTrialDays * 24 * 60 * 60 * 1000),
+      trialUsed: true,
     },
     update: {
       plan: 'free',
       status: 'trialing',
-      trialEndsAt: new Date(Date.now() + CONFIG.app.trialDays * 24 * 60 * 60 * 1000),
+      trialEndsAt: new Date(Date.now() + demoTrialDays * 24 * 60 * 60 * 1000),
       suspendedAt: null,
     },
   })

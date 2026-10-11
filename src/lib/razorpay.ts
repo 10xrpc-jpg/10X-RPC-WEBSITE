@@ -67,18 +67,25 @@ export async function rzpApi<T>(path: string, init?: { method?: string; body?: u
 
 /** Create a Razorpay order for a paid plan. Notes carry the user/plan so
  *  verify/webhook can activate the right subscription without trusting the
- *  client. */
-export async function createSubscriptionOrder(userId: string, plan: PaidPlan, userName?: string | null): Promise<RazorpayOrder> {
-  const p = CONFIG.razorpay.plans[plan]
+ *  client. Amount/label come from the admin-managed Plan catalog (checked
+ *  out server-side) — the browser never names its own price. */
+export async function createSubscriptionOrder(
+  userId: string,
+  plan: string,
+  amount: number,
+  planLabel?: string | null,
+  userName?: string | null,
+): Promise<RazorpayOrder> {
   return rzpApi<RazorpayOrder>('/orders', {
     method: 'POST',
     body: {
-      amount: p.amount,
+      amount,
       currency: CONFIG.razorpay.currency,
       receipt: `sub:${userId.slice(-12)}:${plan}:${Date.now().toString(36)}`,
       notes: {
         userId,
         plan,
+        ...(planLabel ? { planLabel } : {}),
         source: '10x-rpc-web',
         ...(userName ? { userName } : {}),
       },

@@ -5,6 +5,7 @@ import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { sweepSubscription, subscriptionView } from '@/lib/subscription'
 import { CONFIG } from '@/lib/config'
+import { getTrialConfig } from '@/lib/trial-config'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +20,6 @@ export async function GET() {
     subscription: subscriptionView(sub, session.user.discordId),
     transitioned,
     renewUrl: CONFIG.discord.inviteUrl,
-    trialDays: CONFIG.app.trialDays,
+    trialDays: (await getTrialConfig()).days,
   })
 }

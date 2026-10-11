@@ -10,7 +10,8 @@
 // Idempotent: a paymentId already marked "paid" short-circuits to 200.
 import { NextResponse } from 'next/server'
 import { db } from '@/lib/db'
-import { verifyWebhookSignature, getPlan, type PaidPlan } from '@/lib/razorpay'
+import { verifyWebhookSignature } from '@/lib/razorpay'
+import { resolvePaidPlan } from '@/lib/plans'
 import { activatePaidSubscription } from '@/lib/subscription'
 
 export const dynamic = 'force-dynamic'
@@ -56,11 +57,13 @@ export async function POST(request: Request) {
   if (existing?.status === 'paid') return NextResponse.json({ ok: true, repeat: true })
 
   // Resolve the order → authoritative plan/user (created server-side at
-  // checkout; the Payment ledger row is the source of truth here).
+  // checkout; the Payment ledger row + its snapshots are the source of truth
+  // here — plan edits never reprice or shorten what was purchased).
   const order = payment.order_id ? await db.payment.findUnique({ where: { orderId: payment.order_id } }) : null
-  const plan = (order?.plan || payment.notes?.plan || '') as PaidPlan
+  const plan = (order?.plan || payment.notes?.plan || '') as string
   const userId = order?.userId || payment.notes?.userId || ''
-  const p = getPlan(plan)
+  const p = await resolvePaidPlan(plan)
+  const periodDays = order?.periodDays ?? p?.durationDays ?? 30
   if (!p || !userId) {
     // Order we never created (or notes lost) — acknowledge so Razorpay stops
     // retrying; nothing we can safely activate.
@@ -69,10 +72,10 @@ export async function POST(request: Request) {
 
   await db.payment.upsert({
     where: { orderId: payment.order_id || `wh:${payment.id}` },
-    create: { userId, orderId: payment.order_id || `wh:${payment.id}`, paymentId: payment.id, plan, amount: payment.amount || p.amount, currency: 'INR', status: 'paid' },
+    create: { userId, orderId: payment.order_id || `wh:${payment.id}`, paymentId: payment.id, plan, amount: payment.amount || p.amount, currency: 'INR', status: 'paid', planLabel: order?.planLabel ?? p.label, periodDays },
     update: { paymentId: payment.id, status: 'paid' },
   })
-  const { lifted } = await activatePaidSubscription(userId, plan, p.periodDays)
+  const { lifted } = await activatePaidSubscription(userId, plan, periodDays)
 
   return NextResponse.json({ ok: true, plan, lifted })
 }

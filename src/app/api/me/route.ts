@@ -6,6 +6,7 @@ import { avatarUrl } from '@/lib/discord-oauth'
 import { CONFIG } from '@/lib/config'
 import { selectActiveRpc, type RpcMode } from '@/lib/rpc-manager'
 import { sweepSubscription, subscriptionView } from '@/lib/subscription'
+import { getTrialConfig } from '@/lib/trial-config'
 
 export const dynamic = 'force-dynamic'
 
@@ -162,7 +163,7 @@ export async function GET() {
       ? subscriptionView(subscription, session.user.discordId)
       : { plan: 'free', status: 'suspended', allowed: false, daysLeft: 0, msLeft: 0, trialEndsAt: null, currentPeriodEnd: null, suspendedAt: null, endsAt: null, neverExpires: false, admin: false },
     renewUrl: CONFIG.discord.inviteUrl,
-    trialDays: CONFIG.app.trialDays,
+    trialDays: (await getTrialConfig()).days,
     globalConfig: globalConfig ? {
       city: globalConfig.city,
       timezone: globalConfig.timezone,

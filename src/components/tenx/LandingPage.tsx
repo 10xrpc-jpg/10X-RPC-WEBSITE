@@ -5,6 +5,7 @@ import { useRouter } from './useRouter'
 import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { api, type Me } from '@/lib/api-client'
+import { DynamicPricing } from './DynamicPricing'
 
 export function LandingPage() {
   const { navigate } = useRouter()
@@ -118,8 +119,9 @@ export function LandingPage() {
             </p>
           </div>
 
+          <DynamicPricing onStart={onStart}>
           <div className="space-y-4">
-            {/* Trial */}
+            {/* Trial (static fallback while /api/plans loads) */}
             <PricingCard
               name="Free Trial"
               price="₹0"
@@ -144,7 +146,7 @@ export function LandingPage() {
               onCta={onStart}
             />
 
-            {/* Plus (1 Month) */}
+            {/* Plus (1 Month) — static fallback */}
             <PricingCard
               name="Plus (1 Month)"
               price="₹199"
@@ -155,6 +157,7 @@ export function LandingPage() {
               onCta={onStart}
             />
           </div>
+          </DynamicPricing>
         </div>
       </section>
 

@@ -13,6 +13,7 @@
 //   • trial already ended → status "suspended" (they renew to regain access)
 import { db } from '@/lib/db'
 import { CONFIG } from '@/lib/config'
+import { getTrialConfig } from '@/lib/trial-config'
 
 export type SubscriptionPlan = 'free' | 'plus' | 'pro' | 'lifetime'
 export type SubscriptionStatus = 'trialing' | 'active' | 'suspended'
@@ -73,25 +74,38 @@ export async function ensureSubscription(userId: string) {
   const existing = await db.subscription.findUnique({ where: { userId } })
   if (existing) return existing
 
+  // Trial policy comes from the admin-managed platform settings (DB) with
+  // the CONFIG default as fallback — durations are never hardcoded client-
+  // or server-side here.
+  const trial = await getTrialConfig()
   const legacy = await db.trial.findUnique({ where: { userId } }).catch(() => null)
   const now = new Date()
-  const trialMs = CONFIG.app.trialDays * 24 * 60 * 60 * 1000
+  const trialMs = Math.max(0, trial.days) * 24 * 60 * 60 * 1000
 
   if (legacy && legacy.endsAt > now) {
     // Pre-existing user with remaining (legacy 30-day) trial time — keep it.
     return db.subscription.create({
-      data: { userId, plan: 'free', status: 'trialing', trialEndsAt: legacy.endsAt },
+      data: { userId, plan: 'free', status: 'trialing', trialEndsAt: legacy.endsAt, trialUsed: true },
     })
   }
   if (legacy) {
     // Pre-existing user whose legacy trial already ended → suspended.
     return db.subscription.create({
-      data: { userId, plan: 'free', status: 'suspended', trialEndsAt: legacy.endsAt, suspendedAt: now },
+      data: { userId, plan: 'free', status: 'suspended', trialEndsAt: legacy.endsAt, suspendedAt: now, trialUsed: true },
     })
   }
-  // Brand-new user → 3-day free trial.
+  // Brand-new user → free trial per policy (0 days or disabled → they start
+  // suspended and must purchase/renew).
+  if (!trial.enabled || trial.days <= 0) {
+    return db.subscription.create({
+      data: { userId, plan: 'free', status: 'suspended', suspendedAt: now, trialUsed: true },
+    })
+  }
   return db.subscription.create({
-    data: { userId, plan: 'free', status: 'trialing', trialEndsAt: new Date(now.getTime() + trialMs) },
+    data: {
+      userId, plan: 'free', status: 'trialing', trialEndsAt: new Date(now.getTime() + trialMs),
+      trialUsed: true,
+    },
   })
 }
 
@@ -186,7 +200,7 @@ export function subscriptionView(
  */
 export async function activatePaidSubscription(
   userId: string,
-  plan: 'plus' | 'pro' | 'lifetime',
+  plan: string, // plus | pro | lifetime | any admin-defined DB plan slug
   periodDays: number,
 ): Promise<{ sub: NonNullable<Awaited<ReturnType<typeof ensureSubscription>>>; lifted: boolean }> {
   const current = await ensureSubscription(userId)

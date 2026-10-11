@@ -33,6 +33,8 @@ model User {
   subscription   Subscription?
   favoriteGames  FavoriteGame[]
   payments       Payment[]
+  /** Internal admin remarks (never shown to the user). */
+  adminNote      String?
 }
 
 model Session {
@@ -193,6 +195,8 @@ model Subscription {
   trialEndsAt      DateTime?
   currentPeriodEnd DateTime?
   suspendedAt      DateTime?
+  /** True once this account consumed its signup (or admin-granted) free trial. */
+  trialUsed        Boolean   @default(false)
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -261,19 +265,77 @@ model FavoriteGame {
 // Keeps the admin platform honest about revenue without any Razorpay
 // dashboard access.
 model Payment {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  provider  String   @default("razorpay")
-  orderId   String   @unique
-  paymentId String?  @unique
-  plan      String // plus | pro
-  amount    Int // paise
-  currency  String   @default("INR")
-  status    String   @default("created")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider   String   @default("razorpay")
+  orderId    String   @unique
+  paymentId  String?  @unique
+  plan       String // plus | pro | <plan slug>
+  amount     Int // paise
+  currency   String   @default("INR")
+  status     String   @default("created")
+  /** Snapshot of the plan's display name at purchase time (plan edits never rewrite history). */
+  planLabel  String?
+  /** Snapshot of the granted period in days — the activation entitlement. */
+  periodDays Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   @@index([userId])
   @@index([status])
+}
+
+// Admin-managed subscription plans. The pricing page + checkout resolve
+// everything from here (amount/duration/features), so prices and durations
+// can change without a code deploy. Payment rows snapshot what was purchased.
+model Plan {
+  id             String   @id @default(cuid())
+  slug           String   @unique // plus | pro | lifetime | custom
+  name           String
+  description    String?
+  amount         Int // paise (INR)
+  originalAmount Int? // paise — struck-through "was" price for offers
+  durationDays   Int // granted period length
+  badge          String? // POPULAR / BEST VALUE / RECOMMENDED…
+  featuresJson   String   @default("[]") // JSON string[] — primitive lists are not portable
+  active         Boolean  @default(true) // purchasable (checkout accepts only active plans)
+  visible        Boolean  @default(true) // shown on the public pricing page
+  displayOrder   Int      @default(0)
+  trial          Boolean  @default(false) // marks the free-trial plan (informational)
+  archived       Boolean  @default(false) // archived = hidden everywhere, historical data intact
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([active, visible, displayOrder])
+}
+
+// Server-controlled platform settings (trial policy, offers, …) as JSON
+// strings keyed by name. Edited from the admin dashboard; read by the
+// backend with short in-memory caching.
+model PlatformSetting {
+  key       String   @id
+  value     String // JSON
+  updatedAt DateTime @updatedAt
+}
+
+// Tamper-resistant record of privileged admin actions (plans, trials,
+// subscription adjustments, payments). before/after are JSON snapshots.
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorId     String // acting admin's Discord ID
+  actorName   String?
+  action      String // e.g. plan.create · subscription.add_days · trial.config_update
+  targetType  String? // user | plan | trial_config | payment | platform
+  targetId    String? // user id / plan id / …
+  targetLabel String? // human label (username / plan name) for quick scanning
+  beforeJson  String?
+  afterJson   String?
+  reason      String?
+  outcome     String   @default("ok") // ok | error
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([targetType, targetId])
+  @@index([actorId])
 }
