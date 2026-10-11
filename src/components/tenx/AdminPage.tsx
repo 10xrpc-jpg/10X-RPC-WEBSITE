@@ -25,7 +25,7 @@ import {
 import { useRouter } from './useRouter'
 import { Card, PrimaryButton, GhostButton, BackButton, Badge } from './ui'
 
-type UserFilter = 'all' | 'live' | 'notoken' | 'expired' | 'vr' | 'admins'
+type UserFilter = 'all' | 'live' | 'notoken' | 'suspended' | 'trialing' | 'paid' | 'vr' | 'admins'
 type AdminTab = 'overview' | 'users' | 'sessions' | 'control' | 'settings'
 
 const TABS: { id: AdminTab; label: string; icon: React.ReactNode }[] = [
@@ -163,6 +163,12 @@ export function AdminPage() {
     if (action === 'revoke-sessions' && !window.confirm(
       `Revoke ALL sessions for ${u.username}? They will be logged out everywhere and must sign in again.`
     )) return
+    if (action === 'suspend-subscription' && !window.confirm(
+      `SUSPEND ${u.username}? Their 24/7 RPC stops immediately until you grant/renew.`
+    )) return
+    if (action === 'grant-lifetime' && !window.confirm(
+      `Grant LIFETIME access to ${u.username}? Their subscription will never expire.`
+    )) return
     const key = `${u.id}:${action}`
     setActionBusy(key)
     try {
@@ -195,11 +201,12 @@ export function AdminPage() {
   }
 
   const exportCsv = () => {
-    const head = ['username', 'discordId', 'createdAt', 'trialActive', 'trialDaysLeft', 'rpcEnabled', 'hasToken', 'vrActive', 'userStatus', 'customStatus', 'platform', 'isAdmin']
+    const head = ['username', 'discordId', 'createdAt', 'subPlan', 'subStatus', 'subDaysLeft', 'trialActive', 'rpcEnabled', 'hasToken', 'vrActive', 'userStatus', 'customStatus', 'platform', 'isAdmin']
     const esc = (v: unknown) => `"${String(v).replace(/"/g, '""')}"`
     const rows = users.map(u => [
       u.username, u.discordId, u.createdAt,
-      u.trial?.active ?? false, u.trial?.daysLeft ?? 0,
+      u.subscription?.plan ?? '', u.subscription?.status ?? '', u.subscription?.daysLeft ?? 0,
+      u.trial?.active ?? false,
       u.rpc?.rpcEnabled ?? false, u.rpc?.hasDiscordToken ?? false,
       u.rpc?.vrStatusActive ?? false, u.rpc?.userStatus ?? '',
       u.rpc?.customStatus ?? '', u.rpcConfig?.platform ?? '', u.isAdmin,
@@ -240,7 +247,9 @@ export function AdminPage() {
       switch (filter) {
         case 'live': return !!u.rpc?.rpcEnabled
         case 'notoken': return !u.rpc?.hasDiscordToken
-        case 'expired': return !u.trial?.active
+        case 'suspended': return u.subscription?.status === 'suspended' && !u.isAdmin
+        case 'trialing': return u.subscription?.status === 'trialing'
+        case 'paid': return u.subscription?.status === 'active' && u.subscription?.plan !== 'lifetime' && !u.isAdmin
         case 'vr': return !!u.rpc?.vrStatusActive
         case 'admins': return u.isAdmin
         default: return true
@@ -365,7 +374,7 @@ export function AdminPage() {
             />
 
             <div className="flex flex-wrap gap-1.5 mb-3">
-              {(['all', 'live', 'notoken', 'expired', 'vr', 'admins'] as UserFilter[]).map(f => (
+              {(['all', 'live', 'notoken', 'suspended', 'trialing', 'paid', 'vr', 'admins'] as UserFilter[]).map(f => (
                 <button
                   key={f}
                   onClick={() => setFilter(f)}
@@ -375,7 +384,13 @@ export function AdminPage() {
                       : 'bg-white/5 border-white/10 text-white/50 hover:text-white/80'
                   }`}
                 >
-                  {f === 'all' ? 'All' : f === 'live' ? 'RPC Live' : f === 'notoken' ? 'No Token' : f === 'expired' ? 'Trial Ended' : f === 'vr' ? 'VR' : 'Admins'}
+                  {f === 'all' ? 'All'
+                    : f === 'live' ? 'RPC Live'
+                    : f === 'notoken' ? 'No Token'
+                    : f === 'suspended' ? '⛔ Suspended'
+                    : f === 'trialing' ? 'Trial'
+                    : f === 'paid' ? 'Paid'
+                    : f === 'vr' ? 'VR' : 'Admins'}
                 </button>
               ))}
             </div>
@@ -525,7 +540,7 @@ export function AdminPage() {
                   <SettingsGroup title="App">
                     <SettingRow label="Name" value={settings.app.name} />
                     <SettingRow label="App URL" value={settings.app.url} mono />
-                    <SettingRow label="Trial length" value={`${settings.app.trialDays} days`} />
+                    <SettingRow label="Free trial" value={`${settings.app.trialDays} days`} />
                     <SettingRow label="Session TTL" value={`${settings.app.sessionTtlDays} days`} />
                     <SettingRow label="Environment" value={settings.app.nodeEnv} />
                   </SettingsGroup>
@@ -563,9 +578,10 @@ export function AdminPage() {
               <p className="text-xs text-white/50 leading-relaxed">
                 Admin access is granted by Discord ID (<span className="font-mono">ADMIN_DISCORD_IDS</span>).
                 Every admin API endpoint re-verifies the session server-side — this dashboard is only
-                the window. Per-user actions: enable/disable RPC, +30d trial, revoke sessions.
-                Session actions: revoke single device, purge expired data. Global control: force RPC
-                on/off and keep-alive for every tokened user.
+                the window. Subscriptions: every account starts with a {settings?.app.trialDays ?? 3}-day free trial;
+                when it (or a paid period) ends the account is SUSPENDED — 24/7 RPC stops until you grant
+                days (Grant 30d), reset the trial, or give lifetime. Admins bypass gating. Per-user actions:
+                enable/disable RPC, subscription lifecycle, revoke sessions.
               </p>
             </Card>
           </div>
@@ -679,8 +695,11 @@ function OverviewTab({ sys, stats, c }: { sys: AdminStats['system'] | undefined;
           <MiniChip label="Rotator users" value={c.rotatorEnabledUsers} />
           <MiniChip label="Presets" value={c.rotatorPresets} />
           <MiniChip label="Favorites" value={c.favorites} />
-          <MiniChip label="Trials active" value={c.trialsActive} />
-          <MiniChip label="Trials expired" value={c.trialsExpired} />
+          <MiniChip label="Trials active (legacy)" value={c.trialsActive} />
+          <MiniChip label="Subs active" value={c.subsActive} />
+          <MiniChip label="Subs trialing" value={c.subsTrialing} />
+          <MiniChip label="Subs suspended" value={c.subsSuspended} />
+          <MiniChip label="Lifetime" value={c.subsLifetime} />
           <MiniChip label="Mirrored assets" value={c.mirrorAssets} />
           <MiniChip label="Discord assets" value={c.discordAssets} />
           <MiniChip label="OAuth states" value={c.oauthStates} />
@@ -767,6 +786,25 @@ function MiniChip({ label, value }: { label: string; value: number }) {
   )
 }
 
+/** Subscription lifecycle badge for the admin user list. */
+function SubBadge({ sub, isAdmin }: { sub: AdminUser['subscription']; isAdmin: boolean }) {
+  if (isAdmin) {
+    return <span className="text-amber-300/90">★ Admin access</span>
+  }
+  if (!sub) return <span className="text-white/30">no subscription</span>
+  if (sub.status === 'suspended') {
+    return <span className="text-red-300">⛔ Suspended</span>
+  }
+  if (sub.status === 'trialing') {
+    return <span className="text-purple-300">⏳ Trial · {sub.daysLeft}d left</span>
+  }
+  // active
+  if (sub.plan === 'lifetime' || sub.neverExpires) {
+    return <span className="text-emerald-300">∞ Lifetime</span>
+  }
+  return <span className="text-emerald-300">★ {sub.plan === 'free' ? 'Pro' : sub.plan} · {sub.daysLeft}d left</span>
+}
+
 function SettingsGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div>
@@ -843,7 +881,7 @@ function UserRow({ user, expanded, onToggle, actionBusy, onAction }: {
         </button>
       </div>
       <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-white/50">
-        <span>📅 {user.trial?.active ? `${user.trial.daysLeft}d left` : 'trial ended'}</span>
+        <SubBadge sub={user.subscription} isAdmin={user.isAdmin} />
         {rpc?.customStatus && (
           <span>💬 {rpc.customStatusEmoji} {rpc.customStatus}</span>
         )}
@@ -875,8 +913,17 @@ function UserRow({ user, expanded, onToggle, actionBusy, onAction }: {
             label="Disable RPC" tone="red" busy={busyFor('disable-rpc')}
             onClick={() => onAction(user, 'disable-rpc')} />
           <ActionButton
-            label="+30d Trial" tone="purple" busy={busyFor('extend-trial')}
-            onClick={() => onAction(user, 'extend-trial')} />
+            label="Grant 30d" tone="purple" busy={busyFor('grant-subscription')}
+            onClick={() => onAction(user, 'grant-subscription')} />
+          <ActionButton
+            label="Reset Trial" tone="purple" busy={busyFor('reset-trial')}
+            onClick={() => onAction(user, 'reset-trial')} />
+          <ActionButton
+            label="Lifetime" tone="purple" busy={busyFor('grant-lifetime')}
+            onClick={() => onAction(user, 'grant-lifetime')} />
+          <ActionButton
+            label="Suspend" tone="red" busy={busyFor('suspend-subscription')}
+            onClick={() => onAction(user, 'suspend-subscription')} />
           <ActionButton
             label="Revoke Sessions" tone="red" busy={busyFor('revoke-sessions')}
             onClick={() => onAction(user, 'revoke-sessions')} />

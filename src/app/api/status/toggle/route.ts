@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
+import { requireSubscriptionAccess } from '@/lib/subscription'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -30,11 +31,11 @@ export async function POST(req: Request) {
         )
       }
 
-      // 1. Check trial
-      const trial = await db.trial.findUnique({ where: { userId: session.userId } })
-      if (!trial || !trial.active || trial.endsAt < new Date()) {
+      // 1. Subscription gate — trialing/active only; expired → suspended.
+      const denied = await requireSubscriptionAccess(session.userId, session.user.discordId)
+      if (denied) {
         return NextResponse.json(
-          { ok: false, error: 'trial_expired', message: 'Your 3-day trial has expired.' },
+          { ok: false, error: denied.error, message: denied.message },
           { status: 403 }
         )
       }

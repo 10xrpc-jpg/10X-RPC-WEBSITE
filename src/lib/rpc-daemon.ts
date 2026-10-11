@@ -4,6 +4,7 @@
 // updates dynamic placeholders, and enforces sleep timers.
 
 import WebSocket from 'ws'
+import { Prisma } from '@prisma/client'
 import { CONFIG } from './config'
 import { db } from './db'
 import {
@@ -18,6 +19,101 @@ import {
 import { resolvePlaceholders, type PlaceholderContext } from './placeholders'
 import { sanitizeActivities } from './discord-assets'
 import { discordAuthValue } from './discord-auth'
+
+// ─── Subscription gate (raw SQL — Orihost-safe) ─────────────────────────────
+// Access = plan/status lifecycle: free trial (status "trialing", ends
+// trialEndsAt) → paid period (status "active", ends currentPeriodEnd; null or
+// plan "lifetime" = never) → "suspended" once the phase ends. Admins bypass.
+// Raw SQL on purpose: this file also runs on the standalone Orihost daemon,
+// whose generated Prisma client may predate the Subscription model — $queryRaw
+// only needs the TABLE to exist (it is pushed by the website's db:push).
+interface DaemonSubRow {
+  plan: string
+  status: string
+  trialEndsAt: Date | string | null
+  currentPeriodEnd: Date | string | null
+}
+
+/** Pure check — is this subscription state allowed to run presence? */
+function isDaemonSubAllowed(sub: DaemonSubRow | null | undefined, now: number = Date.now()): boolean {
+  if (!sub) return false
+  if (sub.status === 'trialing') {
+    return !!sub.trialEndsAt && new Date(sub.trialEndsAt).getTime() > now
+  }
+  if (sub.status === 'active') {
+    return sub.plan === 'lifetime' || !sub.currentPeriodEnd || new Date(sub.currentPeriodEnd).getTime() > now
+  }
+  return false
+}
+
+/** Single-user gate: evaluate + transition to suspended + kill session RPC. */
+async function daemonSubscriptionCheck(userId: string, discordId: string): Promise<{ ok: boolean; message: string }> {
+  if (CONFIG.admin.discordIds.includes(discordId)) return { ok: true, message: 'admin bypass' }
+  let rows: DaemonSubRow[] = []
+  try {
+    rows = await db.$queryRaw<DaemonSubRow[]>`
+      SELECT plan, status, "trialEndsAt", "currentPeriodEnd"
+      FROM "Subscription" WHERE "userId" = ${userId} LIMIT 1`
+    if (rows.length === 0) {
+      // Recovery for a user created between signup and subscription creation
+      // (tiny race window): seed from the legacy Trial when it still has time,
+      // otherwise a fresh 3-day window. Never leave a valid user locked out.
+      rows = await db.$queryRaw<DaemonSubRow[]>`
+        INSERT INTO "Subscription" ("id","userId","plan","status","trialEndsAt","createdAt","updatedAt")
+        SELECT 'sub_' || md5(random()::text || clock_timestamp()::text), u."id",
+               'free', 'trialing',
+               COALESCE(t."endsAt", NOW() + interval '3 days'),
+               NOW(), NOW()
+        FROM "User" u LEFT JOIN "Trial" t ON t."userId" = u."id"
+        WHERE u."id" = ${userId}
+        ON CONFLICT ("userId") DO NOTHING
+        RETURNING plan, status, "trialEndsAt", "currentPeriodEnd"`
+      if (rows.length === 0) {
+        rows = await db.$queryRaw<DaemonSubRow[]>`
+          SELECT plan, status, "trialEndsAt", "currentPeriodEnd"
+          FROM "Subscription" WHERE "userId" = ${userId} LIMIT 1`
+      }
+    }
+  } catch {
+    // Table missing (daemon deployed before the website migration) — fail OPEN
+    // so a schema rollout race can never break live presence.
+    return { ok: true, message: 'subscription table unavailable' }
+  }
+  if (isDaemonSubAllowed(rows[0])) return { ok: true, message: 'allowed' }
+
+  // Expired → mark suspended (idempotent) + kill every live session's RPC flags.
+  try {
+    await db.$executeRaw`
+      UPDATE "Subscription"
+      SET status = 'suspended', "suspendedAt" = NOW(), "updatedAt" = NOW()
+      WHERE "userId" = ${userId} AND status <> 'suspended'`
+  } catch { /* best-effort — the check below already denies access */ }
+  try {
+    await db.session.updateMany({
+      where: { userId, expiresAt: { gt: new Date() } },
+      data: { rpcEnabled: false, statusEnabled: false, gatewayReady: false, vrStatusActive: false },
+    })
+  } catch { /* best-effort */ }
+  return { ok: false, message: 'Subscription suspended — renew to restore 24/7 RPC' }
+}
+
+/** Batch lookup for syncAllUsers (one query per tick instead of one per user). */
+async function loadDaemonSubStates(userIds: string[]): Promise<Map<string, DaemonSubRow>> {
+  const map = new Map<string, DaemonSubRow>()
+  if (userIds.length === 0) return map
+  try {
+    const rows = await db.$queryRaw<(DaemonSubRow & { userId: string })[]>`
+      SELECT "userId", plan, status, "trialEndsAt", "currentPeriodEnd"
+      FROM "Subscription" WHERE "userId" IN (${Prisma.join(userIds)})`
+    for (const r of rows) map.set(r.userId, r)
+  } catch {
+    // Fail open (empty map would deny everyone) — treat as "all allowed".
+    for (const id of userIds) {
+      map.set(id, { plan: 'free', status: 'active', trialEndsAt: null, currentPeriodEnd: null })
+    }
+  }
+  return map
+}
 
 interface ActiveUserSocket {
   userId: string
@@ -205,7 +301,6 @@ export class RpcDaemon {
               include: {
                 globalConfig: true,
                 rotatorPresets: { orderBy: { order: 'asc' } },
-                trial: true,
               },
             },
           },
@@ -216,9 +311,11 @@ export class RpcDaemon {
           continue
         }
 
-        // Check trial
-        if (!session.user.trial || !session.user.trial.active || session.user.trial.endsAt < now) {
-          console.log(`[10X RPC Daemon] Trial expired for user ${userId}, disabling presence`)
+        // Subscription gate — 3-day free trial / paid period → suspended when
+        // the phase ends. Admins bypass. Also transitions + kills session RPC.
+        const subCheck = await daemonSubscriptionCheck(userId, session.user.discordId)
+        if (!subCheck.ok) {
+          console.log(`[10X RPC Daemon] Subscription suspended for user ${userId}, disabling presence`)
           await db.session.update({
             where: { id: session.id },
             data: { rpcEnabled: false, statusEnabled: false, gatewayReady: false },
@@ -353,7 +450,6 @@ export class RpcDaemon {
         include: {
           user: {
             include: {
-              trial: true,
               globalConfig: true,
               rpcConfigs: true,
               gameConfigs: true,
@@ -369,6 +465,11 @@ export class RpcDaemon {
       return
     }
 
+    // Subscription states for everyone in this pass — one raw query (Orihost-safe).
+    const subStates = await loadDaemonSubStates(
+      [...new Set(activeSessions.map((s: { userId: string }) => s.userId))] as string[],
+    )
+
     const activeUserIds = new Set<string>()
 
     // Latest session per user. Auth-fatal (4004) decisions must compare against
@@ -381,8 +482,10 @@ export class RpcDaemon {
     }
 
     for (const session of activeSessions) {
-      // Check trial
-      if (!session.user.trial || !session.user.trial.active || session.user.trial.endsAt < now) {
+      // Subscription gate — expired trial/period users are not tracked (the
+      // tick loop + website sweeps transition them to "suspended"). Admins bypass.
+      if (!CONFIG.admin.discordIds.includes(session.user.discordId) &&
+          !isDaemonSubAllowed(subStates.get(session.userId))) {
         continue
       }
       // Check sleep timer
@@ -511,7 +614,6 @@ export class RpcDaemon {
       include: {
         user: {
           include: {
-            trial: true,
             globalConfig: true,
             rotatorPresets: true,
           },
@@ -528,13 +630,14 @@ export class RpcDaemon {
       }
     }
 
-    // Trial check
-    if (!session.user.trial || !session.user.trial.active || session.user.trial.endsAt < now) {
+    // Subscription gate — 3-day free trial / paid period → suspended.
+    const subCheck = await daemonSubscriptionCheck(userId, session.user.discordId)
+    if (!subCheck.ok) {
       this.disconnectUser(userId)
       return {
         ok: false,
         method: 'none',
-        message: 'Trial expired',
+        message: subCheck.message,
       }
     }
 

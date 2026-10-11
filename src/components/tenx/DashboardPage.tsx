@@ -172,6 +172,10 @@ export function DashboardPage() {
           <ReconnectBanner isDemo={me.user?.id === 'demo-user-10x'} />
         )}
 
+        {/* Subscription lifecycle — suspended (hard block + renew CTA) or a
+            free trial ending within 24h (soft warning). */}
+        <SubscriptionBanner subscription={me.subscription} renewUrl={me.renewUrl} trialDays={me.trialDays} />
+
         {/* Profile section */}
         <ProfileSection
           me={liveRpcConfig ? { ...me, rpcConfig: { ...me.rpcConfig, ...liveRpcConfig } } : me}
@@ -205,4 +209,81 @@ export function DashboardPage() {
       </div>
     </div>
   )
+}
+
+/** Subscription lifecycle banner: suspended → hard red block with renew CTA;
+ *  free trial < 24h left → amber warning. Active/lifetime → nothing. */
+export function SubscriptionBanner({ subscription, renewUrl, trialDays }: {
+  subscription?: Me['subscription']
+  renewUrl?: string
+  trialDays?: number
+}) {
+  if (!subscription) return null
+
+  if (subscription.status === 'suspended') {
+    return (
+      <div
+        role="alert"
+        className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 sm:p-5"
+      >
+        <div className="flex items-start gap-3">
+          <span className="text-2xl shrink-0" aria-hidden>⛔</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-bold text-red-200">Subscription suspended</p>
+            <p className="text-sm text-red-100/70 mt-1 leading-relaxed">
+              Your free trial has ended — 24/7 RPC, status and Game RPC are paused.
+              Renew to restore your presence instantly (your saved configs are untouched).
+            </p>
+            <div className="flex flex-wrap items-center gap-2 mt-3">
+              <a
+                href={renewUrl || 'https://discord.gg/FZvJfZx2V5'}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs font-semibold text-white bg-red-500/80 hover:bg-red-500 px-4 py-2 rounded-xl transition-all"
+              >
+                ★ Renew on Discord
+              </a>
+              <span className="text-[11px] text-red-100/50">or ask an admin for an extension</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  if (subscription.status === 'trialing' && !subscription.neverExpires) {
+    const msLeft = subscription.msLeft || 0
+    if (msLeft >= 24 * 60 * 60 * 1000) return null
+    const hoursLeft = Math.max(1, Math.floor(msLeft / (60 * 60 * 1000)))
+    return (
+      <div
+        role="status"
+        className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4"
+      >
+        <div className="flex items-start gap-3">
+          <span className="text-xl shrink-0" aria-hidden>⏳</span>
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-amber-200 text-sm">
+              Free trial ends in {hoursLeft} hour{hoursLeft === 1 ? '' : 's'}
+            </p>
+            <p className="text-xs text-amber-100/70 mt-0.5">
+              After that your subscription is suspended and 24/7 RPC stops. Renew to keep it running.
+            </p>
+            <a
+              href={renewUrl || 'https://discord.gg/FZvJfZx2V5'}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-block mt-2 text-xs font-semibold text-amber-100 hover:text-white bg-amber-500/30 hover:bg-amber-500/50 px-3 py-1.5 rounded-lg transition-all"
+            >
+              ★ Renew on Discord
+            </a>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // Active paid plan or lifetime — nothing to warn about.
+  void trialDays
+  return null
 }

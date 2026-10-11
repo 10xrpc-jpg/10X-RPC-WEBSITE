@@ -114,17 +114,17 @@ export function LandingPage() {
           <div className="text-center mb-10">
             <h2 className="text-3xl sm:text-5xl font-black text-white mb-4">Simple Pricing</h2>
             <p className="text-sm sm:text-base text-white/60 max-w-md mx-auto">
-              Just covering our cloud server bills. But hey, try the 30 day trial first — only buy if you love it.
+              Just covering our cloud server bills. Every account starts with a 3-day free trial — no card needed.
             </p>
           </div>
 
           <div className="space-y-4">
             {/* Trial */}
             <PricingCard
-              name="Trial"
+              name="Free Trial"
               price="$0"
-              period="/ 30 Days"
-              features={['Full feature access', '30 Days validity']}
+              period="/ 3 Days"
+              features={['Full feature access', '3 days validity', 'No card needed']}
               cta="Try Now"
               ctaStyle="ghost"
               onCta={onStart}

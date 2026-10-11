@@ -4,6 +4,7 @@ import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { CONFIG } from '@/lib/config'
 import { avatarUrl } from '@/lib/discord-oauth'
+import { sweepAllSubscriptions, subscriptionView } from '@/lib/subscription'
 
 export const dynamic = 'force-dynamic'
 
@@ -21,6 +22,10 @@ export async function GET() {
     return NextResponse.json({ error: 'forbidden', message: 'Admin access required' }, { status: 403 })
   }
 
+  // Bulk subscription sweep first — expired trials/periods become "suspended"
+  // so the admin list always reflects the true lifecycle state.
+  await sweepAllSubscriptions().catch(() => {})
+
   const users = await db.user.findMany({
     include: {
       sessions: {
@@ -28,6 +33,7 @@ export async function GET() {
         take: 1,
       },
       trial: true,
+      subscription: true,
       rpcConfigs: { take: 1 },
       globalConfig: true,
     },
@@ -49,6 +55,10 @@ export async function GET() {
         endsAt: trial.endsAt,
         daysLeft: Math.max(0, Math.ceil((trial.endsAt.getTime() - now.getTime()) / (24 * 60 * 60 * 1000))),
       } : null,
+      // Subscription lifecycle (access source of truth). Admins always allowed.
+      subscription: u.subscription
+        ? subscriptionView(u.subscription, u.discordId, now)
+        : { plan: 'free', status: 'suspended', allowed: false, daysLeft: 0, msLeft: 0, trialEndsAt: null, currentPeriodEnd: null, suspendedAt: null, endsAt: null, neverExpires: false, admin: false },
       rpc: s ? {
         rpcEnabled: s.rpcEnabled,
         gatewayReady: s.gatewayReady,

@@ -168,11 +168,23 @@ export function ProfileBoardPage() {
                   RPC Off
                 </span>
               )}
-              {me.trial?.active && (
+              {me.subscription?.status === 'suspended' ? (
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-red-500/15 text-red-300 border border-red-500/30">
+                  ⛔ Suspended
+                </span>
+              ) : me.subscription?.status === 'trialing' ? (
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-white/5 text-white/50 border border-white/10">
+                  {me.subscription.daysLeft}d trial
+                </span>
+              ) : me.subscription?.status === 'active' ? (
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                  {me.subscription.plan === 'lifetime' ? '∞ Lifetime' : `${me.subscription.plan} · ${me.subscription.daysLeft}d`}
+                </span>
+              ) : me.trial?.active && !me.subscription ? (
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-white/5 text-white/50 border border-white/10">
                   {me.trial.daysLeft}d trial
                 </span>
-              )}
+              ) : null}
             </div>
           </div>
         </div>

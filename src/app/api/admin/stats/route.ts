@@ -7,6 +7,7 @@ import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { CONFIG } from '@/lib/config'
 import { getUptimeReport } from '@/lib/uptime'
+import { sweepAllSubscriptions } from '@/lib/subscription'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -24,6 +25,10 @@ export async function GET() {
   const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000)
   const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
   const activeWhere = { expiresAt: { gt: now } }
+
+  // Flip expired trials/periods to suspended before counting, so the
+  // subscription numbers are always true.
+  await sweepAllSubscriptions().catch(() => {})
 
   const [
     totalUsers,
@@ -43,6 +48,10 @@ export async function GET() {
     discordAssets,
     trialsActive,
     trialsExpired,
+    subsActive,
+    subsTrialing,
+    subsSuspended,
+    subsLifetime,
     oauthStates,
     recentUsers,
   ] = await Promise.all([
@@ -63,6 +72,10 @@ export async function GET() {
     db.discordAsset.count(),
     db.trial.count({ where: { active: true, endsAt: { gt: now } } }),
     db.trial.count({ where: { active: true, endsAt: { lte: now } } }),
+    db.subscription.count({ where: { status: 'active' } }),
+    db.subscription.count({ where: { status: 'trialing' } }),
+    db.subscription.count({ where: { status: 'suspended' } }),
+    db.subscription.count({ where: { plan: 'lifetime', status: 'active' } }),
     db.oAuthState.count({ where: { expiresAt: { gt: now } } }),
     // Newest users first (limit 5) — doubles as the source for the 7-day
     // signup trend (older signups are excluded by the where clause).
@@ -142,6 +155,10 @@ export async function GET() {
       discordAssets,
       trialsActive,
       trialsExpired,
+      subsActive,
+      subsTrialing,
+      subsSuspended,
+      subsLifetime,
       oauthStates,
     },
     system,

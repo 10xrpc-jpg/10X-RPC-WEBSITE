@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { avatarUrl } from '@/lib/discord-oauth'
 import { CONFIG } from '@/lib/config'
 import { selectActiveRpc, type RpcMode } from '@/lib/rpc-manager'
+import { sweepSubscription, subscriptionView } from '@/lib/subscription'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,6 +49,10 @@ export async function GET() {
     let rpcConfig: any = null
     let enabledGame: any = null
     let rotatorPresets: any[] = []
+    // Subscription sweep — flips an expired trial/period to "suspended" and
+    // kills the session RPC flags in the same request that notices it.
+    const swept = await sweepSubscription(session.userId, session.user.discordId).catch(() => null)
+    const subscription = swept?.sub ?? null
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
@@ -151,6 +156,13 @@ export async function GET() {
       msLeft: trialMsLeft,
       daysLeft: Math.max(0, Math.ceil(trialMsLeft / (24 * 60 * 60 * 1000))),
     },
+    // Subscription lifecycle (access source of truth): free|plus|pro|lifetime
+    // × trialing|active|suspended. The UI banners/tooltips read from here.
+    subscription: subscription
+      ? subscriptionView(subscription, session.user.discordId)
+      : { plan: 'free', status: 'suspended', allowed: false, daysLeft: 0, msLeft: 0, trialEndsAt: null, currentPeriodEnd: null, suspendedAt: null, endsAt: null, neverExpires: false, admin: false },
+    renewUrl: CONFIG.discord.inviteUrl,
+    trialDays: CONFIG.app.trialDays,
     globalConfig: globalConfig ? {
       city: globalConfig.city,
       timezone: globalConfig.timezone,

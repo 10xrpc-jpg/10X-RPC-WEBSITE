@@ -1,4 +1,23 @@
 // 10X RPC — frontend API client
+/** Serializable subscription lifecycle state (from /api/me, /api/subscription,
+ *  and the admin user list). plan: free|plus|pro|lifetime; status:
+ *  trialing|active|suspended. Admins always see allowed:true. */
+export interface SubscriptionInfo {
+  plan: 'free' | 'plus' | 'pro' | 'lifetime'
+  status: 'trialing' | 'active' | 'suspended'
+  trialEndsAt: string | null
+  currentPeriodEnd: string | null
+  suspendedAt: string | null
+  /** When the CURRENT phase (trial or paid period) ends. Null = never. */
+  endsAt: string | null
+  msLeft: number
+  daysLeft: number
+  allowed: boolean
+  neverExpires: boolean
+  /** True when this user bypasses gating via ADMIN_DISCORD_IDS. */
+  admin: boolean
+}
+
 export interface Me {
   authenticated: boolean
   /** True when the signed-in Discord ID is in the server's admin list. */
@@ -32,6 +51,12 @@ export interface Me {
     msLeft: number
     daysLeft: number
   }
+  /** Subscription lifecycle — the access source of truth. */
+  subscription?: SubscriptionInfo
+  /** Discord server invite — the renew channel for suspended users. */
+  renewUrl?: string
+  /** Free trial length (days) for new signups. */
+  trialDays?: number
   globalConfig?: {
     city: string | null
     timezone: string
@@ -204,6 +229,10 @@ export interface AdminStats {
     discordAssets: number
     trialsActive: number
     trialsExpired: number
+    subsActive: number
+    subsTrialing: number
+    subsSuspended: number
+    subsLifetime: number
     oauthStates: number
   }
   system: AdminSystemHealth
@@ -287,7 +316,9 @@ export interface AdminSettings {
   checkedAt: string
 }
 
-export type AdminUserAction = 'enable-rpc' | 'disable-rpc' | 'extend-trial' | 'revoke-sessions'
+export type AdminUserAction =
+  | 'enable-rpc' | 'disable-rpc' | 'extend-trial' | 'revoke-sessions'
+  | 'grant-subscription' | 'suspend-subscription' | 'reset-trial' | 'grant-lifetime'
 
 export interface AdminUser {
   id: string
@@ -300,6 +331,7 @@ export interface AdminUser {
     endsAt: string | null
     daysLeft: number
   } | null
+  subscription: SubscriptionInfo
   rpc: {
     rpcEnabled: boolean
     gatewayReady: boolean
@@ -372,6 +404,8 @@ async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   me: () => fetchJson<Me>('/api/me'),
+  /** Current user's subscription state (runs the lazy suspension sweep). */
+  subscription: () => fetchJson<{ ok: boolean; subscription: SubscriptionInfo; transitioned: boolean; renewUrl: string; trialDays: number }>('/api/subscription'),
   logout: () => fetchJson<{ ok: boolean; redirect: string }>('/api/logout', { method: 'POST' }),
   demoLogin: () => fetchJson<{ ok: boolean; demo: boolean; sessionToken?: string; redirect?: string }>('/api/demo-login', { method: 'POST' }),
 
@@ -504,9 +538,10 @@ export const api = {
 
   adminStats: () => fetchJson<AdminStats>('/api/admin/stats'),
 
-  adminUserAction: (userId: string, action: AdminUserAction) =>
+  adminUserAction: (userId: string, action: AdminUserAction, days?: number) =>
     fetchJson<{ ok: boolean; action: string; message: string }>('/api/admin/user-action', {
-      method: 'POST', body: JSON.stringify({ userId, action }),
+      method: 'POST',
+      body: JSON.stringify(days != null ? { userId, action, days } : { userId, action }),
     }),
 
   adminForceRpc: (enable: boolean) => fetchJson<{

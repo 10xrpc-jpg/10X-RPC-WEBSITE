@@ -90,6 +90,24 @@ export async function POST(req: Request) {
     })
   }
 
+  // Subscription: the demo account is shared by every visitor, so its 3-day
+  // trial window ROLLS on each demo login (never suspends mid-preview).
+  await db.subscription.upsert({
+    where: { userId: user.id },
+    create: {
+      userId: user.id,
+      plan: 'free',
+      status: 'trialing',
+      trialEndsAt: new Date(Date.now() + CONFIG.app.trialDays * 24 * 60 * 60 * 1000),
+    },
+    update: {
+      plan: 'free',
+      status: 'trialing',
+      trialEndsAt: new Date(Date.now() + CONFIG.app.trialDays * 24 * 60 * 60 * 1000),
+      suspendedAt: null,
+    },
+  })
+
   // Create session — setSessionCookie() also tries to set the cookie on Render's
   // domain (which won't reach the browser on Vercel), but we capture the token
   // and return it so the frontend can redirect to /set-session.

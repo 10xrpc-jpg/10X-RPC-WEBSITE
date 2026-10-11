@@ -98,11 +98,32 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
     setBgUrl(me.user?.backgroundUrl || '')
   }, [me])
 
-  if (!me.user || !me.session || !me.trial) return null
+  if (!me.user || !me.session) return null
 
   const statusInfo = DISCORD_STATUSES.find(s => s.value === userStatus) || DISCORD_STATUSES[0]
-  const trialMsLeft = Math.max(0, me.trial.endsAt ? new Date(me.trial.endsAt).getTime() - now : 0)
-  const trialDaysLeft = Math.max(0, Math.ceil(trialMsLeft / (24 * 60 * 60 * 1000)))
+  // Subscription lifecycle line for the user menu (falls back to the legacy
+  // trial when the subscription block is missing).
+  const sub = me.subscription
+  const subLine = sub
+    ? sub.admin
+      ? 'Admin — full access'
+      : sub.status === 'trialing'
+        ? `${sub.daysLeft} day${sub.daysLeft === 1 ? '' : 's'} left in free trial`
+        : sub.status === 'suspended'
+          ? 'Suspended — renew to restore RPC'
+          : sub.neverExpires || sub.plan === 'lifetime'
+            ? 'Lifetime access'
+            : `${sub.plan === 'free' ? 'Pro' : sub.plan} · ${sub.daysLeft} day${sub.daysLeft === 1 ? '' : 's'} left`
+    : me.trial?.active
+      ? `${me.trial.daysLeft} day${me.trial.daysLeft === 1 ? '' : 's'} trial remaining`
+      : null
+  const subLineClass = sub?.admin
+    ? 'text-amber-300'
+    : sub?.status === 'suspended'
+      ? 'text-red-300'
+      : sub?.status === 'active'
+        ? 'text-emerald-300'
+        : 'text-purple-300'
 
   const handleStatusSelect = (status: string) => {
     setStatusDropdown(false)
@@ -276,9 +297,11 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                 <div className="px-3 py-2 border-b border-white/5">
                   <div className="font-semibold text-white truncate">{me.user.username}</div>
                   <div className="text-[10px] text-white/50 font-mono truncate">{me.user.id}</div>
-                  <div className="text-[10px] text-purple-300 mt-1">
-                    {trialDaysLeft} day{trialDaysLeft === 1 ? '' : 's'} trial remaining
-                  </div>
+                  {subLine && (
+                    <div className={`text-[10px] mt-1 ${subLineClass}`}>
+                      {subLine}
+                    </div>
+                  )}
                 </div>
                 <button
                   type="button"

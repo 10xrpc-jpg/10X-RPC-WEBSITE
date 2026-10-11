@@ -30,6 +30,7 @@ model User {
   rotatorPresets RotatorPreset[]
   globalConfig   GlobalConfig?
   trial          Trial?
+  subscription   Subscription?
   favoriteGames  FavoriteGame[]
 }
 
@@ -171,6 +172,30 @@ model Trial {
   createdAt DateTime @default(now())
 
   @@index([userId])
+}
+
+// Subscription — the single source of truth for user access.
+// Lifecycle: new user → plan "free", status "trialing" (3-day free trial).
+// When the trial (or a paid period) ends, the lazy sweep flips the status to
+// "suspended" and kills every session's RPC — the user must renew (admin grant
+// or Discord purchase) to regain access. Admins bypass gating entirely.
+//   plan    = free | plus | pro | lifetime
+//   status  = trialing | active | suspended
+//   trialEndsAt      — end of the free-trial phase (status "trialing")
+//   currentPeriodEnd — end of the paid period (status "active"; null = never expires)
+model Subscription {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan             String    @default("free")
+  status           String    @default("trialing")
+  trialEndsAt      DateTime?
+  currentPeriodEnd DateTime?
+  suspendedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status])
 }
 
 model OAuthState {

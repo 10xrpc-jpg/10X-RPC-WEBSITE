@@ -3,10 +3,16 @@
 //   enable-rpc      — turn the user's Normal RPC on + push presence (same
 //                     semantics as the user's own toggle / force-enable).
 //   disable-rpc     — turn RPC off + clear presence.
-//   extend-trial    — add CONFIG.app.trialDays (30) days to the user's trial
-//                     (creating it if missing).
+//   extend-trial    — legacy: add CONFIG.app.trialDays days to the old Trial row
+//                     (the UI now uses grant-subscription instead).
 //   revoke-sessions — delete every session row for the user (forces re-login).
 //                     Blocked for the acting admin's own account (self-logout).
+// Subscription lifecycle actions (the access source of truth):
+//   grant-subscription   — plan "pro", status "active", +N days (default 30)
+//                          appended to the current period end (or now).
+//   suspend-subscription — status "suspended" immediately + kill session RPC.
+//   reset-trial          — plan "free", status "trialing", fresh 3-day window.
+//   grant-lifetime       — plan "lifetime", status "active", never expires.
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
@@ -15,7 +21,10 @@ import { syncPresence, stopPresence } from '@/lib/presence-sync'
 
 export const dynamic = 'force-dynamic'
 
-const ACTIONS = ['enable-rpc', 'disable-rpc', 'extend-trial', 'revoke-sessions'] as const
+const ACTIONS = [
+  'enable-rpc', 'disable-rpc', 'extend-trial', 'revoke-sessions',
+  'grant-subscription', 'suspend-subscription', 'reset-trial', 'grant-lifetime',
+] as const
 type Action = (typeof ACTIONS)[number]
 
 export async function POST(req: Request) {
@@ -27,7 +36,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'forbidden', message: 'Admin access required' }, { status: 403 })
   }
 
-  const body = await req.json().catch(() => ({})) as { userId?: string; action?: string }
+  const body = await req.json().catch(() => ({})) as { userId?: string; action?: string; days?: number }
   const userId = body.userId
   const action = body.action as Action | undefined
   if (!userId || !action || !ACTIONS.includes(action)) {
@@ -100,7 +109,77 @@ export async function POST(req: Request) {
       return NextResponse.json({
         ok: true,
         action,
-        message: `Trial extended +${CONFIG.app.trialDays}d for ${user.username} — ends ${endsAt.toISOString().slice(0, 10)}`,
+        message: `Legacy trial extended +${CONFIG.app.trialDays}d for ${user.username} — ends ${endsAt.toISOString().slice(0, 10)}`,
+      })
+    }
+
+    case 'grant-subscription': {
+      // Optional { days } (default 30) — extends the paid period.
+      const daysRaw = Number((body as { days?: number }).days)
+      const days = Number.isFinite(daysRaw) && daysRaw > 0 && daysRaw <= 3650 ? Math.floor(daysRaw) : 30
+      const existing = await db.subscription.findUnique({ where: { userId } })
+      const base = existing?.status === 'active' && existing.currentPeriodEnd && existing.currentPeriodEnd > now
+        ? existing.currentPeriodEnd
+        : now
+      const endsAt = new Date(base.getTime() + days * 24 * 60 * 60 * 1000)
+      await db.subscription.upsert({
+        where: { userId },
+        create: { userId, plan: 'pro', status: 'active', currentPeriodEnd: endsAt },
+        update: { plan: 'pro', status: 'active', currentPeriodEnd: endsAt, suspendedAt: null },
+      })
+      return NextResponse.json({
+        ok: true,
+        action,
+        message: `${days}d subscription granted to ${user.username} — active until ${endsAt.toISOString().slice(0, 10)}`,
+      })
+    }
+
+    case 'suspend-subscription': {
+      await db.subscription.upsert({
+        where: { userId },
+        create: { userId, plan: 'free', status: 'suspended', suspendedAt: now },
+        update: { status: 'suspended', suspendedAt: now },
+      })
+      await db.session.updateMany({
+        where: { userId, expiresAt: { gt: now } },
+        data: { rpcEnabled: false, statusEnabled: false, gatewayReady: false, vrStatusActive: false },
+      })
+      try {
+        await stopPresence(userId)
+      } catch {
+        // best-effort — the DB flags already stop the daemon
+      }
+      return NextResponse.json({
+        ok: true,
+        action,
+        message: `${user.username} suspended — RPC stopped everywhere`,
+      })
+    }
+
+    case 'reset-trial': {
+      const endsAt = new Date(now.getTime() + CONFIG.app.trialDays * 24 * 60 * 60 * 1000)
+      await db.subscription.upsert({
+        where: { userId },
+        create: { userId, plan: 'free', status: 'trialing', trialEndsAt: endsAt },
+        update: { plan: 'free', status: 'trialing', trialEndsAt: endsAt, suspendedAt: null, currentPeriodEnd: null },
+      })
+      return NextResponse.json({
+        ok: true,
+        action,
+        message: `Fresh ${CONFIG.app.trialDays}-day trial for ${user.username} — ends ${endsAt.toISOString().slice(0, 10)}`,
+      })
+    }
+
+    case 'grant-lifetime': {
+      await db.subscription.upsert({
+        where: { userId },
+        create: { userId, plan: 'lifetime', status: 'active', currentPeriodEnd: null },
+        update: { plan: 'lifetime', status: 'active', currentPeriodEnd: null, suspendedAt: null },
+      })
+      return NextResponse.json({
+        ok: true,
+        action,
+        message: `${user.username} now has LIFETIME access`,
       })
     }
 

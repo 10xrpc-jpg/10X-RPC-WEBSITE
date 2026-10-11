@@ -79,6 +79,21 @@ export async function GET(req: Request) {
       })
     }
 
+    // Create the subscription (3-day free trial) if not present — the single
+    // source of truth for access. Pre-existing users keep their legacy Trial
+    // time via ensureSubscription bootstrap; brand-new users get a fresh trial.
+    if (!await db.subscription.findUnique({ where: { userId: user.id } })) {
+      const now = new Date()
+      await db.subscription.create({
+        data: {
+          userId: user.id,
+          plan: 'free',
+          status: 'trialing',
+          trialEndsAt: new Date(now.getTime() + CONFIG.app.trialDays * 24 * 60 * 60 * 1000),
+        },
+      })
+    }
+
     // Create default GlobalConfig if not present
     if (!await db.globalConfig.findUnique({ where: { userId: user.id } })) {
       await db.globalConfig.create({ data: { userId: user.id } })
