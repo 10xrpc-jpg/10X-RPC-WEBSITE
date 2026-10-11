@@ -17,6 +17,13 @@ import { useRouter } from './useRouter'
 import { BackButton } from './ui'
 import { Gamepad2, Search, ChevronRight, ChevronDown, Plus, X, CheckCircle2, BadgeCheck, Loader2, Hash } from 'lucide-react'
 
+/** Once an icon <img> loads, hide the letter fallback behind it — some game
+ * icons are transparent PNGs, which would otherwise ghost the initials. */
+function hideIconFallback(e: { currentTarget: HTMLImageElement }) {
+  const fb = e.currentTarget.previousElementSibling as HTMLElement | null
+  if (fb?.classList.contains('icon-fallback')) fb.style.display = 'none'
+}
+
 export function GamesPage() {
   const { navigate } = useRouter()
   const [games, setGames] = useState<GameListItem[]>([])
@@ -157,6 +164,7 @@ export function GamesPage() {
                 src={app.iconUrl}
                 alt={app.name}
                 className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                onLoad={hideIconFallback}
                 onError={(e) => {
                   e.currentTarget.style.display = 'none'
                 }}
@@ -284,6 +292,7 @@ export function GamesPage() {
                         src={g.iconUrl}
                         alt={g.name}
                         className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                        onLoad={hideIconFallback}
                         onError={(e) => {
                           e.currentTarget.style.display = 'none'
                         }}
@@ -608,6 +617,7 @@ function AddGameDialog({
                 src={app.iconUrl}
                 alt={app.name}
                 className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                onLoad={hideIconFallback}
                 onError={(e) => {
                   e.currentTarget.style.display = 'none'
                 }}
@@ -818,6 +828,7 @@ function AddGameDialog({
                       src={foundApp.iconUrl}
                       alt={foundApp.name}
                       className="absolute inset-0 w-full h-full object-cover"
+                      onLoad={hideIconFallback}
                       onError={(e) => {
                         e.currentTarget.style.display = 'none'
                       }}
