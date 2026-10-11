@@ -27,28 +27,34 @@ export async function fetchWeather(city: string): Promise<WeatherInfo | null> {
   // Cache for 10 minutes
   if (cached && Date.now() - cached.fetchedAt < 10 * 60 * 1000) return cached
 
-  const geo = await geocode(city)
-  if (!geo) return null
+  try {
+    const geo = await geocode(city)
+    if (!geo) return null
 
-  const url = `${CONFIG.weather.forecastUrl}?latitude=${geo.lat}&longitude=${geo.lon}&current=temperature_2m,weather_code&timezone=auto`
-  const res = await fetch(url)
-  if (!res.ok) return null
-  const json = await res.json()
-  const temp = json?.current?.temperature_2m
-  const code = json?.current?.weather_code
-  if (typeof temp !== 'number' || typeof code !== 'number') return null
+    const url = `${CONFIG.weather.forecastUrl}?latitude=${geo.lat}&longitude=${geo.lon}&current=temperature_2m,weather_code&timezone=auto`
+    const res = await fetch(url)
+    if (!res.ok) return null
+    const json = await res.json()
+    const temp = json?.current?.temperature_2m
+    const code = json?.current?.weather_code
+    if (typeof temp !== 'number' || typeof code !== 'number') return null
 
-  const condition = weatherCodeToText(code)
-  const emoji = weatherCodeToEmoji(code)
-  const info: WeatherInfo = {
-    tempC: Math.round(temp),
-    condition,
-    emoji,
-    city: geo.name,
-    fetchedAt: Date.now(),
+    const condition = weatherCodeToText(code)
+    const emoji = weatherCodeToEmoji(code)
+    const info: WeatherInfo = {
+      tempC: Math.round(temp),
+      condition,
+      emoji,
+      city: geo.name,
+      fetchedAt: Date.now(),
+    }
+    weatherCache.set(key, info)
+    return info
+  } catch {
+    // Transient network failure (upstream down, sandbox egress flake, DNS…):
+    // degrade gracefully — callers render "Unknown"/"N/A" instead of throwing.
+    return null
   }
-  weatherCache.set(key, info)
-  return info
 }
 
 function weatherCodeToText(code: number): string {

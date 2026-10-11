@@ -150,6 +150,7 @@ export async function GET() {
     globalConfig: globalConfig ? {
       city: globalConfig.city,
       timezone: globalConfig.timezone,
+      tempUnit: globalConfig.tempUnit,
       rotatorEnabled: globalConfig.rotatorEnabled,
       rotatorIntervalMins: globalConfig.rotatorIntervalMins,
     } : null,

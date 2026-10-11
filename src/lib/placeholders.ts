@@ -8,6 +8,7 @@ import { fetchWeather, type WeatherInfo } from './weather'
 export interface PlaceholderContext {
   timezone: string
   city?: string
+  tempUnit?: 'C' | 'F' // preferred temperature unit for {temp}
   rpcStartedAt: number // ms timestamp
 }
 
@@ -54,22 +55,31 @@ export async function resolvePlaceholders(text: string, ctx: PlaceholderContext)
   })
 
   // Weather-based (only if city is configured)
-  if (/{weather}|{weather_emoji}|{temp}|{city}/.test(out) && ctx.city) {
+  if (/{weather}|{weather_emoji}|{temp}|{temp_c}|{temp_f}|{city}/.test(out) && ctx.city) {
     const w = await fetchWeather(ctx.city)
+    const unit = ctx.tempUnit === 'F' ? 'F' : 'C'
     if (w) {
       out = out.replaceAll('{weather}', w.condition)
       out = out.replaceAll('{weather_emoji}', w.emoji)
-      out = out.replaceAll('{temp}', `${w.tempC}°C`)
+      out = out.replaceAll('{temp}', unit === 'F' ? `${cToF(w.tempC)}°F` : `${w.tempC}°C`)
+      out = out.replaceAll('{temp_c}', `${w.tempC}°C`)
+      out = out.replaceAll('{temp_f}', `${cToF(w.tempC)}°F`)
       out = out.replaceAll('{city}', w.city)
     } else {
       out = out.replaceAll('{weather}', 'Unknown')
       out = out.replaceAll('{weather_emoji}', '🌡️')
       out = out.replaceAll('{temp}', 'N/A')
+      out = out.replaceAll('{temp_c}', 'N/A')
+      out = out.replaceAll('{temp_f}', 'N/A')
       out = out.replaceAll('{city}', ctx.city)
     }
   }
 
   return out
+}
+
+function cToF(c: number): number {
+  return Math.round((c * 9) / 5 + 32)
 }
 
 function timeEmoji(now: Date, tz: string): string {
@@ -133,7 +143,9 @@ export const PLACEHOLDER_CHEAT_SHEET = [
   { token: '{date_bold}', desc: 'Bold date (e.g. **05/07/2026**)' },
   { token: '{weather}', desc: 'Current weather condition (e.g. Clear, Sunny)' },
   { token: '{weather_emoji}', desc: 'Weather based emoji (e.g. ☀️, 🌧️)' },
-  { token: '{temp}', desc: 'Temperature only (e.g. 28°C)' },
+  { token: '{temp}', desc: 'Temperature in your preferred unit (°C or °F — pick below)' },
+  { token: '{temp_c}', desc: 'Temperature always in °C (e.g. 28°C)' },
+  { token: '{temp_f}', desc: 'Temperature always in °F (e.g. 82°F)' },
   { token: '{city}', desc: 'Your configured city' },
   { token: '{uptime}', desc: 'Time since RPC started (e.g. 2h 15m)' },
   { token: '{countdown:HH:MM}', desc: 'Countdown relative to start (e.g. {countdown:02:44} → "2h 44m left")' },

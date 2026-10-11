@@ -153,6 +153,7 @@ model GlobalConfig {
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   city                String?
   timezone            String   @default("Asia/Calcutta")
+  tempUnit            String   @default("C")
   rotatorEnabled      Boolean  @default(false)
   rotatorIntervalMins Int      @default(5)
   createdAt           DateTime @default(now())

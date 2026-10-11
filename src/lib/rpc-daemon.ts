@@ -957,6 +957,7 @@ export class RpcDaemon {
     const placeholderCtx: PlaceholderContext = {
       timezone: globalConfig?.timezone || 'UTC',
       city: globalConfig?.city || undefined,
+      tempUnit: globalConfig?.tempUnit === 'F' ? 'F' : 'C',
       rpcStartedAt: (rpcConfig?.updatedAt || enabledGame?.updatedAt)
         ? new Date((rpcConfig?.updatedAt || enabledGame?.updatedAt) as Date).getTime()
         : (session.lastPresenceUpdate ? new Date(session.lastPresenceUpdate).getTime() : Date.now()),

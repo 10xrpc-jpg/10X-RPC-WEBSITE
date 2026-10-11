@@ -40,6 +40,7 @@ export default function Home() {
       <GlobalConfigPage
         initialCity={me?.globalConfig?.city}
         initialTimezone={me?.globalConfig?.timezone}
+        initialTempUnit={me?.globalConfig?.tempUnit}
       />
     )
   }

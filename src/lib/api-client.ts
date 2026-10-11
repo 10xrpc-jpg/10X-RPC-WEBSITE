@@ -33,6 +33,7 @@ export interface Me {
   globalConfig?: {
     city: string | null
     timezone: string
+    tempUnit?: string
     rotatorEnabled: boolean
     rotatorIntervalMins: number
   } | null
@@ -193,6 +194,7 @@ export interface AdminUser {
   globalConfig: {
     city: string | null
     timezone: string
+    tempUnit?: string
     rotatorEnabled: boolean
   } | null
   isAdmin: boolean
@@ -327,10 +329,14 @@ export const api = {
   favoriteUse: (id: string) =>
     fetchJson<{ ok: boolean; slug: string; name: string }>('/api/favorites/use', { method: 'POST', body: JSON.stringify({ id }) }),
 
-  configSave: (city: string | null, timezone: string) => fetchJson<{ ok: boolean }>(
-    '/api/config/save', { method: 'POST', body: JSON.stringify({ city, timezone }) }
+  configSave: (city: string | null, timezone: string, tempUnit: 'C' | 'F' = 'C') => fetchJson<{ ok: boolean; globalConfig: { city: string | null; timezone: string; tempUnit: string } }>(
+    '/api/config/save', { method: 'POST', body: JSON.stringify({ city, timezone, tempUnit }) }
   ),
-  configAutoDetect: () => fetchJson<{ ok: boolean }>('/api/config/auto-detect', { method: 'POST' }),
+  configAutoDetect: (browserTimezone?: string) => fetchJson<{
+    ok: boolean
+    globalConfig: { city: string | null; timezone: string; tempUnit?: string }
+    detected?: { city: string; timezone: string }
+  }>('/api/config/auto-detect', { method: 'POST', body: JSON.stringify({ browserTimezone }) }),
 
   rotatorList: () => fetchJson<{ presets: RotatorPreset[] }>('/api/rotator/list'),
   rotatorSave: (data: RotatorPreset) => fetchJson<{ ok: boolean; preset: RotatorPreset }>(
@@ -379,7 +385,13 @@ export const api = {
   }>('/api/admin/force-rpc', { method: 'POST', body: JSON.stringify({ enable }) }),
 
   placeholders: () => fetchJson<{ placeholders: PlaceholderEntry[] }>('/api/placeholders'),
-  resolvePlaceholders: (text: string) => fetchJson<{ original: string; resolved: string }>(
-    '/api/placeholders', { method: 'POST', body: JSON.stringify({ text }) }
+  weather: (city: string) => fetchJson<{ tempC: number; condition: string; emoji: string; city: string }>(
+    `/api/weather?city=${encodeURIComponent(city)}`
+  ),
+  resolvePlaceholders: (
+    text: string,
+    overrides?: { city?: string | null; timezone?: string; tempUnit?: 'C' | 'F'; rpcStartedAt?: number }
+  ) => fetchJson<{ original: string; resolved: string }>(
+    '/api/placeholders', { method: 'POST', body: JSON.stringify({ text, ...overrides }) }
   ),
 }
