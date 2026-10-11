@@ -293,36 +293,11 @@ export function UptimePage() {
                       <Badge className="bg-amber-500/15 text-amber-400">node under maintenance</Badge>
                     )}
                   </div>
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                     <Stat label="Live sessions" value={`${report.daemon.activeConnections ?? 0}/${report.daemon.totalTrackedUsers ?? 0}`} />
                     <Stat label="Daemon uptime" value={fmtUptime(report.daemon.daemonUptimeSeconds)} />
                     <Stat label="Last tick" value={ago(report.daemon.lastTickAt)} />
-                    <Stat label="Auth failed" value={String(report.daemon.authFailedUsers ?? 0)} />
                   </div>
-                  {report.daemon.platforms && Object.keys(report.daemon.platforms).length > 0 && (
-                    <div className="flex flex-wrap gap-2">
-                      {Object.entries(report.daemon.platforms).map(([p, n]) => (
-                        <Badge key={p} className="bg-purple-500/10 text-purple-300 border border-purple-500/20">
-                          {p} × {n}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                  {report.node.state && (
-                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1 border-t border-white/5">
-                      <Stat label={`Node ${report.node.name ?? ''}`.trim()} value={report.node.state ?? '—'} />
-                      <Stat label="Node uptime" value={fmtUptime(report.node.uptimeSeconds)} />
-                      <Stat label="CPU" value={report.node.cpuPercent != null ? `${report.node.cpuPercent.toFixed(1)}%` : '—'} />
-                      <Stat
-                        label="Memory"
-                        value={
-                          report.node.memoryMb != null
-                            ? `${report.node.memoryMb}${report.node.memoryLimitMb ? ` / ${report.node.memoryLimitMb} MB` : ''}`
-                            : '—'
-                        }
-                      />
-                    </div>
-                  )}
                 </>
               )}
             </Card>
