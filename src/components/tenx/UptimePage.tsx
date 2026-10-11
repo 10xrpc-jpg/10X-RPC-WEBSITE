@@ -20,6 +20,15 @@ function grade(ping: number | null | undefined, ok: boolean): PingGrade {
   return 'slow'
 }
 
+// Server-side probes cross continents (API region → daemon node / database),
+// so a few hundred ms is normal there. Looser thresholds than visitor pings.
+function serverGrade(ping: number | null | undefined, ok: boolean): PingGrade {
+  if (!ok || ping == null) return 'down'
+  if (ping < 250) return 'good'
+  if (ping < 700) return 'ok'
+  return 'slow'
+}
+
 const GRADE_DOT: Record<PingGrade, string> = {
   good: 'bg-emerald-400',
   ok: 'bg-amber-400',
@@ -125,6 +134,9 @@ export function UptimePage() {
   const runPingTest = useCallback(async () => {
     setPingTesting(true)
     setPingResult(null)
+    // Warm up the connection first (DNS + TLS + HTTP/2 negotiation) so the
+    // timed samples below measure true round-trip, not cold-connection setup.
+    await browserPing()
     const samples: number[] = []
     for (let i = 0; i < 3; i++) {
       const ms = await browserPing()
@@ -223,7 +235,7 @@ export function UptimePage() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <RegionCard
                 title="Website API"
-                subtitle={`Vercel Edge${report?.serverRegion ? ` · ${report.serverRegion}` : ''}`}
+                subtitle={`Edge Server${report?.serverRegion ? ` · ${report.serverRegion}` : ''}`}
                 ping={pingHistory.at(-1)?.ms ?? null}
                 pingLabel="your ping"
                 grade={browserGrade}
@@ -232,10 +244,10 @@ export function UptimePage() {
               />
               <RegionCard
                 title="24/7 Daemon"
-                subtitle={report?.node?.name ? `Orihost ${report.node.name} · Germany` : 'Orihost node'}
+                subtitle={report?.node?.name ? `${report.node.name} · Germany` : 'Daemon node'}
                 ping={report?.daemon?.latencyMs}
                 pingLabel="server ping"
-                grade={grade(report?.daemon?.latencyMs, !!report?.daemon?.ok)}
+                grade={serverGrade(report?.daemon?.latencyMs, !!report?.daemon?.ok)}
                 ok={!!report?.daemon?.ok}
                 detail={
                   report?.daemon?.configured
@@ -245,10 +257,10 @@ export function UptimePage() {
               />
               <RegionCard
                 title="Database"
-                subtitle="Neon Postgres · Singapore"
+                subtitle="Postgres · Singapore"
                 ping={report?.database?.latencyMs}
                 pingLabel="server ping"
-                grade={grade(report?.database?.latencyMs, !!report?.database?.ok)}
+                grade={serverGrade(report?.database?.latencyMs, !!report?.database?.ok)}
                 ok={!!report?.database?.ok}
                 detail={report?.database?.error ? report.database.error : 'session + config store'}
               />
@@ -257,7 +269,7 @@ export function UptimePage() {
                 subtitle="discord.com gateway"
                 ping={report?.discord?.latencyMs}
                 pingLabel="server ping"
-                grade={grade(report?.discord?.latencyMs, !!report?.discord?.ok)}
+                grade={serverGrade(report?.discord?.latencyMs, !!report?.discord?.ok)}
                 ok={!!report?.discord?.ok}
                 detail={report?.discord?.error ? report.discord.error : 'presence + OAuth endpoints'}
               />

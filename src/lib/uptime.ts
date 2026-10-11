@@ -52,6 +52,10 @@ export interface UptimeReport {
 const CACHE_TTL_MS = 45_000
 const NODE_NAME_TTL_MS = 60 * 60_000
 const PROBE_TIMEOUT_MS = 6_000
+// The hosting-panel probe is auxiliary (only feeds the maintenance badge) and
+// some panels rate-limit/slow-respond datacenter IPs — keep it snappy and never
+// let it fail the overall status.
+const NODE_PROBE_TIMEOUT_MS = 4_000
 
 let cache: { at: number; report: UptimeReport } | null = null
 let nodeNameCache: { at: number; name: string } | null = null
@@ -158,7 +162,7 @@ async function probeNode(): Promise<NodeReport> {
   const meta = await timedFetch(
     `${panel}/api/client/servers/${serverId}`,
     { headers },
-    PROBE_TIMEOUT_MS,
+    NODE_PROBE_TIMEOUT_MS,
   )
   if (!meta.probe.ok || !meta.body) return { configured: true, ...meta.probe }
 
@@ -177,7 +181,7 @@ async function probeNode(): Promise<NodeReport> {
   const res = await timedFetch(
     `${panel}/api/client/servers/${serverId}/resources`,
     { headers },
-    PROBE_TIMEOUT_MS,
+    NODE_PROBE_TIMEOUT_MS,
   )
   if (!res.probe.ok || !res.body) return { configured: true, name, ...res.probe }
 
@@ -222,8 +226,11 @@ export async function getUptimeReport(force = false): Promise<UptimeReport> {
     probeNode(),
   ])
 
+  // Node/panel probe failure must NOT degrade the page banner: it's auxiliary
+  // (maintenance badge only) and the panel often times out from serverless IPs.
+  // Real health = database + discord + the 24/7 daemon itself.
   const criticalDown = !database.ok || (daemon.configured && !daemon.ok)
-  const softDown = !discord.ok || (node.configured && !node.ok)
+  const softDown = !discord.ok
 
   const report: UptimeReport = {
     ok: true,
