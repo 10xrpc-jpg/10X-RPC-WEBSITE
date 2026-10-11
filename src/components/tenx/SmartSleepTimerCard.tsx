@@ -59,9 +59,9 @@ export function SmartSleepTimerCard({ currentEndsAt, onSaved }: { currentEndsAt?
       <div className="absolute -top-16 -left-12 w-56 h-56 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" />
 
       <div className="relative z-10">
-        {/* Title: 🕒 Smart Sleep Timer (centered) */}
+        {/* Title: Smart Sleep Timer (centered) */}
         <div className="flex items-center justify-center gap-2.5 mb-2.5">
-          <Clock className="w-6 h-6 text-red-400 stroke-[2.2]" />
+          <Clock className="w-6 h-6 text-white stroke-[2.2]" />
           <h2 className="text-2xl font-bold text-white tracking-tight">Smart Sleep Timer</h2>
         </div>
 
@@ -97,7 +97,7 @@ export function SmartSleepTimerCard({ currentEndsAt, onSaved }: { currentEndsAt?
         </div>
 
         {error && (
-          <p className="text-xs text-red-400 text-center mt-2" role="alert">
+          <p className="text-xs text-white text-center mt-2" role="alert">
             {error}
           </p>
         )}
@@ -112,7 +112,7 @@ export function SmartSleepTimerCard({ currentEndsAt, onSaved }: { currentEndsAt?
               type="button"
               onClick={handleCancel}
               disabled={saving}
-              className="text-xs text-red-400 hover:text-red-300 transition-colors"
+              className="text-xs text-white hover:text-white transition-colors"
             >
               Cancel
             </button>

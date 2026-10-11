@@ -9,7 +9,7 @@ import { motion } from 'framer-motion'
 import {
   Sparkles, Gamepad2, Glasses, MoonStar, Globe2, RefreshCcw,
   ShieldCheck, Lock, Cloud, Zap, ChevronRight, Menu, X,
-  LogIn, CreditCard, Radio, Check,
+  LogIn, CreditCard, Radio, Check, Target, Star, Users,
 } from 'lucide-react'
 import { GhostButton } from './ui'
 import { BrandMark, BrandName } from './BrandMark'
@@ -155,7 +155,7 @@ export function LandingPage() {
               <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
                 <a
                   href="#features"
-                  className="inline-flex items-center gap-1.5 rounded-full border border-purple-500/30 bg-purple-500/10 px-4 py-1.5 text-xs sm:text-sm text-red-300 hover:bg-purple-500/20 hover:border-purple-500/50 transition-colors"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-purple-500/30 bg-purple-500/10 px-4 py-1.5 text-xs sm:text-sm text-white/90 hover:bg-purple-500/20 hover:border-purple-500/50 transition-colors"
                 >
                   <Zap className="w-3.5 h-3.5" />
                   <span>New: Gamer RPC with ready-made presets</span>
@@ -204,9 +204,9 @@ export function LandingPage() {
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6, delay: 0.4 }}
                 className="mt-8 flex flex-wrap items-center justify-center lg:justify-start gap-x-5 gap-y-2 text-xs text-white/50"
               >
-                <span className="inline-flex items-center gap-1.5"><Lock className="w-3.5 h-3.5 text-red-400" /> No tokens needed</span>
-                <span className="inline-flex items-center gap-1.5"><Cloud className="w-3.5 h-3.5 text-red-400" /> 100% cloud</span>
-                <span className="inline-flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-red-400" /> Official API only</span>
+                <span className="inline-flex items-center gap-1.5"><Lock className="w-3.5 h-3.5 text-white" /> No tokens needed</span>
+                <span className="inline-flex items-center gap-1.5"><Cloud className="w-3.5 h-3.5 text-white" /> 100% cloud</span>
+                <span className="inline-flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-white" /> Official API only</span>
               </motion.div>
             </div>
 
@@ -222,14 +222,14 @@ export function LandingPage() {
                 animate={{ y: [0, -8, 0] }}
                 transition={{ duration: 4.5, repeat: Infinity, ease: 'easeInOut' }}
               >
-                <FloatChip icon={<Glasses className="w-4 h-4 text-red-300" />} title="VR Status" sub="Meta Quest · live" />
+                <FloatChip icon={<Glasses className="w-4 h-4 text-white/90" />} title="VR Status" sub="Meta Quest · live" />
               </motion.div>
               <motion.div
                 className="absolute -bottom-11 -left-2 sm:-left-4 z-10"
                 animate={{ y: [0, 9, 0] }}
                 transition={{ duration: 5.5, repeat: Infinity, ease: 'easeInOut', delay: 0.8 }}
               >
-                <FloatChip icon={<MoonStar className="w-4 h-4 text-red-300" />} title="Sleep Timer" sub="Auto-offline · 02:15" />
+                <FloatChip icon={<MoonStar className="w-4 h-4 text-white/90" />} title="Sleep Timer" sub="Auto-offline · 02:15" />
               </motion.div>
             </motion.div>
           </div>
@@ -273,7 +273,7 @@ export function LandingPage() {
                 <Reveal key={s.title} delay={i * 0.06}>
                   <div className="glass-card p-5 flex items-start gap-3.5 h-full">
                     <div className="shrink-0 w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                      <s.icon className="w-5 h-5 text-emerald-400" />
+                      <s.icon className="w-5 h-5 text-white" />
                     </div>
                     <div>
                       <h3 className="font-bold text-white text-sm sm:text-base">{s.title}</h3>
@@ -302,7 +302,7 @@ export function LandingPage() {
                       {i + 1}
                     </div>
                     <div className="w-11 h-11 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-4 mt-1">
-                      <s.icon className="w-5 h-5 text-red-300" />
+                      <s.icon className="w-5 h-5 text-white/90" />
                     </div>
                     <h3 className="font-bold text-white text-lg">{s.title}</h3>
                     <p className="text-sm text-white/55 mt-1.5 leading-relaxed">{s.desc}</p>
@@ -315,7 +315,7 @@ export function LandingPage() {
               <div className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4">
                 {STATS.map(s => (
                   <div key={s.label} className="glass-card-inner px-4 py-6 text-center">
-                    <div className="text-3xl sm:text-4xl font-black bg-gradient-to-r from-white via-white to-red-400 bg-clip-text text-transparent">{s.value}</div>
+                    <div className="text-3xl sm:text-4xl font-black bg-gradient-to-r from-white via-white to-white/60 bg-clip-text text-transparent">{s.value}</div>
                     <div className="text-xs text-white/50 mt-1.5">{s.label}</div>
                   </div>
                 ))}
@@ -413,7 +413,7 @@ export function LandingPage() {
                   </GhostButton>
                 </div>
                 <p className="mt-5 text-xs text-white/40 flex items-center justify-center gap-1.5 flex-wrap">
-                  <Check className="w-3.5 h-3.5 text-emerald-400" /> No card needed
+                  <Check className="w-3.5 h-3.5 text-white" /> No card needed
                   <span className="text-white/20">·</span> Cancel anytime
                 </p>
               </div>
@@ -500,7 +500,7 @@ function Reveal({ children, delay = 0, className }: { children: React.ReactNode;
 function SectionHeading({ eyebrow, title, sub }: { eyebrow: string; title: string; sub?: string }) {
   return (
     <Reveal className="text-center max-w-2xl mx-auto mb-12 sm:mb-14">
-      <p className="text-xs font-bold uppercase tracking-[0.25em] text-red-400">{eyebrow}</p>
+      <p className="text-xs font-bold uppercase tracking-[0.25em] text-white">{eyebrow}</p>
       <h2 className="mt-3 text-3xl sm:text-5xl font-black text-white tracking-tight">{title}</h2>
       {sub && <p className="mt-4 text-base text-white/60 leading-relaxed">{sub}</p>}
     </Reveal>
@@ -524,8 +524,8 @@ function HeroMockup() {
 
       <div className="relative z-10">
         <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-bold tracking-widest text-red-400 uppercase">Live Preview</span>
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
+          <span className="text-xs font-bold tracking-widest text-white uppercase">Live Preview</span>
+          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-white">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
             LIVE
           </span>
@@ -544,11 +544,12 @@ function HeroMockup() {
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-bold text-white">Aarav</span>
                 <span className="text-[11px] bg-[#2a2b36] border border-white/10 text-white/90 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 font-medium">
-                  🎮 Desktop
+                  <Gamepad2 className="w-3 h-3" />
+                  <span>Desktop</span>
                 </span>
               </div>
               <div className="text-xs text-white/60 flex items-center gap-1.5 mt-0.5">
-                <span className="text-red-400 font-bold">PLAYING</span>
+                <span className="text-white font-bold">PLAYING</span>
                 <span className="truncate text-white/90 font-medium">Valorant</span>
                 <span className="text-white/40 whitespace-nowrap">• {elapsed} elapsed</span>
               </div>
@@ -558,11 +559,11 @@ function HeroMockup() {
           {/* activity card */}
           <div className="bg-[#121319] border border-white/5 rounded-xl p-3 flex items-center gap-3.5">
             <div className="relative shrink-0">
-              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-rose-500/80 to-purple-600/80 border border-white/10 flex items-center justify-center text-2xl select-none">
-                🎯
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-rose-500/80 to-purple-600/80 border border-white/10 flex items-center justify-center select-none">
+                <Target className="w-6 h-6 text-white/90" />
               </div>
-              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-[#121319] bg-[#1c1d25] flex items-center justify-center text-[10px]">
-                ⭐
+              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-[#121319] bg-[#1c1d25] flex items-center justify-center">
+                <Star className="w-3 h-3 text-white/90" />
               </div>
             </div>
             <div className="flex-1 min-w-0 space-y-0.5">
@@ -570,17 +571,17 @@ function HeroMockup() {
               <div className="text-xs text-white/80 font-medium truncate">Ranked Grind — Immortal 2</div>
               <div className="text-xs text-white/60 truncate">Ascent · Brimstone</div>
               <div className="text-xs text-white/50 flex items-center gap-1 pt-0.5">
-                <span>👥</span> <span>4 of 5</span>
+                <Users className="w-3.5 h-3.5" /> <span>4 of 5</span>
               </div>
             </div>
           </div>
 
           {/* presence buttons */}
           <div className="grid grid-cols-2 gap-2 pt-1">
-            <span className="text-xs font-semibold text-red-200 bg-[#20212b] border border-white/10 rounded-xl py-2 px-3 truncate text-center shadow-sm">
+            <span className="text-xs font-semibold text-white/90 bg-[#20212b] border border-white/10 rounded-xl py-2 px-3 truncate text-center shadow-sm">
               Join my lobby
             </span>
-            <span className="text-xs font-semibold text-red-200 bg-[#20212b] border border-white/10 rounded-xl py-2 px-3 truncate text-center shadow-sm">
+            <span className="text-xs font-semibold text-white/90 bg-[#20212b] border border-white/10 rounded-xl py-2 px-3 truncate text-center shadow-sm">
               Watch Party
             </span>
           </div>
@@ -588,7 +589,7 @@ function HeroMockup() {
 
         {/* dynamic placeholders row */}
         <div className="mt-3.5 bg-[#121319]/60 border border-white/5 rounded-xl px-3.5 py-2.5 flex items-center gap-2.5">
-          <Globe2 className="w-4 h-4 text-red-400 shrink-0" />
+          <Globe2 className="w-4 h-4 text-white shrink-0" />
           <span className="text-[11px] text-white/50">Dynamic placeholders:</span>
           <span className="text-[11px] text-white/80 font-medium truncate">Bengaluru · 27°C · 9:41 PM</span>
         </div>
@@ -755,7 +756,7 @@ function ChevronDown({ open }: { open: boolean }) {
       strokeWidth={2.5}
       strokeLinecap="round"
       strokeLinejoin="round"
-      className={cn('w-4 h-4 shrink-0 text-red-400 transition-transform duration-300', open && 'rotate-180')}
+      className={cn('w-4 h-4 shrink-0 text-white transition-transform duration-300', open && 'rotate-180')}
       aria-hidden
     >
       <path d="m6 9 6 6 6-6" />
@@ -775,7 +776,7 @@ function FeatureCard({ icon: Icon, title, desc, delay }: {
     <Reveal delay={delay} className="h-full">
       <div className="glass-card-inner p-6 h-full hover:border-purple-500/30 hover:-translate-y-1 transition-all duration-300">
         <div className="w-11 h-11 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-4">
-          <Icon className="w-5 h-5 text-red-300" />
+          <Icon className="w-5 h-5 text-white/90" />
         </div>
         <h3 className="text-lg font-bold text-white">{title}</h3>
         <p className="text-sm text-white/60 mt-2 leading-relaxed">{desc}</p>

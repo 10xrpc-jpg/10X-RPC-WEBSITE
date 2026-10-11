@@ -10,6 +10,7 @@ import { toast } from 'sonner'
 import { api, type AdminPlan, type AdminPlanInput } from '@/lib/api-client'
 import { Card } from '../ui'
 import { ConfirmDialog, Chip, StatCard, Toggle, rupees, fmtRel } from './shared'
+import { X } from 'lucide-react'
 
 const BLANK: AdminPlanInput & { slug: string } = {
   slug: '', name: '', description: '', amount: 19900, originalAmount: null,
@@ -79,10 +80,10 @@ export function PlansTab() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <StatCard label="Plans" value={plans.filter(p => !p.archived).length} color="text-red-300" />
-        <StatCard label="Active" value={plans.filter(p => p.active && !p.archived).length} color="text-green-400" />
-        <StatCard label="Subscribers" value={totalSubs} color="text-sky-400" />
-        <StatCard label="Revenue" value={rupees(totalRevenue)} color="text-amber-300" />
+        <StatCard label="Plans" value={plans.filter(p => !p.archived).length} color="text-white/90" />
+        <StatCard label="Active" value={plans.filter(p => p.active && !p.archived).length} color="text-white" />
+        <StatCard label="Subscribers" value={totalSubs} color="text-white" />
+        <StatCard label="Revenue" value={rupees(totalRevenue)} color="text-white/90" />
       </div>
 
       <Card>
@@ -90,7 +91,7 @@ export function PlansTab() {
           <h3 className="font-bold text-white">Plan Catalog</h3>
           <button
             onClick={() => setEditor({ mode: 'create' })}
-            className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 border border-purple-500/40 text-red-200 hover:bg-purple-500/30 transition-all"
+            className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 border border-purple-500/40 text-white/90 hover:bg-purple-500/30 transition-all"
           >
             + New Plan
           </button>
@@ -118,7 +119,7 @@ export function PlansTab() {
                   </div>
                   <div className="text-right text-[11px] text-white/50">
                     <p>{p.subscribers} subs · {p.paidCount} sold</p>
-                    <p className="text-amber-300/80">{rupees(p.revenuePaise)}</p>
+                    <p className="text-white/70">{rupees(p.revenuePaise)}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Toggle checked={p.active} onChange={() => toggle(p, 'active')} label={`Toggle ${p.name} active`} />
@@ -131,7 +132,7 @@ export function PlansTab() {
                     {!p.archived && (
                       <button
                         onClick={() => patch(p, { archived: true }, `"${p.name}" archived — hidden everywhere, history intact`)}
-                        className="text-[11px] px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 hover:bg-amber-500/20 transition-all"
+                        className="text-[11px] px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-white/90 hover:bg-amber-500/20 transition-all"
                       >
                         Archive
                       </button>
@@ -148,9 +149,9 @@ export function PlansTab() {
                       onClick={() => setConfirmDelete(p)}
                       disabled={p.subscribers > 0 || p.paidCount > 0}
                       title={p.subscribers > 0 || p.paidCount > 0 ? 'In use — archive instead' : 'Delete permanently'}
-                      className="text-[11px] px-2 py-1 rounded-lg bg-red-500/10 border border-red-500/30 text-red-300 hover:bg-red-500/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                      className="text-[11px] px-2 py-1 rounded-lg bg-red-500/10 border border-red-500/30 text-white/90 hover:bg-red-500/20 transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                     >
-                      ✕
+                      <X className="w-3.5 h-3.5 inline-block" />
                     </button>
                   </div>
                 </div>
@@ -254,7 +255,7 @@ function PlanEditor({ mode, plan, onClose, onSaved }: {
       <div className="glass-card-inner w-full max-w-lg p-4 space-y-3 max-h-[88vh] overflow-y-auto styled-scroll">
         <div className="flex items-center justify-between">
           <h4 className="font-bold text-white">{mode === 'create' ? 'New Plan' : `Edit — ${plan?.name}`}</h4>
-          <button onClick={onClose} aria-label="Close editor" className="text-white/40 hover:text-white text-sm px-2">✕</button>
+          <button onClick={onClose} aria-label="Close editor" className="text-white/40 hover:text-white text-sm px-2"><X className="w-3.5 h-3.5 inline-block" /></button>
         </div>
 
         <div className="grid grid-cols-2 gap-2">
@@ -315,7 +316,7 @@ function PlanEditor({ mode, plan, onClose, onSaved }: {
           <button
             onClick={save}
             disabled={busy}
-            className="text-xs px-4 py-2 rounded-lg bg-purple-500/25 border border-purple-500/50 text-red-100 hover:bg-purple-500/35 transition-all disabled:opacity-40"
+            className="text-xs px-4 py-2 rounded-lg bg-purple-500/25 border border-purple-500/50 text-white/90 hover:bg-purple-500/35 transition-all disabled:opacity-40"
           >
             {busy ? 'Saving…' : mode === 'create' ? 'Create plan' : 'Save changes'}
           </button>

@@ -15,7 +15,7 @@ import { toast } from 'sonner'
 import { api, type GameListItem, type DiscoveredApp } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { BackButton } from './ui'
-import { Gamepad2, Search, ChevronRight, ChevronDown, Plus, X, CheckCircle2, BadgeCheck, Loader2, Hash } from 'lucide-react'
+import { Gamepad2, Search, ChevronRight, ChevronDown, Plus, X, CheckCircle2, BadgeCheck, Loader2, Hash, TriangleAlert } from 'lucide-react'
 
 /** Once an icon <img> loads, hide the letter fallback behind it — some game
  * icons are transparent PNGs, which would otherwise ghost the initials. */
@@ -173,11 +173,11 @@ export function GamesPage() {
           </div>
           <div className="min-w-0">
             <span className="flex items-center gap-1.5 min-w-0">
-              <span className="text-sm sm:text-base font-bold text-white group-hover:text-red-200 transition-colors truncate">
+              <span className="text-sm sm:text-base font-bold text-white group-hover:text-white transition-colors truncate">
                 {app.name}
               </span>
               {app.verified && (
-                <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-sky-400" aria-label="Verified application" />
+                <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-white" aria-label="Verified application" />
               )}
               {!app.isGame && (
                 <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-white/10 text-white/60 border border-white/15">
@@ -193,15 +193,15 @@ export function GamesPage() {
 
         <div className="flex items-center gap-2 shrink-0 ml-3">
           {already ? (
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-red-300 border border-purple-500/30 inline-flex items-center gap-1 whitespace-nowrap">
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-white/90 border border-purple-500/30 inline-flex items-center gap-1 whitespace-nowrap">
               <CheckCircle2 className="w-3 h-3" />
               <span>Added</span>
             </span>
           ) : busy ? (
-            <Loader2 className="w-4 h-4 text-red-300 animate-spin" />
+            <Loader2 className="w-4 h-4 text-white/90 animate-spin" />
           ) : (
             <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
-              <Plus className="w-3.5 h-3.5 text-red-300 stroke-[2.5]" />
+              <Plus className="w-3.5 h-3.5 text-white/90 stroke-[2.5]" />
             </span>
           )}
         </div>
@@ -215,12 +215,12 @@ export function GamesPage() {
       <div className="flex items-center justify-between">
         <BackButton onClick={() => navigate({ name: 'dashboard' })} />
         <div className="flex items-center gap-2.5">
-          <Gamepad2 className="w-6 h-6 text-red-400 stroke-[2.2]" />
+          <Gamepad2 className="w-6 h-6 text-white stroke-[2.2]" />
           <h1 className="text-2xl font-bold text-white tracking-tight">Games</h1>
         </div>
         <div className="min-w-[90px] flex justify-end">
           {activeCount > 0 && (
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm">
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 text-white/90 border border-emerald-500/30 inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span>{activeCount} active</span>
             </span>
@@ -257,7 +257,7 @@ export function GamesPage() {
 
             {!loading && filtered.length === 0 && (
               <div className="p-12 text-center space-y-3">
-                <div className="text-4xl select-none">🎮</div>
+                <Gamepad2 className="w-10 h-10 mx-auto text-white/40" />
                 <p className="text-white/70 font-medium">No games found</p>
                 <p className="text-xs text-white/40">
                   {query ? `No matches for "${query}". Try a different search.` : 'Game catalog is empty.'}
@@ -265,7 +265,7 @@ export function GamesPage() {
                 {query && (
                   <button
                     onClick={() => setQuery('')}
-                    className="text-xs text-red-300 hover:text-red-200 mt-2 font-medium"
+                    className="text-xs text-white/90 hover:text-white mt-2 font-medium"
                   >
                     Clear search
                   </button>
@@ -303,11 +303,11 @@ export function GamesPage() {
                   {/* Title & Details */}
                   <div className="min-w-0">
                     <span className="flex items-center gap-1.5 min-w-0">
-                      <span className="text-sm sm:text-base font-bold text-white group-hover:text-red-200 transition-colors truncate">
+                      <span className="text-sm sm:text-base font-bold text-white group-hover:text-white transition-colors truncate">
                         {g.name}
                       </span>
                       {g.custom && (
-                        <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-purple-500/15 text-red-300 border border-purple-500/30">
+                        <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-purple-500/15 text-white/90 border border-purple-500/30">
                           Custom
                         </span>
                       )}
@@ -320,7 +320,7 @@ export function GamesPage() {
 
                 <div className="flex items-center gap-2 shrink-0 ml-3">
                   {g.enabled && (
-                    <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm">
+                    <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-white/90 border border-emerald-500/30 inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm">
                       <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                       <span>Active</span>
                     </span>
@@ -340,7 +340,7 @@ export function GamesPage() {
                     <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
                       Searching Discord...
                     </span>
-                    <Loader2 className="w-3.5 h-3.5 text-red-300/70 animate-spin" />
+                    <Loader2 className="w-3.5 h-3.5 text-white/60 animate-spin" />
                   </div>
                 )}
 
@@ -361,7 +361,7 @@ export function GamesPage() {
                       <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
                         All Games On Discord
                       </span>
-                      <span className="text-[9px] font-semibold text-red-300/70 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
+                      <span className="text-[9px] font-semibold text-white/60 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
                         24,600+ catalog
                       </span>
                     </div>
@@ -378,9 +378,9 @@ export function GamesPage() {
                     className="w-full flex items-center justify-center gap-2 p-3 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition-all cursor-pointer disabled:opacity-60"
                   >
                     {loadingMore ? (
-                      <Loader2 className="w-3.5 h-3.5 text-red-300 animate-spin" />
+                      <Loader2 className="w-3.5 h-3.5 text-white/90 animate-spin" />
                     ) : (
-                      <ChevronDown className="w-3.5 h-3.5 text-red-300" />
+                      <ChevronDown className="w-3.5 h-3.5 text-white/90" />
                     )}
                     {loadingMore ? 'Loading more...' : 'See more'}
                   </button>
@@ -394,7 +394,7 @@ export function GamesPage() {
                     <button
                       type="button"
                       onClick={() => setAddOpen(true)}
-                      className="text-red-300 hover:text-red-200 font-medium inline-flex items-center gap-1 cursor-pointer"
+                      className="text-white/90 hover:text-white font-medium inline-flex items-center gap-1 cursor-pointer"
                     >
                       <Plus className="w-3 h-3" />
                       Add it by Application ID instead
@@ -412,9 +412,9 @@ export function GamesPage() {
                 className="w-full flex items-center justify-center gap-2 p-3.5 bg-transparent hover:bg-purple-500/5 border border-dashed border-white/15 hover:border-purple-500/50 rounded-2xl transition-all text-left cursor-pointer group active:scale-[0.99]"
               >
                 <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
-                  <Plus className="w-3.5 h-3.5 text-red-300 stroke-[2.5]" />
+                  <Plus className="w-3.5 h-3.5 text-white/90 stroke-[2.5]" />
                 </span>
-                <span className="text-sm font-bold text-white/60 group-hover:text-red-200 transition-colors">
+                <span className="text-sm font-bold text-white/60 group-hover:text-white transition-colors">
                   Add Games
                 </span>
               </button>
@@ -424,7 +424,8 @@ export function GamesPage() {
       </div>
 
       <p className="text-xs text-white/30 text-center pt-2">
-        ⚠ 10X RPC is not responsible if your account gets banned or blocked. Use at your own risk.
+        <TriangleAlert className="w-3.5 h-3.5 inline-block align-[-3px] mr-1" />
+        10X RPC is not responsible if your account gets banned or blocked. Use at your own risk.
       </p>
 
       {/* Add Games dialog — full upgrade: Discord search (trending + 24,600+
@@ -668,11 +669,11 @@ function AddGameDialog({
           </div>
           <div className="min-w-0">
             <span className="flex items-center gap-1.5 min-w-0">
-              <span className="text-sm font-bold text-white group-hover:text-red-200 transition-colors truncate">
+              <span className="text-sm font-bold text-white group-hover:text-white transition-colors truncate">
                 {app.name}
               </span>
               {app.verified && (
-                <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-sky-400" aria-label="Verified application" />
+                <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-white" aria-label="Verified application" />
               )}
             </span>
             <span className="text-[11px] text-white/50 block truncate mt-0.5">
@@ -683,15 +684,15 @@ function AddGameDialog({
 
         <div className="flex items-center gap-2 shrink-0 ml-3">
           {already ? (
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-red-300 border border-purple-500/30 inline-flex items-center gap-1 whitespace-nowrap">
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-white/90 border border-purple-500/30 inline-flex items-center gap-1 whitespace-nowrap">
               <CheckCircle2 className="w-3 h-3" />
               <span>Added</span>
             </span>
           ) : busy ? (
-            <Loader2 className="w-4 h-4 text-red-300 animate-spin" />
+            <Loader2 className="w-4 h-4 text-white/90 animate-spin" />
           ) : (
             <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
-              <Plus className="w-3.5 h-3.5 text-red-300 stroke-[2.5]" />
+              <Plus className="w-3.5 h-3.5 text-white/90 stroke-[2.5]" />
             </span>
           )}
         </div>
@@ -723,7 +724,7 @@ function AddGameDialog({
         <div className="flex items-center justify-between pb-4 border-b border-white/8">
           <div className="flex items-center gap-2.5">
             <span className="w-9 h-9 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center">
-              <Plus className="w-4.5 h-4.5 text-red-300 stroke-[2.5]" />
+              <Plus className="w-4.5 h-4.5 text-white/90 stroke-[2.5]" />
             </span>
             <div>
               <h2 className="text-base font-bold text-white tracking-tight">Add a Game</h2>
@@ -775,7 +776,7 @@ function AddGameDialog({
                   <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
                     {isPopular ? 'Loading popular games...' : 'Searching Discord...'}
                   </span>
-                  <Loader2 className="w-3.5 h-3.5 text-red-300/70 animate-spin" />
+                  <Loader2 className="w-3.5 h-3.5 text-white/60 animate-spin" />
                 </div>
               )}
 
@@ -785,7 +786,7 @@ function AddGameDialog({
                     <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
                       Popular On Discord
                     </span>
-                    <span className="text-[9px] font-semibold text-red-300/70 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
+                    <span className="text-[9px] font-semibold text-white/60 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
                       24,600+ catalog
                     </span>
                   </div>
@@ -799,9 +800,9 @@ function AddGameDialog({
                       className="w-full flex items-center justify-center gap-2 p-3 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition-all cursor-pointer disabled:opacity-60"
                     >
                       {loadingMore ? (
-                        <Loader2 className="w-3.5 h-3.5 text-red-300 animate-spin" />
+                        <Loader2 className="w-3.5 h-3.5 text-white/90 animate-spin" />
                       ) : (
-                        <ChevronDown className="w-3.5 h-3.5 text-red-300" />
+                        <ChevronDown className="w-3.5 h-3.5 text-white/90" />
                       )}
                       {loadingMore ? 'Loading more...' : 'See more'}
                     </button>
@@ -826,7 +827,7 @@ function AddGameDialog({
                     <span className="text-[10px] font-bold uppercase tracking-wider text-white/35">
                       All Games On Discord
                     </span>
-                    <span className="text-[9px] font-semibold text-red-300/70 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
+                    <span className="text-[9px] font-semibold text-white/60 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
                       24,600+ catalog
                     </span>
                   </div>
@@ -843,9 +844,9 @@ function AddGameDialog({
                   className="w-full flex items-center justify-center gap-2 p-3 bg-[#171822]/75 hover:bg-[#20212f] border border-white/5 hover:border-purple-500/30 rounded-2xl text-xs font-bold uppercase tracking-wider text-white/60 hover:text-white transition-all cursor-pointer disabled:opacity-60"
                 >
                   {loadingMore ? (
-                    <Loader2 className="w-3.5 h-3.5 text-red-300 animate-spin" />
+                    <Loader2 className="w-3.5 h-3.5 text-white/90 animate-spin" />
                   ) : (
-                    <ChevronDown className="w-3.5 h-3.5 text-red-300" />
+                    <ChevronDown className="w-3.5 h-3.5 text-white/90" />
                   )}
                   {loadingMore ? 'Loading more...' : 'See more'}
                 </button>
@@ -867,7 +868,7 @@ function AddGameDialog({
           <div className="space-y-4 pt-4">
             {/* Application ID — the classic power-user flow (official name + icon auto-fill) */}
             <div className="space-y-1.5">
-              <label htmlFor="custom-game-appid" className="text-xs font-bold tracking-wider text-red-400 uppercase block">
+              <label htmlFor="custom-game-appid" className="text-xs font-bold tracking-wider text-white uppercase block">
                 Application ID
               </label>
               <input
@@ -912,7 +913,7 @@ function AddGameDialog({
                 </div>
                 <div className="min-w-0">
                   <p className="text-sm font-bold text-white truncate">{foundApp.name}</p>
-                  <p className="text-[11px] text-emerald-300/90 inline-flex items-center gap-1">
+                  <p className="text-[11px] text-white/80 inline-flex items-center gap-1">
                     <CheckCircle2 className="w-3 h-3 shrink-0" />
                     Official identity found
                   </p>

@@ -6,7 +6,7 @@ import { api, type Me } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { Card, PurpleSwitch } from './ui'
 import { DISCORD_STATUSES } from '@/lib/constants'
-import { Ban, Smartphone, SmilePlus } from 'lucide-react'
+import { Ban, Smartphone, SmilePlus, Globe, Image as ImageIcon, Settings, LogOut } from 'lucide-react'
 import { DiscordPreview } from './DiscordPreview'
 import { DiscordEmoji, normalizeEmojiInput } from './Emoji'
 
@@ -118,12 +118,12 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
       ? `${me.trial.daysLeft} day${me.trial.daysLeft === 1 ? '' : 's'} trial remaining`
       : null
   const subLineClass = sub?.admin
-    ? 'text-amber-300'
+    ? 'text-white/90'
     : sub?.status === 'suspended'
-      ? 'text-red-300'
+      ? 'text-white/90'
       : sub?.status === 'active'
-        ? 'text-emerald-300'
-        : 'text-red-300'
+        ? 'text-white/90'
+        : 'text-white/90'
 
   const handleStatusSelect = (status: string) => {
     setStatusDropdown(false)
@@ -164,7 +164,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
         statusPlatform: selectedPlatform,
       })
       if (result.ok) {
-        toast.success(statusEnabled ? '✓ Status updated & synced to Discord' : '✓ Status configuration saved (Status is OFF)', { duration: 3000 })
+        toast.success(statusEnabled ? 'Status updated & synced to Discord' : 'Status configuration saved (Status is OFF)', { duration: 3000 })
       } else {
         toast.error('Failed to update status')
       }
@@ -199,7 +199,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
       await api.statusUpdate({ customStatusEmoji: value })
       setCustomEmoji(value || '')
       setEmojiPickerOpen(false)
-      toast.success(value ? '✓ Emoji saved' : '✓ Emoji removed', { duration: 2000 })
+      toast.success(value ? 'Emoji saved' : 'Emoji removed', { duration: 2000 })
       onRefresh()
     } catch (e) {
       console.error(e)
@@ -308,7 +308,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                   onClick={() => { setUserMenuOpen(false); navigate({ name: 'config' }) }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-left transition-colors"
                 >
-                  <span>🌐</span>
+                  <Globe className="w-4 h-4" />
                   <span>Set Config</span>
                 </button>
                 <button
@@ -316,25 +316,25 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                   onClick={() => { setUserMenuOpen(false); setBgModalOpen(true) }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-left transition-colors"
                 >
-                  <span>🖼️</span>
+                  <ImageIcon className="w-4 h-4" />
                   <span>Set Background</span>
                 </button>
                 {((me.user as Record<string, unknown>).discordId === '824940038617694279' || me.user.id === '824940038617694279') && (
                   <button
                     type="button"
                     onClick={() => { setUserMenuOpen(false); navigate({ name: 'admin' }) }}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-red-300 hover:text-white hover:bg-white/5 text-left transition-colors"
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white/90 hover:text-white hover:bg-white/5 text-left transition-colors"
                   >
-                    <span>⚙️</span>
+                    <Settings className="w-4 h-4" />
                     <span>Admin Dashboard</span>
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-red-400 hover:text-red-300 hover:bg-red-500/10 text-left border-t border-white/5 mt-1 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white hover:text-white hover:bg-red-500/10 text-left border-t border-white/5 mt-1 transition-colors"
                 >
-                  <span>🔴</span>
+                  <LogOut className="w-4 h-4" />
                   <span>Logout</span>
                 </button>
               </div>
@@ -479,7 +479,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                 <button
                   type="button"
                   onClick={() => setEmojiDraft('<:name:id>')}
-                  className="block font-mono text-[13px] text-red-400 hover:text-red-300 transition-colors cursor-pointer"
+                  className="block font-mono text-[13px] text-white hover:text-white transition-colors cursor-pointer"
                   title="Click to insert this format — replace name & id with your emoji"
                 >
                   {'<:wsp:1329393881881>'}
@@ -510,13 +510,13 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
 
         {/* ENABLE STATUS Toggle Row */}
         <div className="relative z-10 flex items-center justify-between px-1 mb-4 pt-1">
-          <span className="text-xs sm:text-sm font-extrabold tracking-widest text-red-400 uppercase">
+          <span className="text-xs sm:text-sm font-extrabold tracking-widest text-white uppercase">
             ENABLE STATUS
           </span>
           <PurpleSwitch checked={statusEnabled} onCheckedChange={handleToggleStatus} />
         </div>
 
-        {/* 3 Action Buttons: [ 📱 Mobile ] [ ROTATOR ] [ UPDATE ] */}
+        {/* 3 Action Buttons: Mobile / ROTATOR / UPDATE */}
         <div className={`relative ${platformOpen ? 'z-50' : 'z-10'} flex items-center gap-2 pt-1`}>
           {/* Platform Picker Button */}
           <div className="relative flex-1" ref={platformRef}>
@@ -614,7 +614,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
             <h2 className="text-xl font-bold text-white text-center">Set Background</h2>
 
             <div className="space-y-1.5">
-              <label className="text-xs uppercase tracking-wider text-red-400 font-semibold">Image URL</label>
+              <label className="text-xs uppercase tracking-wider text-white font-semibold">Image URL</label>
               <input
                 type="url"
                 value={bgUrl}
@@ -640,7 +640,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                 <button
                   onClick={handleClearBg}
                   disabled={saving}
-                  className="text-sm text-red-400 hover:text-red-300 px-4 py-2.5"
+                  className="text-sm text-white hover:text-white px-4 py-2.5"
                 >
                   Clear
                 </button>

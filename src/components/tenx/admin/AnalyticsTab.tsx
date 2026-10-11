@@ -38,19 +38,19 @@ export function AnalyticsTab() {
     <div className="space-y-4">
       {/* lifecycle */}
       <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
-        <StatCard label="Subscriptions" value={s.total} color="text-red-300" />
-        <StatCard label="Active paid" value={s.active} color="text-green-400" sub={`${s.lifetime} lifetime`} />
-        <StatCard label="Trialing" value={s.trialing} color="text-red-300" />
-        <StatCard label="Expired" value={s.expired} color="text-red-300" />
-        <StatCard label="Admin-suspended" value={s.adminSuspended} color="text-amber-300" />
+        <StatCard label="Subscriptions" value={s.total} color="text-white/90" />
+        <StatCard label="Active paid" value={s.active} color="text-white" sub={`${s.lifetime} lifetime`} />
+        <StatCard label="Trialing" value={s.trialing} color="text-white/90" />
+        <StatCard label="Expired" value={s.expired} color="text-white/90" />
+        <StatCard label="Admin-suspended" value={s.adminSuspended} color="text-white/90" />
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-        <StatCard label="Trial→Paid" value={`${data.conversion.rate}%`} color="text-emerald-300" sub={`${data.conversion.payingUsers}/${data.conversion.everTrialed}`} />
-        <StatCard label="Revenue all-time" value={rupees(data.revenue.allTimePaise)} color="text-amber-300" />
-        <StatCard label="Revenue 30d" value={rupees(data.revenue.last30dPaise)} color="text-emerald-400" />
-        <StatCard label="Payments paid" value={data.revenue.paidCount} color="text-red-400" sub={`${data.conversion.renewals} renewals`} />
-        <StatCard label="Expiring ≤7d" value={s.expiring7d} color="text-amber-300" sub={`${s.expiring30d} in 30d`} />
+        <StatCard label="Trial→Paid" value={`${data.conversion.rate}%`} color="text-white/90" sub={`${data.conversion.payingUsers}/${data.conversion.everTrialed}`} />
+        <StatCard label="Revenue all-time" value={rupees(data.revenue.allTimePaise)} color="text-white/90" />
+        <StatCard label="Revenue 30d" value={rupees(data.revenue.last30dPaise)} color="text-white" />
+        <StatCard label="Payments paid" value={data.revenue.paidCount} color="text-white" sub={`${data.conversion.renewals} renewals`} />
+        <StatCard label="Expiring ≤7d" value={s.expiring7d} color="text-white/90" sub={`${s.expiring30d} in 30d`} />
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">
@@ -81,7 +81,7 @@ export function AnalyticsTab() {
                         <div className="flex-1 h-3.5 rounded-full bg-white/5 overflow-hidden">
                           <div className="h-full rounded-full bg-gradient-to-r from-amber-500/70 to-amber-300/80" style={{ width: `${Math.max(4, (g.revenuePaise / maxPlanRev) * 100)}%` }} />
                         </div>
-                        <span className="text-[11px] text-amber-300/80 w-20 text-right">{rupees(g.revenuePaise)}</span>
+                        <span className="text-[11px] text-white/70 w-20 text-right">{rupees(g.revenuePaise)}</span>
                       </div>
                     ))}
                   </>

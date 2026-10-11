@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import type { RpcConfig } from '@/lib/api-client'
 import { resolveRpcActivityName } from '@/lib/constants'
+import { Glasses, Gamepad2, Star, Users, Hourglass, Smartphone, Tv, Globe, type LucideIcon } from 'lucide-react'
 
 interface PreviewProps {
   config: RpcConfig | null | undefined
@@ -65,16 +66,16 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
       <div className="relative z-10">
         {/* Header: LIVE PREVIEW + Status */}
         <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-bold tracking-widest text-red-400 uppercase">
+          <span className="text-xs font-bold tracking-widest text-white uppercase">
             LIVE PREVIEW
           </span>
           <div className="flex items-center gap-2">
             {hasDiscordToken === false && (
-              <span className="text-[10px] uppercase tracking-wider font-bold text-yellow-400/90 bg-yellow-400/10 border border-yellow-400/20 px-2 py-0.5 rounded-full">
+              <span className="text-[10px] uppercase tracking-wider font-bold text-white/80 bg-yellow-400/10 border border-yellow-400/20 px-2 py-0.5 rounded-full">
                 DEMO
               </span>
             )}
-            <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${rpcEnabled ? 'text-emerald-400' : 'text-white/40'}`}>
+            <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${rpcEnabled ? 'text-white' : 'text-white/40'}`}>
               <span className={`w-2 h-2 rounded-full ${rpcEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-white/30'}`} />
               <span>{rpcEnabled ? 'LIVE' : 'OFFLINE'}</span>
             </span>
@@ -103,7 +104,7 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
                   className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-[#1a1b22] flex items-center justify-center text-[9px] shadow-sm animate-pulse"
                   title="Active on Meta Quest VR"
                 >
-                  🥽
+                  <Glasses className="w-2.5 h-2.5 text-white" />
                 </div>
               ) : rpcEnabled ? (
                 <div
@@ -127,13 +128,13 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
               </div>
               {rpcEnabled ? (
                 <div className="text-xs text-white/60 flex items-center gap-1.5 mt-0.5">
-                  <span className="text-red-400 font-bold">{type}</span>
+                  <span className="text-white font-bold">{type}</span>
                   <span className="truncate text-white/90 font-medium">{name}</span>
                   {elapsedStr && <span className="text-white/40 whitespace-nowrap">• {elapsedStr} elapsed</span>}
                 </div>
               ) : (
                 <div className="text-xs text-white/50 flex items-center gap-1.5 mt-0.5">
-                  <span className="text-red-400 font-bold">{type}</span>
+                  <span className="text-white font-bold">{type}</span>
                   <span className="truncate text-white/80 font-medium">{name}</span>
                   <span className="text-white/35 whitespace-nowrap">• (Offline Preview)</span>
                 </div>
@@ -157,8 +158,8 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
                   <AssetImage assetKey={largeImage} fallbackText={(largeImage || name).slice(0, 1).toUpperCase()} title={largeText} />
                 )
               ) : (
-                <div className="w-14 h-14 rounded-xl bg-[#1c1d25] border border-white/10 flex items-center justify-center text-2xl select-none">
-                  🎮
+                <div className="w-14 h-14 rounded-xl bg-[#1c1d25] border border-white/10 flex items-center justify-center select-none">
+                  <Gamepad2 className="w-6 h-6 text-white/40" />
                 </div>
               )}
               {/* Small image overlay */}
@@ -167,7 +168,7 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
                   {isUrl(smallImage) ? (
                     <img src={smallImage} alt={smallText} title={smallText} className="w-full h-full object-cover" />
                   ) : (
-                    <span title={smallText}>⭐</span>
+                    <span title={smallText}><Star className="w-3 h-3 text-white/60" /></span>
                   )}
                 </div>
               )}
@@ -180,12 +181,12 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
               {state && <div className="text-xs text-white/60 truncate" title={state}>{state}</div>}
               {remainingStr && (
                 <div className="text-xs text-white/50 flex items-center gap-1 pt-0.5">
-                  <span>⏳</span> <span>{remainingStr}</span>
+                  <Hourglass className="w-3.5 h-3.5" /> <span>{remainingStr}</span>
                 </div>
               )}
               {partyMax > 0 && partyCurrent > 0 && (
                 <div className="text-xs text-white/50 flex items-center gap-1 pt-0.5">
-                  <span>👥</span> <span>{partyCurrent} of {partyMax}</span>
+                  <Users className="w-3.5 h-3.5" /> <span>{partyCurrent} of {partyMax}</span>
                 </div>
               )}
               {!details && !state && !remainingStr && (!partyMax || !partyCurrent) && (
@@ -201,7 +202,7 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
                 <button
                   type="button"
                   onClick={() => button1Url && window.open(button1Url, '_blank', 'noopener,noreferrer')}
-                  className="w-full text-xs font-semibold text-red-200 hover:text-white bg-[#20212b] hover:bg-[#282937] border border-white/10 hover:border-purple-500/40 rounded-xl py-2 px-3 truncate transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-sm"
+                  className="w-full text-xs font-semibold text-white/90 hover:text-white bg-[#20212b] hover:bg-[#282937] border border-white/10 hover:border-purple-500/40 rounded-xl py-2 px-3 truncate transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-sm"
                   title={button1Url ? `${button1Label} (${button1Url})` : button1Label}
                 >
                   <span className="truncate">{button1Label}</span>
@@ -212,7 +213,7 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
                 <button
                   type="button"
                   onClick={() => button2Url && window.open(button2Url, '_blank', 'noopener,noreferrer')}
-                  className="w-full text-xs font-semibold text-red-200 hover:text-white bg-[#20212b] hover:bg-[#282937] border border-white/10 hover:border-purple-500/40 rounded-xl py-2 px-3 truncate transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-sm"
+                  className="w-full text-xs font-semibold text-white/90 hover:text-white bg-[#20212b] hover:bg-[#282937] border border-white/10 hover:border-purple-500/40 rounded-xl py-2 px-3 truncate transition-all active:scale-[0.98] flex items-center justify-center gap-1.5 shadow-sm"
                   title={button2Url ? `${button2Label} (${button2Url})` : button2Label}
                 >
                   <span className="truncate">{button2Label}</span>
@@ -235,24 +236,24 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
 }
 
 function PlatformBadge({ platform }: { platform: string }) {
-  const map: Record<string, { emoji: string; label: string }> = {
-    mobile: { emoji: '📱', label: 'Mobile' },
-    console: { emoji: '🎮', label: 'Console' },
-    web: { emoji: '🌐', label: 'Web' },
-    xbox: { emoji: '🎮', label: 'Xbox' },
-    ps4: { emoji: '🎮', label: 'PS4' },
-    ps5: { emoji: '🎮', label: 'PS5' },
-    samsung: { emoji: '📱', label: 'Samsung' },
-    ios: { emoji: '📱', label: 'iOS' },
-    android: { emoji: '📱', label: 'Android' },
-    embedded: { emoji: '🥽', label: 'Embedded' },
-    meta_quest: { emoji: '🥽', label: 'Meta Quest VR' },
+  const map: Record<string, { icon: LucideIcon; label: string }> = {
+    mobile: { icon: Smartphone, label: 'Mobile' },
+    console: { icon: Gamepad2, label: 'Console' },
+    web: { icon: Globe, label: 'Web' },
+    xbox: { icon: Tv, label: 'Xbox' },
+    ps4: { icon: Tv, label: 'PS4' },
+    ps5: { icon: Tv, label: 'PS5' },
+    samsung: { icon: Smartphone, label: 'Samsung' },
+    ios: { icon: Smartphone, label: 'iOS' },
+    android: { icon: Smartphone, label: 'Android' },
+    embedded: { icon: Glasses, label: 'Embedded' },
+    meta_quest: { icon: Glasses, label: 'Meta Quest VR' },
   }
   const p = map[platform]
   if (!p) return null
   return (
     <span className="text-[11px] bg-[#2a2b36] border border-white/10 text-white/90 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 font-medium">
-      <span>{p.emoji}</span>
+      <p.icon className="w-3 h-3" />
       <span>{p.label}</span>
     </span>
   )

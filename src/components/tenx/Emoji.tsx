@@ -1,6 +1,6 @@
 // 10X RPC — shared emoji helpers: unicode emoji + Discord Nitro custom emoji (<:name:id>)
 'use client'
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 
 /** Discord custom emoji wire format: `<:name:id>` or `<a:name:id>` (animated). */
 export const CUSTOM_EMOJI_RE = /^<(a?):([A-Za-z0-9_]+):(\d+)>$/
@@ -30,7 +30,7 @@ export function DiscordEmoji({
 }: {
   emoji?: string | null
   size?: number
-  fallback?: string
+  fallback?: ReactNode
 }) {
   const [failed, setFailed] = useState(false)
   const m = emoji?.match(CUSTOM_EMOJI_RE)

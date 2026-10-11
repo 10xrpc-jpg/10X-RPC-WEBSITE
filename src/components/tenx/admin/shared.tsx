@@ -5,6 +5,7 @@
 // sensitive subscription change.
 'use client'
 import { useState, type ReactNode } from 'react'
+import { Crown, Hourglass, CircleX, Ban, AlarmClock, Star, Infinity as InfinityIcon } from 'lucide-react'
 
 /** Paise → ₹ string (₹399 / ₹1,234). */
 export function rupees(paise: number): string {
@@ -68,18 +69,18 @@ export function SubStateBadge({ sub, isAdmin }: {
   sub: { plan: string; status: string; daysLeft: number; neverExpires: boolean; endsAt: string | null } | null | undefined
   isAdmin?: boolean
 }) {
-  if (isAdmin) return <Chip tone="amber">★ Admin bypass</Chip>
+  if (isAdmin) return <Chip tone="amber"><Crown className="w-3 h-3" />Admin bypass</Chip>
   if (!sub) return <Chip tone="gray">no subscription</Chip>
   if (sub.status === 'trialing') {
-    return sub.daysLeft <= 1 ? <Chip tone="amber">⏳ Trial · last day</Chip> : <Chip tone="violet">⏳ Trial · {sub.daysLeft}d left</Chip>
+    return sub.daysLeft <= 1 ? <Chip tone="amber"><Hourglass className="w-3 h-3" />Trial · last day</Chip> : <Chip tone="violet"><Hourglass className="w-3 h-3" />Trial · {sub.daysLeft}d left</Chip>
   }
   if (sub.status === 'suspended') {
-    return isExpiredState(sub) ? <Chip tone="red">✕ Expired</Chip> : <Chip tone="red">⛔ Suspended</Chip>
+    return isExpiredState(sub) ? <Chip tone="red"><CircleX className="w-3 h-3" />Expired</Chip> : <Chip tone="red"><Ban className="w-3 h-3" />Suspended</Chip>
   }
   // active
-  if (sub.plan === 'lifetime' || sub.neverExpires) return <Chip tone="green">∞ Lifetime</Chip>
-  if (sub.daysLeft <= 3) return <Chip tone="amber">★ {planLabel(sub.plan)} · expiring</Chip>
-  return <Chip tone="green">★ {planLabel(sub.plan)} · {sub.daysLeft}d left</Chip>
+  if (sub.plan === 'lifetime' || sub.neverExpires) return <Chip tone="green"><InfinityIcon className="w-3 h-3" />Lifetime</Chip>
+  if (sub.daysLeft <= 3) return <Chip tone="amber"><AlarmClock className="w-3 h-3" />{planLabel(sub.plan)} · expiring</Chip>
+  return <Chip tone="green"><Star className="w-3 h-3" />{planLabel(sub.plan)} · {sub.daysLeft}d left</Chip>
 }
 
 export function planLabel(plan: string): string {
@@ -91,11 +92,11 @@ export function planLabel(plan: string): string {
 }
 
 const CHIP_TONES: Record<string, string> = {
-  green: 'bg-green-500/15 text-green-300 border-green-500/30',
-  red: 'bg-red-500/15 text-red-300 border-red-500/30',
-  amber: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
-  violet: 'bg-purple-500/15 text-red-300 border-purple-500/30',
-  sky: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
+  green: 'bg-green-500/15 text-white/90 border-green-500/30',
+  red: 'bg-red-500/15 text-white/90 border-red-500/30',
+  amber: 'bg-amber-500/15 text-white/90 border-amber-500/30',
+  violet: 'bg-purple-500/15 text-white/90 border-purple-500/30',
+  sky: 'bg-sky-500/15 text-white/90 border-sky-500/30',
   gray: 'bg-white/5 text-white/40 border-white/10',
 }
 
@@ -156,7 +157,7 @@ export function ConfirmDialog({ open, title, description, confirmLabel, danger, 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/70 backdrop-blur-sm p-3" role="dialog" aria-modal="true" aria-label={title}>
       <div className="glass-card-inner w-full max-w-md p-4 space-y-3">
-        <h4 className={`font-bold ${danger ? 'text-red-300' : 'text-white'}`}>{title}</h4>
+        <h4 className={`font-bold ${danger ? 'text-white/90' : 'text-white'}`}>{title}</h4>
         <div className="text-sm text-white/70 space-y-1">{description}</div>
         <div>
           <label className="text-[10px] uppercase tracking-wider text-white/40">Reason (recorded in the audit log)</label>
@@ -177,8 +178,8 @@ export function ConfirmDialog({ open, title, description, confirmLabel, danger, 
             disabled={!valid || busy}
             className={`text-xs px-3 py-2 rounded-lg border transition-all disabled:opacity-40 ${
               danger
-                ? 'bg-red-500/20 border-red-500/40 text-red-200 hover:bg-red-500/30'
-                : 'bg-purple-500/25 border-purple-500/50 text-red-100 hover:bg-purple-500/35'
+                ? 'bg-red-500/20 border-red-500/40 text-white/90 hover:bg-red-500/30'
+                : 'bg-purple-500/25 border-purple-500/50 text-white/90 hover:bg-purple-500/35'
             }`}
           >
             {busy ? '…' : confirmLabel}

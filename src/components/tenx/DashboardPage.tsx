@@ -12,6 +12,7 @@ import { SmartSleepTimerCard } from './SmartSleepTimerCard'
 import { RichPresenceForm } from './RichPresenceForm'
 import { ReconnectBanner } from './ReconnectBanner'
 import { startPlanCheckout } from './subscriptionCheckout'
+import { TriangleAlert, Zap, Check, Ban, Star } from 'lucide-react'
 
 export function DashboardPage() {
   const { navigate } = useRouter()
@@ -62,7 +63,7 @@ export function DashboardPage() {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="glass-card p-6 max-w-md text-center">
-          <p className="text-red-400 font-medium mb-2">⚠ Something went wrong</p>
+          <p className="text-white font-medium mb-2"><TriangleAlert className="w-4 h-4 inline-block align-[-2px] mr-1" />Something went wrong</p>
           <p className="text-sm text-white/60 mb-4">{error}</p>
           <button
             onClick={refresh}
@@ -135,7 +136,7 @@ export function DashboardPage() {
             <button
               onClick={() => navigate({ name: 'admin' })}
               aria-label="Open admin dashboard"
-              className="flex items-center gap-1.5 text-xs text-amber-300 hover:text-white bg-amber-500/15 border border-amber-500/30 px-3 py-1.5 rounded-lg hover:bg-amber-500/25 transition-all"
+              className="flex items-center gap-1.5 text-xs text-white/90 hover:text-white bg-amber-500/15 border border-amber-500/30 px-3 py-1.5 rounded-lg hover:bg-amber-500/25 transition-all"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
@@ -147,7 +148,7 @@ export function DashboardPage() {
             href="https://discord.gg/FZvJfZx2V5"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-xs text-red-300 hover:text-white bg-purple-500/15 border border-purple-500/30 px-3 py-1.5 rounded-lg hover:bg-purple-500/25 transition-all"
+            className="flex items-center gap-1.5 text-xs text-white/90 hover:text-white bg-purple-500/15 border border-purple-500/30 px-3 py-1.5 rounded-lg hover:bg-purple-500/25 transition-all"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M20.317 4.369a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.891.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.056c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.157 2.157-2.157 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
@@ -205,7 +206,8 @@ export function DashboardPage() {
 
         {/* Footer */}
         <p className="text-xs text-white/30 text-center pt-4">
-          ⚠ 10X RPC is not responsible if your account gets banned or blocked. Use at your own risk.
+          <TriangleAlert className="w-3.5 h-3.5 inline-block align-[-3px] mr-1" />
+          10X RPC is not responsible if your account gets banned or blocked. Use at your own risk.
         </p>
       </div>
     </div>
@@ -222,14 +224,14 @@ function GreetingHeader({ me, rpcLive }: { me: Me; rpcLive: boolean }) {
   return (
     <div className="mb-5">
       <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-        {greeting}, <span className="bg-gradient-to-r from-white via-white to-red-400 bg-clip-text text-transparent">{me.user?.username ?? 'there'}</span>
+        {greeting}, <span className="bg-gradient-to-r from-white via-white to-white/60 bg-clip-text text-transparent">{me.user?.username ?? 'there'}</span>
       </h1>
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         {/* Presence engine state */}
         <span
           className={`inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full border ${
             rpcLive
-              ? 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10'
+              ? 'text-white/90 border-emerald-500/30 bg-emerald-500/10'
               : 'text-white/45 border-white/10 bg-white/5'
           }`}
         >
@@ -244,13 +246,13 @@ function GreetingHeader({ me, rpcLive }: { me: Me; rpcLive: boolean }) {
         )}
         {/* Platform */}
         {me.session?.statusPlatform && me.session.statusPlatform !== 'desktop' && (
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full border text-red-300 border-purple-500/30 bg-purple-500/10">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full border text-white/90 border-purple-500/30 bg-purple-500/10">
             {platformLabel(me.session.statusPlatform)}
           </span>
         )}
         {/* VR active */}
         {me.session?.vrStatusActive && (
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full border text-cyan-300 border-cyan-500/30 bg-cyan-500/10">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full border text-white/90 border-cyan-500/30 bg-cyan-500/10">
             VR Active
           </span>
         )}
@@ -275,23 +277,23 @@ function planPill(me: Me): { label: string; className: string } | null {
   const s = me.subscription
   if (!s) return null
   if (s.status === 'suspended') {
-    return { label: 'Suspended', className: 'text-red-300 border-red-500/30 bg-red-500/10' }
+    return { label: 'Suspended', className: 'text-white/90 border-red-500/30 bg-red-500/10' }
   }
   if (s.neverExpires) {
-    return { label: 'Lifetime', className: 'text-amber-300 border-amber-500/30 bg-amber-500/10' }
+    return { label: 'Lifetime', className: 'text-white/90 border-amber-500/30 bg-amber-500/10' }
   }
   if (s.status === 'trialing') {
     const msLeft = s.msLeft || 0
     if (msLeft < 24 * 60 * 60 * 1000) {
       const h = Math.max(1, Math.floor(msLeft / (60 * 60 * 1000)))
-      return { label: `Trial · ${h}h left`, className: 'text-amber-300 border-amber-500/30 bg-amber-500/10' }
+      return { label: `Trial · ${h}h left`, className: 'text-white/90 border-amber-500/30 bg-amber-500/10' }
     }
     const daysLeft = Math.ceil(msLeft / (24 * 60 * 60 * 1000))
-    return { label: `Trial · ${daysLeft}d left`, className: 'text-red-300 border-purple-500/30 bg-purple-500/10' }
+    return { label: `Trial · ${daysLeft}d left`, className: 'text-white/90 border-purple-500/30 bg-purple-500/10' }
   }
   if (s.status === 'active') {
     const name = s.plan && s.plan !== 'free' ? s.plan.charAt(0).toUpperCase() + s.plan.slice(1) : 'Active'
-    return { label: name, className: 'text-emerald-300 border-emerald-500/30 bg-emerald-500/10' }
+    return { label: name, className: 'text-white/90 border-emerald-500/30 bg-emerald-500/10' }
   }
   return null
 }
@@ -463,8 +465,8 @@ function PayButtons({ tone, onDone, prefillName }: {
     ? 'text-white bg-red-500/90 hover:bg-red-500'
     : 'text-white bg-amber-500/90 hover:bg-amber-500'
   const secondary = tone === 'red'
-    ? 'text-red-100 hover:text-white bg-red-500/20 hover:bg-red-500/40'
-    : 'text-amber-100 hover:text-white bg-amber-500/20 hover:bg-amber-500/40'
+    ? 'text-white/90 hover:text-white bg-red-500/20 hover:bg-red-500/40'
+    : 'text-white/90 hover:text-white bg-amber-500/20 hover:bg-amber-500/40'
 
   return (
     <div className="mt-3">
@@ -475,7 +477,7 @@ function PayButtons({ tone, onDone, prefillName }: {
           disabled={busy !== null}
           className={`text-xs font-semibold px-4 py-2.5 min-h-[44px] rounded-xl transition-all disabled:opacity-60 ${primary}`}
         >
-          {busy === 'pro' ? 'Opening payment…' : `⚡ ${labels.pro.name} — ${labels.pro.price} / ${labels.pro.period}`}
+          {busy === 'pro' ? 'Opening payment…' : <span className="inline-flex items-center gap-1.5"><Zap className="w-3.5 h-3.5" />{labels.pro.name} — {labels.pro.price} / {labels.pro.period}</span>}
         </button>
         <button
           type="button"
@@ -487,7 +489,7 @@ function PayButtons({ tone, onDone, prefillName }: {
         </button>
         <span className="text-[11px] text-white/40">UPI · cards · netbanking</span>
       </div>
-      {payError && <p className="text-[11px] text-red-300 mt-2">{payError}</p>}
+      {payError && <p className="text-[11px] text-white/90 mt-2">{payError}</p>}
     </div>
   )
 }
@@ -506,7 +508,7 @@ export function SubscriptionBanner({ subscription, renewUrl, trialDays, onRefres
   if (!subscription) return null
 
   const paidNote = paid ? (
-    <p className="text-xs font-semibold text-emerald-300 mt-2" role="status">✓ {paid} — subscription active, RPC unlocked. Refreshing…</p>
+    <p className="text-xs font-semibold text-white/90 mt-2" role="status"><Check className="w-3.5 h-3.5 inline-block align-[-3px] mr-0.5" />{paid} — subscription active, RPC unlocked. Refreshing…</p>
   ) : null
 
   if (subscription.status === 'suspended') {
@@ -516,10 +518,10 @@ export function SubscriptionBanner({ subscription, renewUrl, trialDays, onRefres
         className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 sm:p-5"
       >
         <div className="flex items-start gap-3">
-          <span className="text-2xl shrink-0" aria-hidden>⛔</span>
+          <Ban className="w-6 h-6 shrink-0 text-white/90" aria-hidden />
           <div className="flex-1 min-w-0">
-            <p className="font-bold text-red-200">Subscription suspended</p>
-            <p className="text-sm text-red-100/70 mt-1 leading-relaxed">
+            <p className="font-bold text-white/90">Subscription suspended</p>
+            <p className="text-sm text-white/50 mt-1 leading-relaxed">
               Your plan has ended or was suspended — 24/7 RPC, status and Game RPC are paused.
               Pay to restore your presence instantly (your saved configs are untouched).
             </p>
@@ -537,9 +539,9 @@ export function SubscriptionBanner({ subscription, renewUrl, trialDays, onRefres
                 href={renewUrl || 'https://discord.gg/FZvJfZx2V5'}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[11px] font-semibold text-red-100/80 hover:text-white underline underline-offset-2 transition-all"
+                className="text-[11px] font-semibold text-white/60 hover:text-white underline underline-offset-2 transition-all"
               >
-                ★ Renew on Discord instead
+                <Star className="w-3 h-3 inline-block align-[-2px] mr-1" />Renew on Discord instead
               </a>
             </div>
           </div>
@@ -560,10 +562,10 @@ export function SubscriptionBanner({ subscription, renewUrl, trialDays, onRefres
         <div className="flex items-start gap-3">
           <span className="text-xl shrink-0" aria-hidden>⏳</span>
           <div className="flex-1 min-w-0">
-            <p className="font-semibold text-amber-200 text-sm">
+            <p className="font-semibold text-white/90 text-sm">
               Free trial ends in {hoursLeft} hour{hoursLeft === 1 ? '' : 's'}
             </p>
-            <p className="text-xs text-amber-100/70 mt-0.5">
+            <p className="text-xs text-white/50 mt-0.5">
               After that your subscription is suspended and 24/7 RPC stops. Grab a plan to keep it running.
             </p>
             {paidNote}

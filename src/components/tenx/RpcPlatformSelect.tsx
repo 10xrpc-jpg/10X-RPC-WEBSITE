@@ -38,7 +38,7 @@ export function RpcPlatformSelect({
                 onClick={() => { onChange(opt.value); onClose() }}
                 className={`w-full flex items-center px-4 py-3.5 rounded-xl text-lg transition-colors text-left ${
                   isSelected
-                    ? 'bg-purple-500/15 text-red-300 font-medium'
+                    ? 'bg-purple-500/15 text-white/90 font-medium'
                     : 'text-white/85 hover:text-white hover:bg-white/5'
                 }`}
               >

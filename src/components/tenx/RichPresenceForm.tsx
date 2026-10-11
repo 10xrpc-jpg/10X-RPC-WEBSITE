@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { api, type RpcConfig } from '@/lib/api-client'
 import { PurpleSwitch } from './ui'
 import { ACTIVITY_TYPES } from '@/lib/constants'
-import { Gamepad2, ChevronDown, ChevronsDown } from 'lucide-react'
+import { Gamepad2, ChevronDown, ChevronsDown, Check } from 'lucide-react'
 import { RpcPlatformSelect } from './RpcPlatformSelect'
 
 const DEFAULT_CONFIG: RpcConfig = {
@@ -215,17 +215,17 @@ export function RichPresenceForm({
         <div className="absolute -top-16 left-1/4 -translate-x-1/2 w-64 h-48 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -top-16 right-0 w-48 h-48 bg-purple-900/10 rounded-full blur-2xl pointer-events-none" />
 
-        {/* Centered Card Title: 🎮 Rich Presence */}
+        {/* Centered Card Title: Rich Presence */}
         <div className="relative z-10 flex items-center justify-center gap-2.5 mb-7 pt-1">
-          <Gamepad2 className="w-6 h-6 text-red-400 stroke-[2.2]" />
+          <Gamepad2 className="w-6 h-6 text-white stroke-[2.2]" />
           <h2 className="text-2xl font-bold text-white tracking-tight">Rich Presence</h2>
         </div>
 
         {/* Mutual-exclusivity notice: while Gamer RPC is active, this Normal RPC
             config is remembered but idle — enabling Normal RPC auto-disables it. */}
         {rpcMode === 'game' && (
-          <div className="relative z-10 mb-5 flex items-start gap-2.5 text-xs text-amber-200/90 bg-amber-500/10 border border-amber-500/25 rounded-xl px-3.5 py-2.5">
-            <span aria-hidden>🎮</span>
+          <div className="relative z-10 mb-5 flex items-start gap-2.5 text-xs text-white/80 bg-amber-500/10 border border-amber-500/25 rounded-xl px-3.5 py-2.5">
+            <Gamepad2 className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
             <span>
               <strong>Game RPC is currently active{activeGameName ? ` — ${activeGameName}` : ''}.</strong>{' '}
               Your Normal RPC configuration is saved separately and will not be overwritten.
@@ -349,7 +349,7 @@ export function RichPresenceForm({
               </p>
             )}
             {appLookup.status === 'invalid' && (
-              <p className="text-[11px] text-amber-300/90 px-1" role="status" aria-live="polite">
+              <p className="text-[11px] text-white/80 px-1" role="status" aria-live="polite">
                 Application IDs are 15-21 digits (numbers only). You can find yours in the Discord Developer Portal → your app → General Information → Application ID → Copy.
               </p>
             )}
@@ -358,17 +358,17 @@ export function RichPresenceForm({
                 {appLookup.iconUrl ? (
                   <img src={appLookup.iconUrl} alt={`${appLookup.name} icon`} className="w-6 h-6 rounded-md object-cover flex-shrink-0" />
                 ) : (
-                  <span className="w-6 h-6 rounded-md bg-purple-600/30 flex items-center justify-center text-[10px] font-bold text-red-200 flex-shrink-0" aria-hidden>
+                  <span className="w-6 h-6 rounded-md bg-purple-600/30 flex items-center justify-center text-[10px] font-bold text-white/90 flex-shrink-0" aria-hidden>
                     {(appLookup.name || '?').slice(0, 1).toUpperCase()}
                   </span>
                 )}
-                <span className="text-xs text-emerald-200">
-                  ✓ <strong className="font-semibold">{appLookup.name}</strong> — this presence will run as that application
+                <span className="text-xs text-white/90">
+                  <Check className="w-3.5 h-3.5 inline-block align-[-3px] mr-0.5" /><strong className="font-semibold">{appLookup.name}</strong> — this presence will run as that application
                 </span>
               </div>
             )}
             {appLookup.status === 'not_found' && (
-              <p className="text-[11px] text-red-300/90 px-1" role="status" aria-live="polite">
+              <p className="text-[11px] text-white/80 px-1" role="status" aria-live="polite">
                 Application not found — double-check the ID in the Discord Developer Portal.
               </p>
             )}
@@ -381,7 +381,7 @@ export function RichPresenceForm({
                   href="https://discord.com/developers/applications"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-red-300 hover:text-red-200 underline underline-offset-2"
+                  className="text-white/90 hover:text-white underline underline-offset-2"
                 >
                   discord.com/developers/applications
                 </a>{' '}
@@ -562,7 +562,7 @@ export function RichPresenceForm({
           <div className="border-t border-white/10 pt-6 mt-6">
             {/* ENABLE RPC Toggle Row */}
             <div className="flex items-center justify-between px-1 mb-5">
-              <span className="text-sm sm:text-base font-extrabold tracking-widest text-red-400 uppercase">
+              <span className="text-sm sm:text-base font-extrabold tracking-widest text-white uppercase">
                 ENABLE RPC
               </span>
               <PurpleSwitch checked={enabled} onCheckedChange={handleToggle} />
@@ -596,7 +596,7 @@ export function RichPresenceForm({
           </div>
 
           <div className="flex justify-center py-1">
-            <ChevronsDown className="w-8 h-8 text-red-400 stroke-[2.5] animate-bounce" />
+            <ChevronsDown className="w-8 h-8 text-white stroke-[2.5] animate-bounce" />
           </div>
 
           {/* Giant Game RPC Button */}
@@ -605,10 +605,10 @@ export function RichPresenceForm({
             onClick={onGameRpcClick}
             className="w-full py-7 px-4 rounded-[28px] bg-gradient-to-r from-[#221b36] via-[#352554] to-[#221b36] border border-purple-500/35 hover:border-purple-400/60 shadow-2xl shadow-purple-950/50 text-center transition-all cursor-pointer group active:scale-[0.99]"
           >
-            <div className="text-2xl sm:text-3xl font-black tracking-wider text-red-200 group-hover:text-white transition-colors">
+            <div className="text-2xl sm:text-3xl font-black tracking-wider text-white/90 group-hover:text-white transition-colors">
               TRY GAME RPC
             </div>
-            <div className="text-2xl sm:text-3xl font-black tracking-wider text-red-200 group-hover:text-white transition-colors mt-0.5">
+            <div className="text-2xl sm:text-3xl font-black tracking-wider text-white/90 group-hover:text-white transition-colors mt-0.5">
               NOW
             </div>
           </button>
@@ -621,7 +621,7 @@ export function RichPresenceForm({
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-bold tracking-wider text-red-400 uppercase block">
+      <label className="text-xs font-bold tracking-wider text-white uppercase block">
         {label}
       </label>
       {children}

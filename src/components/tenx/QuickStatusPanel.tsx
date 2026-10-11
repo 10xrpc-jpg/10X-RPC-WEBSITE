@@ -9,11 +9,11 @@ interface QuickStatusProps {
   onStatusChange?: (status: string) => void
 }
 
-const QUICK_PRESETS: Array<{ status: string; emoji: string; label: string; color: string }> = [
-  { status: 'online', emoji: '🟢', label: 'Online', color: 'bg-green-500' },
-  { status: 'idle', emoji: '🟡', label: 'Idle', color: 'bg-yellow-500' },
-  { status: 'dnd', emoji: '🔴', label: 'DND', color: 'bg-red-500' },
-  { status: 'invisible', emoji: '⚫', label: 'Invisible', color: 'bg-gray-500' },
+const QUICK_PRESETS: Array<{ status: string; label: string; color: string }> = [
+  { status: 'online', label: 'Online', color: 'bg-green-500' },
+  { status: 'idle', label: 'Idle', color: 'bg-yellow-500' },
+  { status: 'dnd', label: 'DND', color: 'bg-red-500' },
+  { status: 'invisible', label: 'Invisible', color: 'bg-gray-500' },
 ]
 
 const QUICK_CUSTOM_STATUSES: Array<{ emoji: string; text: string }> = [
@@ -63,9 +63,9 @@ export function QuickStatusPanel({ currentStatus, onStatusChange }: QuickStatusP
   return (
     <div className="glass-card-inner p-3 space-y-3">
       <div className="flex items-center justify-between">
-        <span className="text-[10px] uppercase tracking-wider text-red-400 font-semibold">Quick Status</span>
+        <span className="text-[10px] uppercase tracking-wider text-white font-semibold">Quick Status</span>
         {feedback && (
-          <span className="text-[10px] text-green-400">{feedback}</span>
+          <span className="text-[10px] text-white">{feedback}</span>
         )}
       </div>
 

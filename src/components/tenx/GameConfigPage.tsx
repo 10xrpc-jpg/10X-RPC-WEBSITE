@@ -128,7 +128,7 @@ export function GameConfigPage({ slug }: { slug: string }) {
       <div className="flex items-center justify-between">
         <BackButton onClick={() => navigate({ name: 'games' })} />
         <div className="flex items-center gap-2.5">
-          <Gamepad2 className="w-6 h-6 text-red-400 stroke-[2.2]" />
+          <Gamepad2 className="w-6 h-6 text-white stroke-[2.2]" />
           <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">{preset.name}</h1>
         </div>
         <button
@@ -148,7 +148,7 @@ export function GameConfigPage({ slug }: { slug: string }) {
         <div className="relative z-10 space-y-4">
           {/* Enable RPC toggle row */}
           <div className="flex items-center justify-between px-1 pb-2 border-b border-white/8">
-            <span className="text-sm font-extrabold tracking-widest text-red-400 uppercase">
+            <span className="text-sm font-extrabold tracking-widest text-white uppercase">
               ENABLE GAME RPC
             </span>
             <PurpleSwitch checked={enabled} onCheckedChange={setEnabled} />
@@ -351,8 +351,8 @@ export function GameConfigPage({ slug }: { slug: string }) {
                 disabled={deleting}
                 className={`font-medium text-xs tracking-widest uppercase px-8 py-3 rounded-xl border transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer ${
                   confirmDelete
-                    ? 'bg-red-500/20 hover:bg-red-500/30 border-red-500/50 text-red-200'
-                    : 'bg-transparent hover:bg-red-500/10 border-white/10 text-white/40 hover:text-red-300 hover:border-red-500/40'
+                    ? 'bg-red-500/20 hover:bg-red-500/30 border-red-500/50 text-white/90'
+                    : 'bg-transparent hover:bg-red-500/10 border-white/10 text-white/40 hover:text-white hover:border-red-500/40'
                 }`}
               >
                 {deleting ? 'DELETING...' : confirmDelete ? 'TAP AGAIN TO CONFIRM' : 'DELETE GAME'}
@@ -368,7 +368,7 @@ export function GameConfigPage({ slug }: { slug: string }) {
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-bold tracking-wider text-red-400 uppercase block">
+      <label className="text-xs font-bold tracking-wider text-white uppercase block">
         {label}
       </label>
       {children}

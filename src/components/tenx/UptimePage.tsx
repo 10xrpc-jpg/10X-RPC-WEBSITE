@@ -8,6 +8,7 @@ import { useRouter } from './useRouter'
 import { GhostButton, Badge, Card } from './ui'
 import { BrandMark, BrandName } from './BrandMark'
 import type { UptimeReport } from '@/lib/uptime'
+import { Globe, Bot, Zap } from 'lucide-react'
 
 const REFRESH_MS = 20_000
 const MAX_HISTORY = 40
@@ -43,10 +44,10 @@ const GRADE_BAR: Record<PingGrade, string> = {
   down: 'bg-red-500',
 }
 const GRADE_TEXT: Record<PingGrade, string> = {
-  good: 'text-emerald-400',
-  ok: 'text-amber-400',
-  slow: 'text-orange-400',
-  down: 'text-red-400',
+  good: 'text-white',
+  ok: 'text-white',
+  slow: 'text-white',
+  down: 'text-white',
 }
 
 function fmtMs(ping: number | null | undefined): string {
@@ -191,7 +192,7 @@ export function UptimePage() {
           <div className={`mt-8 rounded-2xl border px-5 py-5 ${bannerTone}`}>
             {loadError ? (
               <div className="flex flex-col items-center gap-1">
-                <span className="flex items-center gap-2.5 text-xl sm:text-2xl font-bold text-red-400">
+                <span className="flex items-center gap-2.5 text-xl sm:text-2xl font-bold text-white">
                   <span className="w-3.5 h-3.5 rounded-full bg-red-500 animate-pulse" />
                   Status API unreachable
                 </span>
@@ -203,17 +204,17 @@ export function UptimePage() {
                 Checking systems…
               </span>
             ) : operational ? (
-              <span className="flex items-center justify-center gap-2.5 text-xl sm:text-2xl font-bold text-emerald-400">
+              <span className="flex items-center justify-center gap-2.5 text-xl sm:text-2xl font-bold text-white">
                 <span className="w-3.5 h-3.5 rounded-full bg-emerald-400" />
                 All Systems Operational
               </span>
             ) : report.degraded ? (
-              <span className="flex items-center justify-center gap-2.5 text-xl sm:text-2xl font-bold text-amber-400">
+              <span className="flex items-center justify-center gap-2.5 text-xl sm:text-2xl font-bold text-white">
                 <span className="w-3.5 h-3.5 rounded-full bg-amber-400 animate-pulse" />
                 Degraded Performance
               </span>
             ) : (
-              <span className="flex items-center justify-center gap-2.5 text-xl sm:text-2xl font-bold text-red-400">
+              <span className="flex items-center justify-center gap-2.5 text-xl sm:text-2xl font-bold text-white">
                 <span className="w-3.5 h-3.5 rounded-full bg-red-500 animate-pulse" />
                 Service Disruption
               </span>
@@ -231,7 +232,7 @@ export function UptimePage() {
           {/* Regions & ping */}
           <section aria-label="Regions and ping">
             <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <span className="text-red-400">🌍</span> Regions &amp; Ping
+              <Globe className="w-5 h-5 text-white/80" /> Regions &amp; Ping
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <RegionCard
@@ -280,7 +281,7 @@ export function UptimePage() {
           {/* 24/7 daemon details */}
           <section aria-label="Daemon details">
             <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <span className="text-red-400">🤖</span> 24/7 Daemon
+              <Bot className="w-5 h-5 text-white/80" /> 24/7 Daemon
             </h2>
             <Card className="space-y-4">
               {!report ? (
@@ -290,7 +291,7 @@ export function UptimePage() {
               ) : (
                 <>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge className={report.daemon.ok ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400'}>
+                    <Badge className={report.daemon.ok ? 'bg-emerald-500/15 text-white' : 'bg-red-500/15 text-white'}>
                       <span className={`w-2 h-2 rounded-full ${report.daemon.ok ? 'bg-emerald-400' : 'bg-red-500'}`} />
                       {report.daemon.ok ? 'Running' : report.daemon.running === false ? 'Stopped' : 'Unreachable'}
                     </Badge>
@@ -303,7 +304,7 @@ export function UptimePage() {
                       </Badge>
                     )}
                     {report.node.maintenance && (
-                      <Badge className="bg-amber-500/15 text-amber-400">node under maintenance</Badge>
+                      <Badge className="bg-amber-500/15 text-white">node under maintenance</Badge>
                     )}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -319,7 +320,7 @@ export function UptimePage() {
           {/* Your ping */}
           <section aria-label="Your ping">
             <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <span className="text-red-400">⚡</span> Your Ping
+              <Zap className="w-5 h-5 text-white/80" /> Your Ping
             </h2>
             <Card className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">

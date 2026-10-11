@@ -11,6 +11,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import { api, type AdminUserDetail, type AdminAdjustAction } from '@/lib/api-client'
 import { Chip, ConfirmDialog, SubStateBadge, Toggle, fmtDateTime, fmtRel, fmtUntil, planLabel, rupees } from './shared'
+import { Ban, Play, X } from 'lucide-react'
 
 interface Pending {
   action: AdminAdjustAction
@@ -109,7 +110,7 @@ export function SubscriptionModal({ userId, onClose, onChanged }: {
             <p className="text-[11px] text-white/40 font-mono">{u?.discordId}</p>
             <p className="text-[11px] text-white/30">joined {u ? fmtDateTime(u.createdAt) : '—'}</p>
           </div>
-          <button onClick={onClose} aria-label="Close" className="text-white/40 hover:text-white text-sm px-2">✕</button>
+          <button onClick={onClose} aria-label="Close" className="text-white/40 hover:text-white text-sm px-2"><X className="w-3.5 h-3.5 inline-block" /></button>
         </div>
 
         {/* tabs */}
@@ -219,8 +220,8 @@ export function SubscriptionModal({ userId, onClose, onChanged }: {
 
               <ActionGroup title="Lifecycle">
                 <div className="flex gap-1.5 flex-wrap">
-                  <SmallBtn tone="red" onClick={askSuspend}>⛔ Suspend</SmallBtn>
-                  <SmallBtn tone="green" onClick={askReactivate}>▶ Reactivate</SmallBtn>
+                  <SmallBtn tone="red" onClick={askSuspend}><span className="inline-flex items-center gap-1"><Ban className="w-3 h-3" />Suspend</span></SmallBtn>
+                  <SmallBtn tone="green" onClick={askReactivate}><span className="inline-flex items-center gap-1"><Play className="w-3 h-3" />Reactivate</span></SmallBtn>
                   <SmallBtn tone="red" onClick={askExpireNow}>Expire now</SmallBtn>
                   <SmallBtn tone="red" onClick={askCancel}>Cancel</SmallBtn>
                   <SmallBtn tone="purple" onClick={askClearExpiry}>Never expires</SmallBtn>
@@ -249,7 +250,7 @@ export function SubscriptionModal({ userId, onClose, onChanged }: {
               <div key={p.id} className="rounded-lg border border-white/10 bg-white/[0.03] p-2.5 flex items-center gap-2">
                 <div className="flex-1 min-w-0">
                   <p className="text-xs text-white/85">
-                    {p.planLabel ?? p.plan} · <span className={p.status === 'paid' ? 'text-amber-300' : 'text-white/40'}>{rupees(p.amount)}</span>
+                    {p.planLabel ?? p.plan} · <span className={p.status === 'paid' ? 'text-white/90' : 'text-white/40'}>{rupees(p.amount)}</span>
                     {p.periodDays ? <span className="text-white/40"> · {p.periodDays}d</span> : null}
                   </p>
                   <p className="text-[10px] text-white/30 font-mono truncate">{p.orderId}{p.paymentId ? ` → ${p.paymentId}` : ''}</p>
@@ -459,10 +460,10 @@ function ActionGroup({ title, children }: { title: string; children: React.React
 
 function SmallBtn({ tone, onClick, children }: { tone: 'green' | 'red' | 'purple' | 'violet'; onClick: () => void; children: React.ReactNode }) {
   const tones: Record<string, string> = {
-    green: 'bg-green-500/15 border-green-500/30 text-green-300 hover:bg-green-500/25',
-    red: 'bg-red-500/10 border-red-500/30 text-red-300 hover:bg-red-500/20',
-    purple: 'bg-purple-500/15 border-purple-500/30 text-red-300 hover:bg-purple-500/25',
-    violet: 'bg-fuchsia-500/15 border-fuchsia-500/30 text-red-300 hover:bg-fuchsia-500/25',
+    green: 'bg-green-500/15 border-green-500/30 text-white/90 hover:bg-green-500/25',
+    red: 'bg-red-500/10 border-red-500/30 text-white/90 hover:bg-red-500/20',
+    purple: 'bg-purple-500/15 border-purple-500/30 text-white/90 hover:bg-purple-500/25',
+    violet: 'bg-fuchsia-500/15 border-fuchsia-500/30 text-white/90 hover:bg-fuchsia-500/25',
   }
   return (
     <button onClick={onClick} className={`text-[11px] px-2.5 py-1.5 rounded-lg border transition-all ${tones[tone]}`}>

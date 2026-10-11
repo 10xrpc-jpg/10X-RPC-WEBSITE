@@ -33,6 +33,7 @@ import {
 } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { Card, PrimaryButton, GhostButton, BackButton, Badge } from './ui'
+import { Lock, Download, Trash2, KeyRound, Check, X, Glasses, MoonStar, TriangleAlert, MessageCircle, Smartphone } from 'lucide-react'
 import { PlansTab } from './admin/PlansTab'
 import { UsersTab } from './admin/UsersTab'
 import { TrialsTab } from './admin/TrialsTab'
@@ -272,7 +273,7 @@ export function AdminPage() {
         </div>
         <Card>
           <div className="text-center space-y-3 py-8">
-            <div className="text-4xl">🔒</div>
+            <Lock className="w-10 h-10 mx-auto text-white/50" />
             <p className="text-white/70 font-medium">Access Denied</p>
             <p className="text-sm text-white/50 max-w-xs mx-auto">{error}</p>
           </div>
@@ -327,10 +328,10 @@ export function AdminPage() {
                     : 'border-transparent text-white/45 hover:text-white/80'
                 }`}
               >
-                <span className={active ? 'text-red-300' : ''}>{t.icon}</span>
+                <span className={active ? 'text-white/90' : ''}>{t.icon}</span>
                 {t.label}
                 {badge && (
-                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${active ? 'bg-purple-500/30 text-red-100' : 'bg-white/10 text-white/50'}`}>
+                  <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${active ? 'bg-purple-500/30 text-white/90' : 'bg-white/10 text-white/50'}`}>
                     {badge}
                   </span>
                 )}
@@ -355,10 +356,10 @@ export function AdminPage() {
           return (
             <div className="space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <StatCard label="Revenue ₹" value={ps ? Math.round(ps.revenueTotalPaise / 100) : 0} color="text-amber-300" />
-                <StatCard label="Revenue 30d ₹" value={ps ? Math.round(ps.revenue30dPaise / 100) : 0} color="text-emerald-400" />
-                <StatCard label="Paid" value={ps?.paidCount ?? 0} color="text-red-400" />
-                <StatCard label="Paying users" value={ps?.payingUsers ?? 0} color="text-sky-400" />
+                <StatCard label="Revenue ₹" value={ps ? Math.round(ps.revenueTotalPaise / 100) : 0} color="text-white/90" />
+                <StatCard label="Revenue 30d ₹" value={ps ? Math.round(ps.revenue30dPaise / 100) : 0} color="text-white" />
+                <StatCard label="Paid" value={ps?.paidCount ?? 0} color="text-white" />
+                <StatCard label="Paying users" value={ps?.payingUsers ?? 0} color="text-white" />
               </div>
 
               <Card>
@@ -370,7 +371,7 @@ export function AdminPage() {
                         <button
                           key={f}
                           onClick={() => setPaymentsFilter(f)}
-                          className={`text-[11px] px-3 py-1.5 capitalize transition-all ${paymentsFilter === f ? 'bg-purple-500/25 text-red-200' : 'text-white/50 hover:text-white/80'}`}
+                          className={`text-[11px] px-3 py-1.5 capitalize transition-all ${paymentsFilter === f ? 'bg-purple-500/25 text-white/90' : 'text-white/50 hover:text-white/80'}`}
                         >
                           {f}
                         </button>
@@ -378,9 +379,9 @@ export function AdminPage() {
                     </div>
                     <button
                       onClick={exportPaymentsCsv}
-                      className="text-[11px] text-emerald-300 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-lg hover:bg-emerald-500/20 transition-all"
+                      className="text-[11px] text-white/90 bg-emerald-500/10 border border-emerald-500/30 px-2.5 py-1 rounded-lg hover:bg-emerald-500/20 transition-all inline-flex items-center gap-1"
                     >
-                      ⬇ Export CSV
+                      <Download className="w-3 h-3" />Export CSV
                     </button>
                   </div>
                 </div>
@@ -419,10 +420,10 @@ export function AdminPage() {
         {tab === 'sessions' && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-              <StatCard label="Active" value={sessionSummary?.activeCount ?? c?.activeSessions ?? 0} color="text-green-400" />
-              <StatCard label="Expiring 24h" value={sessionSummary?.expiringSoon24h ?? 0} color="text-amber-300" />
-              <StatCard label="With Token" value={sessionSummary?.withTokenActive ?? c?.sessionsWithToken ?? 0} color="text-sky-400" />
-              <StatCard label="RPC Live" value={sessionSummary?.rpcLiveActive ?? c?.rpcLive ?? 0} color="text-red-400" />
+              <StatCard label="Active" value={sessionSummary?.activeCount ?? c?.activeSessions ?? 0} color="text-white" />
+              <StatCard label="Expiring 24h" value={sessionSummary?.expiringSoon24h ?? 0} color="text-white/90" />
+              <StatCard label="With Token" value={sessionSummary?.withTokenActive ?? c?.sessionsWithToken ?? 0} color="text-white" />
+              <StatCard label="RPC Live" value={sessionSummary?.rpcLiveActive ?? c?.rpcLive ?? 0} color="text-white" />
               <StatCard label="Expired" value={sessionSummary?.expiredCount ?? 0} color="text-white/60" />
             </div>
 
@@ -433,22 +434,22 @@ export function AdminPage() {
                   <div className="flex bg-white/5 border border-white/10 rounded-lg overflow-hidden">
                     <button
                       onClick={() => setSessionsScope('active')}
-                      className={`text-[11px] px-3 py-1.5 transition-all ${sessionsScope === 'active' ? 'bg-purple-500/25 text-red-200' : 'text-white/50 hover:text-white/80'}`}
+                      className={`text-[11px] px-3 py-1.5 transition-all ${sessionsScope === 'active' ? 'bg-purple-500/25 text-white/90' : 'text-white/50 hover:text-white/80'}`}
                     >
                       Active
                     </button>
                     <button
                       onClick={() => setSessionsScope('expired')}
-                      className={`text-[11px] px-3 py-1.5 transition-all ${sessionsScope === 'expired' ? 'bg-purple-500/25 text-red-200' : 'text-white/50 hover:text-white/80'}`}
+                      className={`text-[11px] px-3 py-1.5 transition-all ${sessionsScope === 'expired' ? 'bg-purple-500/25 text-white/90' : 'text-white/50 hover:text-white/80'}`}
                     >
                       Expired
                     </button>
                   </div>
                   <button
                     onClick={() => runSessionAction('purge-expired', undefined, 'Delete ALL expired sessions from the database?')}
-                    className="text-[11px] text-red-300 bg-red-500/10 border border-red-500/30 px-2.5 py-1 rounded-lg hover:bg-red-500/20 transition-all"
+                    className="text-[11px] text-white/90 bg-red-500/10 border border-red-500/30 px-2.5 py-1 rounded-lg hover:bg-red-500/20 transition-all inline-flex items-center gap-1"
                   >
-                    🧹 Purge Expired
+                    <Trash2 className="w-3 h-3" />Purge Expired
                   </button>
                 </div>
               </div>
@@ -492,7 +493,7 @@ export function AdminPage() {
                 <GhostButton onClick={handleKeepAlive} disabled={busy} className="text-xs">
                   {busy ? '...' : 'Keep-Alive Now'}
                 </GhostButton>
-                <GhostButton onClick={handleForceDisable} disabled={busy} className="text-xs text-red-400">
+                <GhostButton onClick={handleForceDisable} disabled={busy} className="text-xs text-white">
                   {busy ? '...' : 'Disable All'}
                 </GhostButton>
               </div>
@@ -511,14 +512,14 @@ export function AdminPage() {
                   disabled={actionBusy === 'sess:purge-expired:all'}
                   className="text-xs justify-center"
                 >
-                  {actionBusy === 'sess:purge-expired:all' ? '…' : '🧹 Purge Expired Sessions'}
+                  {actionBusy === 'sess:purge-expired:all' ? '…' : <span className="inline-flex items-center justify-center gap-1.5"><Trash2 className="w-3.5 h-3.5" />Purge Expired Sessions</span>}
                 </GhostButton>
                 <GhostButton
                   onClick={() => runSessionAction('purge-oauth', undefined, 'Delete ALL expired OAuth state rows?')}
                   disabled={actionBusy === 'sess:purge-oauth:all'}
                   className="text-xs justify-center"
                 >
-                  {actionBusy === 'sess:purge-oauth:all' ? '…' : `🔐 Clean OAuth States${c ? ` (${c.oauthStates} live)` : ''}`}
+                  {actionBusy === 'sess:purge-oauth:all' ? '…' : <span className="inline-flex items-center justify-center gap-1.5"><KeyRound className="w-3.5 h-3.5" />Clean OAuth States{c ? ` (${c.oauthStates} live)` : ''}</span>}
                 </GhostButton>
               </div>
             </Card>
@@ -534,7 +535,7 @@ export function AdminPage() {
                 <h3 className="font-bold text-white">Platform Settings</h3>
                 <button
                   onClick={copyReport}
-                  className="text-[11px] text-red-300 bg-purple-500/10 border border-purple-500/30 px-2.5 py-1 rounded-lg hover:bg-purple-500/20 transition-all"
+                  className="text-[11px] text-white/90 bg-purple-500/10 border border-purple-500/30 px-2.5 py-1 rounded-lg hover:bg-purple-500/20 transition-all"
                 >
                   ⧉ Copy Debug Report
                 </button>
@@ -553,17 +554,17 @@ export function AdminPage() {
                     <SettingRow label="OAuth scope" value={settings.discord.oauthScope} mono />
                     <SettingRow label="Auto-join guild" value={settings.discord.autoJoinGuildId ?? '—'} mono />
                     <SettingRow label="Invite" value={settings.discord.inviteUrl} link />
-                    <SettingRow label="Bot token" value={settings.discord.botConfigured ? '✓ configured' : '✗ missing'} ok={settings.discord.botConfigured} />
-                    <SettingRow label="OAuth secret" value={settings.discord.oauthConfigured ? '✓ configured' : '✗ missing'} ok={settings.discord.oauthConfigured} />
+                    <SettingRow label="Bot token" value={settings.discord.botConfigured ? 'configured' : 'missing'} ok={settings.discord.botConfigured} />
+                    <SettingRow label="OAuth secret" value={settings.discord.oauthConfigured ? 'configured' : 'missing'} ok={settings.discord.oauthConfigured} />
                   </SettingsGroup>
                   <SettingsGroup title="Infrastructure">
                     <SettingRow label="Server region" value={settings.infra.serverRegion} />
-                    <SettingRow label="24/7 daemon" value={settings.infra.daemonConfigured ? `✓ ${settings.infra.daemonHost ?? 'configured'}` : '✗ not configured'} ok={settings.infra.daemonConfigured} />
-                    <SettingRow label="Panel host" value={settings.infra.panelConfigured ? `✓ ${settings.infra.panelHost ?? 'configured'}` : '✗ not configured'} ok={settings.infra.panelConfigured} />
+                    <SettingRow label="24/7 daemon" value={settings.infra.daemonConfigured ? `${settings.infra.daemonHost ?? 'configured'}` : 'not configured'} ok={settings.infra.daemonConfigured} />
+                    <SettingRow label="Panel host" value={settings.infra.panelConfigured ? `${settings.infra.panelHost ?? 'configured'}` : 'not configured'} ok={settings.infra.panelConfigured} />
                   </SettingsGroup>
                   <SettingsGroup title="Payments">
-                    <SettingRow label="Razorpay" value={settings.payments.razorpayConfigured ? '✓ configured' : '✗ keys missing — checkout disabled'} ok={settings.payments.razorpayConfigured} />
-                    <SettingRow label="Webhook secret" value={settings.payments.webhookConfigured ? '✓ configured' : '✗ missing'} ok={settings.payments.webhookConfigured} />
+                    <SettingRow label="Razorpay" value={settings.payments.razorpayConfigured ? 'configured' : 'keys missing — checkout disabled'} ok={settings.payments.razorpayConfigured} />
+                    <SettingRow label="Webhook secret" value={settings.payments.webhookConfigured ? 'configured' : 'missing'} ok={settings.payments.webhookConfigured} />
                     <SettingRow label="Webhook path" value={settings.payments.webhookPath} mono />
                     <SettingRow label="Currency" value={settings.payments.currency} />
                     {settings.payments.plans.map(p => (
@@ -651,12 +652,12 @@ function OverviewTab({ sys, stats, c }: { sys: AdminStats['system'] | undefined;
 
       {/* Platform stats */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-        <StatCard label="Users" value={c ? c.totalUsers : 0} color="text-red-300" />
-        <StatCard label="RPC Live" value={c?.rpcLive ?? 0} color="text-green-400" />
-        <StatCard label="With Token" value={c?.sessionsWithToken ?? 0} color="text-sky-400" />
-        <StatCard label="Status On" value={c?.statusEnabled ?? 0} color="text-red-400" />
-        <StatCard label="VR Active" value={c?.vrActive ?? 0} color="text-cyan-300" />
-        <StatCard label="New 24h" value={c?.newUsers24h ?? 0} color="text-amber-300" />
+        <StatCard label="Users" value={c ? c.totalUsers : 0} color="text-white/90" />
+        <StatCard label="RPC Live" value={c?.rpcLive ?? 0} color="text-white" />
+        <StatCard label="With Token" value={c?.sessionsWithToken ?? 0} color="text-white" />
+        <StatCard label="Status On" value={c?.statusEnabled ?? 0} color="text-white" />
+        <StatCard label="VR Active" value={c?.vrActive ?? 0} color="text-white/90" />
+        <StatCard label="New 24h" value={c?.newUsers24h ?? 0} color="text-white/90" />
       </div>
 
       {/* 7-day signup trend */}
@@ -669,7 +670,7 @@ function OverviewTab({ sys, stats, c }: { sys: AdminStats['system'] | undefined;
           <div className="flex items-end gap-2 h-24">
             {trend.map(p => (
               <div key={p.date} className="flex-1 flex flex-col items-center justify-end h-full gap-1" title={`${p.date}: ${p.count}`}>
-                <span className={`text-[10px] ${p.count > 0 ? 'text-red-200' : 'text-white/30'}`}>{p.count}</span>
+                <span className={`text-[10px] ${p.count > 0 ? 'text-white/90' : 'text-white/30'}`}>{p.count}</span>
                 <div
                   className={`w-full rounded-t-md transition-all ${p.count > 0 ? 'bg-gradient-to-t from-purple-600/60 to-purple-400/80' : 'bg-white/5'}`}
                   style={{ height: `${p.count > 0 ? Math.max(8, (p.count / maxCount) * 100) : 4}%` }}
@@ -688,7 +689,7 @@ function OverviewTab({ sys, stats, c }: { sys: AdminStats['system'] | undefined;
           <div className="space-y-2">
             {newest.map(u => (
               <div key={u.id} className="flex items-center gap-3">
-                <div className="w-7 h-7 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-red-200 text-xs font-bold shrink-0">
+                <div className="w-7 h-7 rounded-full bg-purple-500/20 border border-purple-500/30 flex items-center justify-center text-white/90 text-xs font-bold shrink-0">
                   {u.username.charAt(0).toUpperCase()}
                 </div>
                 <span className="text-sm text-white/85 truncate flex-1">{u.username}</span>
@@ -758,10 +759,10 @@ function fmtExpiry(iso: string): string {
 function SystemBadge({ operational, degraded }: { operational: boolean; degraded: boolean }) {
   const label = operational ? 'All Systems Operational' : degraded ? 'Degraded' : 'Outage'
   const cls = operational
-    ? 'bg-green-500/20 text-green-300'
+    ? 'bg-green-500/20 text-white/90'
     : degraded
-      ? 'bg-amber-500/20 text-amber-300'
-      : 'bg-red-500/20 text-red-300'
+      ? 'bg-amber-500/20 text-white/90'
+      : 'bg-red-500/20 text-white/90'
   return (
     <Badge className={`${cls} text-[10px] gap-1.5`}>
       <span className={`w-1.5 h-1.5 rounded-full ${operational ? 'bg-green-400' : degraded ? 'bg-amber-400' : 'bg-red-400'} animate-pulse`} />
@@ -776,9 +777,9 @@ function ProbeRow({ label, ok, latencyMs, note }: { label: string; ok: boolean; 
       <div className="flex items-center gap-2 text-sm text-white/80">
         <span className={`w-2 h-2 rounded-full ${ok ? 'bg-green-400' : 'bg-red-400'}`} />
         {label}
-        {note && <span className="text-[10px] text-amber-300/80 uppercase tracking-wide">{note}</span>}
+        {note && <span className="text-[10px] text-white/70 uppercase tracking-wide">{note}</span>}
       </div>
-      <span className={`text-xs font-mono ${ok ? 'text-white/60' : 'text-red-300/80'}`}>
+      <span className={`text-xs font-mono ${ok ? 'text-white/60' : 'text-white/70'}`}>
         {latencyMs != null ? `${latencyMs} ms` : '—'}
       </span>
     </div>
@@ -820,12 +821,14 @@ function SettingRow({ label, value, mono, ok, link }: { label: string; value: st
           href={value.startsWith('http') ? value : `https://${value}`}
           target="_blank"
           rel="noreferrer"
-          className="text-xs text-red-300 hover:text-red-200 truncate underline underline-offset-2"
+          className="text-xs text-white/90 hover:text-white truncate underline underline-offset-2"
         >
           {value}
         </a>
       ) : (
-        <span className={`text-xs text-right truncate ${mono ? 'font-mono' : ''} ${ok === true ? 'text-green-300' : ok === false ? 'text-red-300' : 'text-white/80'}`}>
+        <span className={`text-xs text-right truncate ${mono ? 'font-mono' : ''} ${ok === true ? 'text-white/90' : ok === false ? 'text-white/90' : 'text-white/80'}`}>
+          {ok === true && <Check className="w-3 h-3 inline-block align-[-2px] mr-1" />}
+          {ok === false && <X className="w-3 h-3 inline-block align-[-2px] mr-1" />}
           {value}
         </span>
       )}
@@ -841,11 +844,11 @@ function PaymentRow({ payment: p }: { payment: AdminPaymentRow }) {
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
           <span className="text-sm font-medium text-white truncate">{p.username}</span>
-          <Badge className={`text-[10px] ${p.plan === 'pro' ? 'bg-purple-500/20 text-red-300' : 'bg-sky-500/20 text-sky-300'}`}>
+          <Badge className={`text-[10px] ${p.plan === 'pro' ? 'bg-purple-500/20 text-white/90' : 'bg-sky-500/20 text-white/90'}`}>
             {p.plan.toUpperCase()}
           </Badge>
-          <Badge className={`text-[10px] ${paid ? 'bg-green-500/20 text-green-300' : 'bg-white/5 text-white/40'}`}>
-            {paid ? '✓ PAID' : 'CREATED'}
+          <Badge className={`text-[10px] ${paid ? 'bg-green-500/20 text-white/90' : 'bg-white/5 text-white/40'}`}>
+            {paid ? <span className="inline-flex items-center gap-1"><Check className="w-3 h-3" />PAID</span> : 'CREATED'}
           </Badge>
         </div>
         <p className="text-xs text-white/40 font-mono truncate">
@@ -853,7 +856,7 @@ function PaymentRow({ payment: p }: { payment: AdminPaymentRow }) {
         </p>
       </div>
       <div className="text-right shrink-0">
-        <p className={`text-sm font-bold ${paid ? 'text-amber-300' : 'text-white/40'}`}>
+        <p className={`text-sm font-bold ${paid ? 'text-white/90' : 'text-white/40'}`}>
           ₹{(p.amount / 100).toLocaleString('en-IN')}
         </p>
         <p className="text-[11px] text-white/30">{fmtRel(p.createdAt)}</p>
@@ -874,8 +877,8 @@ function SessionRow({ session: s, busy, onRevoke }: {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5 flex-wrap">
             <span className="text-sm font-medium text-white truncate">{s.username}</span>
-            {s.isCurrent && <Badge className="bg-green-500/20 text-green-300 text-[10px]">THIS DEVICE</Badge>}
-            {!s.isCurrent && s.isSelf && <Badge className="bg-sky-500/20 text-sky-300 text-[10px]">YOU (OTHER DEVICE)</Badge>}
+            {s.isCurrent && <Badge className="bg-green-500/20 text-white/90 text-[10px]">THIS DEVICE</Badge>}
+            {!s.isCurrent && s.isSelf && <Badge className="bg-sky-500/20 text-white/90 text-[10px]">YOU (OTHER DEVICE)</Badge>}
           </div>
           <p className="text-xs text-white/40">
             signed in {fmtRel(s.createdAt)} · {fmtExpiry(s.expiresAt)}
@@ -883,23 +886,23 @@ function SessionRow({ session: s, busy, onRevoke }: {
         </div>
         <div className="flex flex-col gap-1 items-end">
           {s.rpcEnabled ? (
-            <Badge className="bg-green-500/20 text-green-300 text-[10px] gap-1.5">
+            <Badge className="bg-green-500/20 text-white/90 text-[10px] gap-1.5">
               <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
               RPC LIVE
             </Badge>
           ) : s.statusEnabled ? (
-            <Badge className="bg-fuchsia-500/20 text-red-300 text-[10px]">STATUS ON</Badge>
+            <Badge className="bg-fuchsia-500/20 text-white/90 text-[10px]">STATUS ON</Badge>
           ) : (
             <Badge className="bg-white/5 text-white/40 text-[10px]">IDLE</Badge>
           )}
-          {s.vrStatusActive && <Badge className="bg-cyan-500/20 text-cyan-300 text-[10px]">🥽 VR</Badge>}
-          {s.sleepTimerActive && <Badge className="bg-indigo-500/20 text-indigo-300 text-[10px]">😴 SLEEP</Badge>}
+          {s.vrStatusActive && <Badge className="bg-cyan-500/20 text-white/90 text-[10px] gap-1"><Glasses className="w-3 h-3" />VR</Badge>}
+          {s.sleepTimerActive && <Badge className="bg-indigo-500/20 text-white/90 text-[10px] gap-1"><MoonStar className="w-3 h-3" />SLEEP</Badge>}
         </div>
         <button
           onClick={onRevoke}
           disabled={s.isCurrent || busy}
           title={s.isCurrent ? "This is your current session — it can't be revoked from here" : 'Log out this device'}
-          className="text-[11px] px-2.5 py-1 rounded-lg border transition-all shrink-0 disabled:opacity-40 disabled:cursor-not-allowed bg-red-500/10 border-red-500/30 text-red-300 hover:bg-red-500/20"
+          className="text-[11px] px-2.5 py-1 rounded-lg border transition-all shrink-0 disabled:opacity-40 disabled:cursor-not-allowed bg-red-500/10 border-red-500/30 text-white/90 hover:bg-red-500/20"
         >
           {busy ? '…' : s.isCurrent ? 'Current' : 'Revoke'}
         </button>
@@ -907,15 +910,15 @@ function SessionRow({ session: s, busy, onRevoke }: {
       <div className="flex items-center flex-wrap gap-x-3 gap-y-1 text-xs text-white/50">
         <span className="font-mono text-white/30 text-[10px]">{s.id.slice(0, 12)}…</span>
         {s.hasDiscordToken ? (
-          <span className="text-green-400">🔑 Token</span>
+          <span className="text-white inline-flex items-center gap-1"><KeyRound className="w-3 h-3" />Token</span>
         ) : (
-          <span className="text-yellow-400/60">⚠ No Token</span>
+          <span className="text-white/50 inline-flex items-center gap-1"><TriangleAlert className="w-3 h-3" />No Token</span>
         )}
-        <span className={`uppercase ${s.userStatus === 'online' ? 'text-green-400' : s.userStatus === 'idle' ? 'text-yellow-400' : s.userStatus === 'dnd' ? 'text-red-400' : 'text-gray-400'}`}>
+        <span className={`uppercase ${s.userStatus === 'online' ? 'text-white' : s.userStatus === 'idle' ? 'text-white' : s.userStatus === 'dnd' ? 'text-white' : 'text-white'}`}>
           {s.userStatus}
         </span>
-        {s.customStatus && <span>💬 {s.customStatusEmoji} {s.customStatus}</span>}
-        <span>📱 {s.statusPlatform}</span>
+        {s.customStatus && <span className="inline-flex items-center gap-1"><MessageCircle className="w-3 h-3 shrink-0" />{s.customStatusEmoji} {s.customStatus}</span>}
+        <span className="inline-flex items-center gap-1"><Smartphone className="w-3 h-3" />{s.statusPlatform}</span>
         {s.lastPresenceUpdate && (
           <span className="text-white/30">push {new Date(s.lastPresenceUpdate).toLocaleTimeString()}</span>
         )}

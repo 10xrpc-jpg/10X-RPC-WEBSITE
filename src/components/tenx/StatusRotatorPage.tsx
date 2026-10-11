@@ -7,6 +7,7 @@ import { useRouter } from './useRouter'
 import { Card, PrimaryButton, GhostButton, PurpleSwitch, BackButton } from './ui'
 import { MAX_ROTATOR_PRESETS, DEFAULT_ROTATOR_PRESETS } from '@/lib/rotator'
 import { DiscordEmoji, normalizeEmojiInput } from './Emoji'
+import { Repeat, TriangleAlert, X, ChevronUp, ChevronDown, Plus, MessageCircle } from 'lucide-react'
 
 type StatusType = 'online' | 'idle' | 'dnd'
 
@@ -150,7 +151,7 @@ export function StatusRotatorPage({ initial }: { initial?: Me }) {
           </div>
         ) : presets.length === 0 ? (
           <div className="glass-card-inner p-8 text-center space-y-3">
-            <div className="text-4xl">🔁</div>
+            <Repeat className="w-10 h-10 mx-auto text-white/40" />
             <p className="text-white/60 font-medium">No presets added yet.</p>
             <p className="text-xs text-white/40 max-w-xs mx-auto">
               Create up to 20 presets and 10X RPC will cycle through them automatically at the duration you set.
@@ -182,18 +183,20 @@ export function StatusRotatorPage({ initial }: { initial?: Me }) {
             disabled={busy}
             className="w-full mt-4 glass-card-inner p-3 hover:border-purple-500/30 transition-colors flex items-center justify-center gap-2 text-sm text-white/80 hover:text-white"
           >
-            <span className="text-lg">+</span> Add Preset
+            <Plus className="w-4 h-4" /> Add Preset
           </button>
         )}
 
         {presets.length >= MAX_ROTATOR_PRESETS && (
-          <p className="text-xs text-yellow-400/80 text-center mt-3">
-            ⚠ Maximum {MAX_ROTATOR_PRESETS} presets reached. Delete one to add more.
+          <p className="text-xs text-white/70 text-center mt-3">
+            <TriangleAlert className="w-3.5 h-3.5 inline-block align-[-3px] mr-1" />
+            Maximum {MAX_ROTATOR_PRESETS} presets reached. Delete one to add more.
           </p>
         )}
 
         <p className="text-xs text-white/40 italic mt-6 text-center">
-          ⚠ 10X RPC is not responsible if your account gets banned or blocked. Use at your own risk.
+          <TriangleAlert className="w-3.5 h-3.5 inline-block align-[-3px] mr-1" />
+          10X RPC is not responsible if your account gets banned or blocked. Use at your own risk.
         </p>
       </Card>
 
@@ -289,7 +292,7 @@ function AddPresetModal({
             aria-describedby={errors.emoji ? 'emoji-error' : undefined}
           />
           {errors.emoji && (
-            <p id="emoji-error" className="text-xs text-red-400" role="alert">{errors.emoji}</p>
+            <p id="emoji-error" className="text-xs text-white" role="alert">{errors.emoji}</p>
           )}
         </div>
 
@@ -310,7 +313,7 @@ function AddPresetModal({
             aria-describedby={errors.text ? 'msg-error' : undefined}
           />
           {errors.text && (
-            <p id="msg-error" className="text-xs text-red-400" role="alert">{errors.text}</p>
+            <p id="msg-error" className="text-xs text-white" role="alert">{errors.text}</p>
           )}
         </div>
 
@@ -360,7 +363,7 @@ function AddPresetModal({
             aria-invalid={!!errors.duration}
           />
           {errors.duration && (
-            <p className="text-xs text-red-400" role="alert">{errors.duration}</p>
+            <p className="text-xs text-white" role="alert">{errors.duration}</p>
           )}
         </div>
 
@@ -475,7 +478,7 @@ function PresetRow({
     <div className="glass-card-inner p-3 flex items-center gap-3">
       {/* Order index */}
       <span className="text-xs text-white/40 font-mono w-5 text-center">{index + 1}</span>
-      <span className="w-7 text-center"><DiscordEmoji emoji={preset.emoji} size={22} fallback="💬" /></span>
+      <span className="w-7 text-center"><DiscordEmoji emoji={preset.emoji} size={22} fallback={<MessageCircle size={22} className="text-white/40 inline-block" />} /></span>
       <div className="flex-1 min-w-0">
         <p className="text-sm text-white truncate">{preset.text}</p>
         <p className="text-xs text-white/40">{(preset.durationMins || 5) * 60}s • {preset.enabled === false ? 'disabled' : 'enabled'}</p>
@@ -488,7 +491,7 @@ function PresetRow({
           className="text-xs text-white/50 hover:text-white disabled:opacity-20 px-1 py-0.5"
           aria-label="Move up"
         >
-          ▲
+          <ChevronUp className="w-3.5 h-3.5 inline-block" />
         </button>
         <button
           onClick={onMoveDown}
@@ -496,14 +499,14 @@ function PresetRow({
           className="text-xs text-white/50 hover:text-white disabled:opacity-20 px-1 py-0.5"
           aria-label="Move down"
         >
-          ▼
+          <ChevronDown className="w-3.5 h-3.5 inline-block" />
         </button>
       </div>
-      <button onClick={() => setEditing(true)} className="text-xs text-red-300 hover:text-red-200 px-2 py-1">
+      <button onClick={() => setEditing(true)} className="text-xs text-white/90 hover:text-white px-2 py-1">
         Edit
       </button>
-      <button onClick={onDelete} className="text-xs text-red-400 hover:text-red-300 px-2 py-1" aria-label="Delete preset">
-        ✕
+      <button onClick={onDelete} className="text-xs text-white hover:text-white px-2 py-1" aria-label="Delete preset">
+        <X className="w-3.5 h-3.5 inline-block" />
       </button>
     </div>
   )

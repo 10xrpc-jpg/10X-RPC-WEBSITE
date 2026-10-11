@@ -88,9 +88,9 @@ export function TrialsTab() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-2">
-        <StatCard label="Trialing now" value={stats?.trialing ?? 0} color="text-red-300" />
-        <StatCard label="Expired trials" value={stats?.expired ?? 0} color="text-red-300" />
-        <StatCard label="Trial → paid" value={stats?.converted ?? 0} color="text-green-400" />
+        <StatCard label="Trialing now" value={stats?.trialing ?? 0} color="text-white/90" />
+        <StatCard label="Expired trials" value={stats?.expired ?? 0} color="text-white/90" />
+        <StatCard label="Trial → paid" value={stats?.converted ?? 0} color="text-white" />
       </div>
 
       <Card>
@@ -99,7 +99,7 @@ export function TrialsTab() {
           <button
             onClick={() => setConfirmSave(true)}
             disabled={!dirty || saving}
-            className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 border border-purple-500/40 text-red-200 hover:bg-purple-500/30 transition-all disabled:opacity-30"
+            className="text-xs px-3 py-1.5 rounded-lg bg-purple-500/20 border border-purple-500/40 text-white/90 hover:bg-purple-500/30 transition-all disabled:opacity-30"
           >
             {saving ? 'Saving…' : 'Save policy'}
           </button>

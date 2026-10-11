@@ -65,7 +65,7 @@ export function AuditTab() {
             key={f.id}
             onClick={() => { setAction(f.id); setPage(1) }}
             className={`text-[11px] px-2.5 py-1 rounded-full border transition-all ${
-              action === f.id ? 'bg-purple-500/25 border-purple-500/50 text-red-200' : 'bg-white/5 border-white/10 text-white/50 hover:text-white/80'
+              action === f.id ? 'bg-purple-500/25 border-purple-500/50 text-white/90' : 'bg-white/5 border-white/10 text-white/50 hover:text-white/80'
             }`}
           >
             {f.label}

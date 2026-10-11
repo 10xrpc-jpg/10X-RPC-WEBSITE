@@ -117,7 +117,7 @@ export function PricingCard({ name, price, originalPrice, period, badge, feature
       <ul className="space-y-2.5 mb-6">
         {features.map(f => (
           <li key={f} className="flex items-start gap-2.5 text-sm text-white/70">
-            <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
+            <Check className="w-4 h-4 text-white mt-0.5 shrink-0" strokeWidth={3} />
             <span>{f}</span>
           </li>
         ))}
