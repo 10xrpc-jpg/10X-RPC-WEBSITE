@@ -14,6 +14,7 @@ export type Route =
   | { name: 'game', slug: string }
   | { name: 'config' }
   | { name: 'rotator' }
+  | { name: 'profile' }
   | { name: 'uptime' }
   | { name: 'admin' }
 
@@ -28,6 +29,7 @@ export function parsePath(pathname: string): Route {
   }
   if (parts[0] === 'config') return { name: 'config' }
   if (parts[0] === 'rotator') return { name: 'rotator' }
+  if (parts[0] === 'profile') return { name: 'profile' }
   if (parts[0] === 'uptime') return { name: 'uptime' }
   if (parts[0] === 'admin') return { name: 'admin' }
   return { name: 'home' }
@@ -41,6 +43,7 @@ export function toPath(route: Route): string {
     case 'game': return `/games/${encodeURIComponent(route.slug)}`
     case 'config': return '/config'
     case 'rotator': return '/rotator'
+    case 'profile': return '/profile'
     case 'uptime': return '/uptime'
     case 'admin': return '/admin'
   }

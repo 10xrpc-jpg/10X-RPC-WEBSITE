@@ -12,7 +12,7 @@ import { SmartSleepTimerCard } from './SmartSleepTimerCard'
 import { RichPresenceForm } from './RichPresenceForm'
 import { ReconnectBanner } from './ReconnectBanner'
 import { startPlanCheckout } from './subscriptionCheckout'
-import { TriangleAlert, Zap, Check, Ban, Star, ArrowLeft, Hourglass } from 'lucide-react'
+import { TriangleAlert, Zap, Check, Ban, Star, ArrowLeft, Hourglass, UserRound } from 'lucide-react'
 
 export function DashboardPage() {
   const { navigate } = useRouter()
@@ -156,6 +156,14 @@ export function DashboardPage() {
             </svg>
             Discord Server
           </a>
+          <button
+            onClick={() => navigate({ name: 'profile' })}
+            aria-label="Open your profile board"
+            className="flex items-center gap-1.5 text-xs text-white/90 hover:text-white bg-purple-500/15 border border-purple-500/30 px-3 py-1.5 rounded-lg hover:bg-purple-500/25 transition-all"
+          >
+            <UserRound className="w-3.5 h-3.5" aria-hidden="true" />
+            Profile
+          </button>
           <button
             onClick={() => navigate({ name: 'home' })}
             className="inline-flex items-center gap-1 text-xs text-white/60 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5"
