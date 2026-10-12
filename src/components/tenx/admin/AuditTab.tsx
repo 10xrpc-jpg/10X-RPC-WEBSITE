@@ -8,6 +8,7 @@ import { toast } from 'sonner'
 import { api, type AdminAuditRow } from '@/lib/api-client'
 import { Card } from '../ui'
 import { Chip, fmtDateTime } from './shared'
+import { RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const ACTION_FILTERS = [
   { id: '', label: 'All' },
@@ -54,8 +55,9 @@ export function AuditTab() {
     <Card>
       <div className="flex items-center justify-between mb-3 gap-2 flex-wrap">
         <h3 className="font-bold text-white">Audit Log <span className="text-xs text-white/40">({total})</span></h3>
-        <button onClick={load} className="text-[11px] text-white/60 hover:text-white bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg transition-all">
-          ↻ Refresh
+        <button onClick={load} className="inline-flex items-center gap-1.5 text-[11px] text-white/60 hover:text-white bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg transition-all">
+          <RefreshCw className="w-3 h-3" />
+          Refresh
         </button>
       </div>
 
@@ -121,17 +123,19 @@ export function AuditTab() {
           <button
             onClick={() => setPage(p => Math.max(1, p - 1))}
             disabled={page <= 1}
-            className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white disabled:opacity-30 transition-all"
+            className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white disabled:opacity-30 transition-all"
           >
-            ← Prev
+            <ChevronLeft className="w-3.5 h-3.5" />
+            Prev
           </button>
           <span className="text-xs text-white/40">{page} / {pages}</span>
           <button
             onClick={() => setPage(p => Math.min(pages, p + 1))}
             disabled={page >= pages}
-            className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white disabled:opacity-30 transition-all"
+            className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white disabled:opacity-30 transition-all"
           >
-            Next →
+            Next
+            <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>
       )}

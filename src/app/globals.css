@@ -148,10 +148,6 @@
 .purple-glow {
   box-shadow: 0 0 30px -8px rgba(168, 85, 247, 0.5);
 }
-.text-glow {
-  text-shadow: 0 0 12px rgba(168, 85, 247, 0.5);
-}
-
 /* Hide scrollbar for cleaner mobile UI */
 .no-scrollbar::-webkit-scrollbar { display: none; }
 .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }

@@ -15,7 +15,7 @@ import { toast } from 'sonner'
 import { api, type GameListItem, type DiscoveredApp } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { BackButton } from './ui'
-import { Gamepad2, Search, ChevronRight, ChevronDown, Plus, X, CheckCircle2, BadgeCheck, Loader2, Hash, TriangleAlert } from 'lucide-react'
+import { Gamepad2, Search, ChevronRight, ChevronDown, Plus, X, CheckCircle2, BadgeCheck, Loader2, Hash, TriangleAlert, Info } from 'lucide-react'
 
 /** Once an icon <img> loads, hide the letter fallback behind it — some game
  * icons are transparent PNGs, which would otherwise ghost the initials. */
@@ -859,9 +859,12 @@ function AddGameDialog({
               )}
             </div>
 
-            <p className="text-[11px] leading-relaxed text-white/40 px-1">
-              ℹ️ One click grabs the official Application ID, adds the game, stars it
-              on your Favorite Game Board and sets it live as your Game RPC.
+            <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-white/40 px-1">
+              <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>
+                One click grabs the official Application ID, adds the game, stars it
+                on your Favorite Game Board and sets it live as your Game RPC.
+              </span>
             </p>
           </div>
         ) : (
@@ -921,10 +924,13 @@ function AddGameDialog({
               </div>
             )}
 
-            <p className="text-[11px] leading-relaxed text-white/40 px-1">
-              ℹ️ The game is presented as the official Discord application — its name and
-              icon are fetched automatically. After adding, open the game to customize
-              state, details, party, buttons and enable its RPC.
+            <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-white/40 px-1">
+              <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+              <span>
+                The game is presented as the official Discord application — its name and
+                icon are fetched automatically. After adding, open the game to customize
+                state, details, party, buttons and enable its RPC.
+              </span>
             </p>
 
             {/* Actions */}

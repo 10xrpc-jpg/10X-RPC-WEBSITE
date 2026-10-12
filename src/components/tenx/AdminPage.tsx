@@ -33,7 +33,7 @@ import {
 } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { Card, PrimaryButton, GhostButton, BackButton, Badge } from './ui'
-import { Lock, Download, Trash2, KeyRound, Check, X, Glasses, MoonStar, TriangleAlert, MessageCircle, Smartphone } from 'lucide-react'
+import { Lock, Download, Trash2, KeyRound, Check, X, Glasses, MoonStar, TriangleAlert, MessageCircle, Smartphone, RefreshCw } from 'lucide-react'
 import { PlansTab } from './admin/PlansTab'
 import { UsersTab } from './admin/UsersTab'
 import { TrialsTab } from './admin/TrialsTab'
@@ -301,9 +301,10 @@ export function AdminPage() {
         <button
           onClick={refresh}
           aria-label="Refresh data"
-          className="text-xs text-white/60 hover:text-white bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all"
+          className="inline-flex items-center gap-1.5 text-xs text-white/60 hover:text-white bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg hover:bg-white/10 transition-all"
         >
-          ↻ Refresh
+          <RefreshCw className="w-3 h-3" />
+          Refresh
         </button>
       </div>
 

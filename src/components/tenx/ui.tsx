@@ -1,6 +1,7 @@
 // 10X RPC — shared UI atoms
 'use client'
 import { cn } from '@/lib/utils'
+import { ArrowLeft } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,7 +33,7 @@ export function Field({ label, hint, children }: { label: ReactNode; hint?: stri
     <div className="space-y-1.5">
       <Label className="text-[11px] uppercase tracking-wider text-white font-semibold">{label}</Label>
       {children}
-      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {hint && <p className="text-xs text-white/45">{hint}</p>}
     </div>
   )
 }
@@ -42,7 +43,7 @@ export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
     <Input
       {...props}
       className={cn(
-        'bg-[#13141a] border-white/8 text-white placeholder:text-muted-foreground/60',
+        'bg-[#13141a] border-white/8 text-white placeholder:text-white/35',
         'focus-visible:ring-purple-500/50 focus-visible:border-purple-500/50',
         props.className
       )}
@@ -120,7 +121,7 @@ export function BackButton({ onClick }: { onClick: () => void }) {
       onClick={onClick}
       className="inline-flex items-center gap-1.5 bg-white/5 border border-white/10 rounded-xl px-3 py-1.5 text-sm text-white/80 hover:bg-white/10 transition-colors"
     >
-      <span>←</span> Back
+      <ArrowLeft className="w-4 h-4" /> Back
     </button>
   )
 }

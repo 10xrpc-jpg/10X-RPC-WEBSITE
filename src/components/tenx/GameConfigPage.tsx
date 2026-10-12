@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { api, type GamePreset, type GameConfig } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { BackButton, PurpleSwitch } from './ui'
-import { Gamepad2 } from 'lucide-react'
+import { Gamepad2, Info } from 'lucide-react'
 import { RpcPlatformSelect } from './RpcPlatformSelect'
 
 export function GameConfigPage({ slug }: { slug: string }) {
@@ -155,10 +155,13 @@ export function GameConfigPage({ slug }: { slug: string }) {
           </div>
 
           {/* Mutual-exclusivity note: Normal RPC & Game RPC are separate configs */}
-          <p className="text-[11px] leading-relaxed text-white/45 px-1">
-            ℹ️ Game RPC and Normal RPC are separate configurations — enabling one automatically
-            disables the other. Both configurations are remembered, so switching never resets
-            your saved settings.
+          <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-white/45 px-1">
+            <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>
+              Game RPC and Normal RPC are separate configurations — enabling one automatically
+              disables the other. Both configurations are remembered, so switching never resets
+              your saved settings.
+            </span>
           </p>
 
           {/* Device Platform */}

@@ -84,8 +84,8 @@ export async function POST(req: Request) {
       customStatusEmoji: currentSession?.customStatusEmoji || null,
       statusPlatform: currentSession?.statusPlatform || 'mobile',
       message: isStatusEnabled
-        ? '✓ Status updated & synced to Discord'
-        : '✓ Status configuration saved (Status is OFF)',
+        ? 'Status updated & synced to Discord'
+        : 'Status configuration saved (Status is OFF)',
     })
   } catch (e: any) {
     console.error('Error in /api/status/update:', e)

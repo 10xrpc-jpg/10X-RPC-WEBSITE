@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import type { RpcConfig } from '@/lib/api-client'
 import { resolveRpcActivityName } from '@/lib/constants'
-import { Glasses, Gamepad2, Star, Users, Hourglass, Smartphone, Tv, Globe, type LucideIcon } from 'lucide-react'
+import { Glasses, Gamepad2, Star, Users, Hourglass, Smartphone, Tv, Globe, ExternalLink, type LucideIcon } from 'lucide-react'
 
 interface PreviewProps {
   config: RpcConfig | null | undefined
@@ -206,7 +206,7 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
                   title={button1Url ? `${button1Label} (${button1Url})` : button1Label}
                 >
                   <span className="truncate">{button1Label}</span>
-                  {button1Url && <span className="text-[10px] text-white/40">↗</span>}
+                  {button1Url && <ExternalLink className="w-3 h-3 text-white/40 shrink-0" />}
                 </button>
               )}
               {button2Label && (
@@ -217,7 +217,7 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
                   title={button2Url ? `${button2Label} (${button2Url})` : button2Label}
                 >
                   <span className="truncate">{button2Label}</span>
-                  {button2Url && <span className="text-[10px] text-white/40">↗</span>}
+                  {button2Url && <ExternalLink className="w-3 h-3 text-white/40 shrink-0" />}
                 </button>
               )}
             </div>

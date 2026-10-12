@@ -12,7 +12,7 @@ import { SmartSleepTimerCard } from './SmartSleepTimerCard'
 import { RichPresenceForm } from './RichPresenceForm'
 import { ReconnectBanner } from './ReconnectBanner'
 import { startPlanCheckout } from './subscriptionCheckout'
-import { TriangleAlert, Zap, Check, Ban, Star } from 'lucide-react'
+import { TriangleAlert, Zap, Check, Ban, Star, ArrowLeft } from 'lucide-react'
 
 export function DashboardPage() {
   const { navigate } = useRouter()
@@ -111,9 +111,10 @@ export function DashboardPage() {
             </button>
             <button
               onClick={() => navigate({ name: 'home' })}
-              className="text-xs text-white/50 hover:text-white mt-2"
+              className="inline-flex items-center gap-1 text-xs text-white/50 hover:text-white mt-2"
             >
-              ← Back to landing
+              <ArrowLeft className="w-3.5 h-3.5" />
+              Back to landing
             </button>
           </div>
         </div>
@@ -157,9 +158,10 @@ export function DashboardPage() {
           </a>
           <button
             onClick={() => navigate({ name: 'home' })}
-            className="text-xs text-white/60 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5"
+            className="inline-flex items-center gap-1 text-xs text-white/60 hover:text-white px-3 py-1.5 rounded-lg hover:bg-white/5"
           >
-            ← Home
+            <ArrowLeft className="w-3.5 h-3.5" />
+            Home
           </button>
         </div>
       </header>

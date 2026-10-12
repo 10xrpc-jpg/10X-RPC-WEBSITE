@@ -10,7 +10,7 @@ import { api, type AdminSubFilter, type AdminSubUser, type AdminSubscriptionsRes
 import { Card } from '../ui'
 import { Chip, StatCard, SubStateBadge, fmtDate, fmtRel, planLabel } from './shared'
 import { SubscriptionModal } from './SubscriptionModal'
-import { StickyNote } from 'lucide-react'
+import { StickyNote, RefreshCw, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const STATUS_FILTERS: { id: AdminSubFilter; label: string }[] = [
   { id: 'all', label: 'All' },
@@ -131,8 +131,9 @@ export function UsersTab() {
           >
             {SORTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
           </select>
-          <button onClick={() => load()} className="text-[11px] text-white/60 hover:text-white bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg transition-all">
-            ↻ Refresh
+          <button onClick={() => load()} className="inline-flex items-center gap-1.5 text-[11px] text-white/60 hover:text-white bg-white/5 border border-white/10 px-2.5 py-1 rounded-lg transition-all">
+            <RefreshCw className="w-3 h-3" />
+            Refresh
           </button>
         </div>
 
@@ -155,17 +156,19 @@ export function UsersTab() {
             <button
               onClick={() => setPage(p => Math.max(1, p - 1))}
               disabled={page <= 1}
-              className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white disabled:opacity-30 transition-all"
+              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white disabled:opacity-30 transition-all"
             >
-              ← Prev
+              <ChevronLeft className="w-3.5 h-3.5" />
+              Prev
             </button>
             <span className="text-xs text-white/40">{page} / {data.totalPages}</span>
             <button
               onClick={() => setPage(p => Math.min(data.totalPages, p + 1))}
               disabled={page >= data.totalPages}
-              className="text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white disabled:opacity-30 transition-all"
+              className="inline-flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg bg-white/5 border border-white/10 text-white/60 hover:text-white disabled:opacity-30 transition-all"
             >
-              Next →
+              Next
+              <ChevronRight className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
