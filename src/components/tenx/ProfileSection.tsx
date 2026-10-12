@@ -335,7 +335,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                 <button
                   type="button"
                   onClick={() => { setUserMenuOpen(false); navigate({ name: 'profile' }) }}
-                  aria-label="Open your profile board"
+                  aria-label="Open your profile"
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-purple-300/90 hover:text-purple-200 hover:bg-purple-500/10 text-left transition-colors"
                 >
                   <UserRound className="w-4 h-4 text-purple-400" />

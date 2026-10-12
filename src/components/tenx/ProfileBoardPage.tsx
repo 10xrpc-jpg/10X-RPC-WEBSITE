@@ -98,7 +98,7 @@ export function ProfileBoardPage() {
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
           <BrandMark className="w-12 h-12 mx-auto mb-3 animate-pulse" />
-          <p className="text-white/60 text-sm">Loading profile board...</p>
+          <p className="text-white/60 text-sm">Loading profile...</p>
         </div>
       </div>
     )
@@ -109,7 +109,7 @@ export function ProfileBoardPage() {
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="glass-card p-8 max-w-md text-center">
           <BrandMark className="w-14 h-14 rounded-2xl mx-auto mb-4" />
-          <h1 className="text-xl font-bold text-white mb-2">Profile Board</h1>
+          <h1 className="text-xl font-bold text-white mb-2">Profile</h1>
           <p className="text-sm text-white/60 mb-6">Sign in with Discord to manage your favorite games.</p>
           <button
             onClick={() => { window.location.href = '/auth/discord' }}
@@ -129,7 +129,7 @@ export function ProfileBoardPage() {
         <BackButton onClick={() => navigate({ name: 'dashboard' })} />
         <div className="flex items-center gap-2.5">
           <User className="w-6 h-6 text-purple-400 stroke-[2.2]" />
-          <h1 className="text-2xl font-bold text-white tracking-tight">Profile Board</h1>
+          <h1 className="text-2xl font-bold text-white tracking-tight">Profile</h1>
         </div>
         <div className="min-w-[90px]" />
       </div>
