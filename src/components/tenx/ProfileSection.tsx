@@ -147,32 +147,39 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
 
   const handleStatusSelect = (status: string) => {
     setStatusDropdown(false)
-    // VR/MOBILE BADGE FIX: picking Idle/DND while a Mobile/VR badge is active
-    // would hide the icon on Discord — auto-switch to Online instead.
-    let effective = status
-    if (statusEnabled && isBadgePlatform(selectedPlatform) && isHiddenStatus(status)) {
-      effective = 'online'
-      setUserStatus('online')
-      toast.info(`${BADGE_LABEL[selectedPlatform] || 'Mobile/VR'} badge shows only when Online — status switched to Online`, { duration: 3500 })
-    } else {
-      setUserStatus(status)
+    // IDLE/DND ⇒ NONE RULE: picking Idle or Do Not Disturb while a Mobile/VR
+    // badge is active automatically saves the icon as None (Discord hides the
+    // badge behind the moon/dash glyph anyway) — the chosen status is kept.
+    let platformPatch: { statusPlatform?: string } = {}
+    let droppedBadge: string | null = null
+    if (isBadgePlatform(selectedPlatform) && isHiddenStatus(status)) {
+      droppedBadge = BADGE_LABEL[selectedPlatform] || 'Mobile/VR'
+      setSelectedPlatform('desktop')
+      platformPatch = { statusPlatform: 'desktop' }
     }
+    setUserStatus(status)
     // If status is currently enabled, save & sync immediately
     if (statusEnabled) {
       // STATUS-NOT-UPDATING FIX: surface the real sync result instead of
       // always showing success — the daemon can fail or defer the push.
-      api.statusUpdate({ userStatus: effective })
+      api.statusUpdate({ userStatus: status, ...platformPatch })
         .then((res) => {
+          if (droppedBadge) {
+            toast.info(`${droppedBadge} badge shows only when Online — set to None to keep your ${status === 'idle' ? 'Idle' : 'DND'} status`, { duration: 3500 })
+          }
           if (res.sync && !res.sync.ok) {
             toast.warning('Status saved — Discord will update within 30s', { duration: 3000 })
           } else {
-            toast.success(`Status set to ${effective} & synced to Discord`, { duration: 2000 })
+            toast.success(`Status set to ${status} & synced to Discord`, { duration: 2000 })
           }
           onRefresh()
         })
         .catch(() => toast.error('Failed to update status', { duration: 2500 }))
     } else {
-      toast.success(`Status set to ${effective} (click UPDATE to save)`, { duration: 2000 })
+      if (droppedBadge) {
+        toast.info(`${droppedBadge} badge shows only when Online — set to None to keep your ${status === 'idle' ? 'Idle' : 'DND'} status`, { duration: 3500 })
+      }
+      toast.success(`Status set to ${status} (click UPDATE to save)`, { duration: 2000 })
     }
   }
 
@@ -180,9 +187,14 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
     setStatusEnabled(v)
     try {
       const res = await api.statusToggle(v)
-      // Server may have auto-switched Idle/DND → Online (Mobile/VR badge rule)
+      // Server mirrors the badge rules: the stored status (unchanged by the
+      // toggle) and a possibly auto-reset platform (Idle/DND ⇒ None).
       if (v && res.userStatus) setUserStatus(res.userStatus)
-      toast.success(v ? 'Status enabled (Online on Discord)' : 'Status disabled (Offline)', { duration: 2000 })
+      if (v && res.statusPlatform) setSelectedPlatform(res.statusPlatform)
+      if (v && res.autoNone) {
+        toast.info('VR/Mobile icon saved as None — badges show only when Online', { duration: 3500 })
+      }
+      toast.success(v ? 'Status enabled' : 'Status disabled (Offline)', { duration: 2000 })
       onRefresh()
     } catch (e) {
       console.error(e)
@@ -198,25 +210,25 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
         toast.error('Custom message too long (max 128 chars)')
         return
       }
-      // VR/MOBILE BADGE FIX (the requested behavior): when the Mobile or VR
-      // icon is enabled and the Discord status is Idle/Do Not Disturb,
-      // clicking UPDATE automatically switches the status to Online and
-      // applies immediately so the selected icon displays on the profile.
-      let effectiveStatus = userStatus
-      const autoOnline = statusEnabled && isBadgePlatform(selectedPlatform) && isHiddenStatus(userStatus)
-      if (autoOnline) {
-        effectiveStatus = 'online'
-        setUserStatus('online')
+      // IDLE/DND ⇒ NONE RULE (the requested behavior): when the user selects
+      // Idle or Do Not Disturb and clicks UPDATE, the VR/Mobile icon is
+      // automatically saved as None and the chosen Idle/DND status is kept
+      // exactly as selected (Discord hides badges behind idle/dnd glyphs).
+      let effectivePlatform = selectedPlatform
+      const autoNone = isBadgePlatform(selectedPlatform) && isHiddenStatus(userStatus)
+      if (autoNone) {
+        effectivePlatform = 'desktop'
+        setSelectedPlatform('desktop')
       }
       const result = await api.statusUpdate({
-        userStatus: effectiveStatus,
+        userStatus,
         customStatus: customMsg || null,
         customStatusEmoji: customEmoji || null,
-        statusPlatform: selectedPlatform,
+        statusPlatform: effectivePlatform,
       })
       if (result.ok) {
-        if (autoOnline) {
-          toast.info(`${BADGE_LABEL[selectedPlatform] || 'Mobile/VR'} badge shows only when Online — status switched to Online automatically`, { duration: 4000 })
+        if (autoNone) {
+          toast.info(`${BADGE_LABEL[selectedPlatform] || 'Mobile/VR'} badge shows only when Online — set to None to keep your ${userStatus === 'idle' ? 'Idle' : 'DND'} status`, { duration: 4000 })
         }
         if (statusEnabled && result.sync && !result.sync.ok) {
           toast.warning('Saved — Discord sync will retry within 30s', { duration: 3000 })

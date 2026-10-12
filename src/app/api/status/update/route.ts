@@ -4,7 +4,7 @@ import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
-import { normalizeStatusForPlatform } from '@/lib/constants'
+import { BADGE_PLATFORMS } from '@/lib/constants'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 15
@@ -40,12 +40,26 @@ export async function POST(req: Request) {
       updateData.userStatus = body.userStatus
     }
 
-    // ── VR/MOBILE BADGE FIX: Discord hides the Mobile/VR platform badge while
-    // the presence status is idle/dnd (only the moon/dash glyph renders), so
-    // "Idle + VR" looked like "the icon is not showing". Enforce the product
-    // rule: when a badge platform (Mobile/VR) is active, idle/dnd is
-    // automatically stored as online so the selected icon always displays.
-    // Effective values AFTER this update (body wins over stored session state).
+    if (body.statusPlatform !== undefined) {
+      const platform = body.statusPlatform || 'mobile'
+      updateData.statusPlatform = platform
+      updateData.vrStatusActive = platform === 'meta_quest'
+    }
+
+    // ── BADGE ⇄ STATUS RESOLUTION (runs LAST — its decision wins) ───────
+    // Discord hides the Mobile/VR platform badge while the presence status is
+    // idle/dnd (only the moon/dash glyph renders). Two product rules resolve
+    // the conflict, depending on what the user asserted in THIS update:
+    //
+    //   • STATUS WINS (primary rule): the user selected Idle/Do Not Disturb
+    //     and updated (UPDATE button or the status dropdown) → the VR/Mobile
+    //     icon is AUTOMATICALLY SAVED AS NONE (desktop) and the chosen
+    //     Idle/DND status is kept exactly as selected.
+    //
+    //   • PLATFORM WINS: only statusPlatform changed to a badge platform
+    //     (platform dropdown pick) while Idle/DND was stored → the status is
+    //     switched to online so the badge displays (the VR toggle endpoint
+    //     enforces the same rule for the explicit VR enable).
     const effPlatform = body.statusPlatform !== undefined
       ? (body.statusPlatform || 'mobile')
       : (session.statusPlatform || 'mobile')
@@ -55,12 +69,19 @@ export async function POST(req: Request) {
     const effStatus = body.userStatus !== undefined
       ? body.userStatus
       : (session.userStatus || 'online')
-    const storedStatus = normalizeStatusForPlatform(effPlatform, effStatus, effVr)
-    // Auto-switch applies to BOTH paths: a status change to idle/dnd with a
-    // badge platform active, AND a platform change to Mobile/VR while idle/dnd
-    // is stored (the platform dropdown saves immediately without userStatus).
-    if (storedStatus !== effStatus) {
-      updateData.userStatus = storedStatus
+    const effIsBadge = effVr || BADGE_PLATFORMS.has(effPlatform)
+    const statusAsserted = body.userStatus !== undefined
+    const storedIdle = session.userStatus === 'idle' || session.userStatus === 'dnd'
+    const autoNone = statusAsserted && (effStatus === 'idle' || effStatus === 'dnd') && effIsBadge
+    const autoOnline = !statusAsserted && effIsBadge && storedIdle
+    if (autoNone) {
+      // Idle/DND asserted → badge saved as None, status kept (overrides the
+      // raw statusPlatform above — this block runs last on purpose).
+      updateData.statusPlatform = 'desktop'
+      updateData.vrStatusActive = false
+    } else if (autoOnline) {
+      // Badge platform asserted while Idle/DND stored → status to online.
+      updateData.userStatus = 'online'
     }
 
     if (body.customStatus !== undefined) {
@@ -76,12 +97,6 @@ export async function POST(req: Request) {
 
     if (body.customStatusEmoji !== undefined) {
       updateData.customStatusEmoji = body.customStatusEmoji ? body.customStatusEmoji.trim() : null
-    }
-
-    if (body.statusPlatform !== undefined) {
-      const platform = body.statusPlatform || 'mobile'
-      updateData.statusPlatform = platform
-      updateData.vrStatusActive = platform === 'meta_quest'
     }
 
     // Save ONLY to Session (Status DB fields) — NEVER touch RpcConfig or rpcEnabled
@@ -105,10 +120,9 @@ export async function POST(req: Request) {
       sync = { ok: !!presence?.ok, message: presence?.message || '' }
     }
 
-    // True when this update flipped idle/dnd → online because a Mobile/VR
-    // badge platform is active (the UI surfaces an explanatory toast).
-    const autoOnline = storedStatus === 'online' && effStatus !== 'online'
-
+    // Flags for the UI toasts:
+    // autoNone  — Idle/DND asserted with a Mobile/VR badge active → icon saved as None.
+    // autoOnline — badge platform asserted while Idle/DND stored → status switched to online.
     return NextResponse.json({
       ok: true,
       statusEnabled: isStatusEnabled,
@@ -117,12 +131,21 @@ export async function POST(req: Request) {
       customStatusEmoji: currentSession?.customStatusEmoji || null,
       statusPlatform: currentSession?.statusPlatform || 'mobile',
       autoOnline,
+      autoNone,
       sync,
       message: !isStatusEnabled
         ? 'Status configuration saved (Status is OFF)'
         : sync?.ok
-          ? (autoOnline ? 'Mobile/VR badge needs Online — status switched to Online & synced' : 'Status updated & synced to Discord')
-          : (autoOnline ? 'Mobile/VR badge needs Online — status switched to Online' : 'Status saved — Discord sync will retry within 30s'),
+          ? (autoNone
+              ? 'Idle/DND hides the VR/Mobile badge — icon saved as None & synced'
+              : autoOnline
+                ? 'Mobile/VR badge needs Online — status switched to Online & synced'
+                : 'Status updated & synced to Discord')
+          : (autoNone
+              ? 'Idle/DND hides the VR/Mobile badge — icon saved as None'
+              : autoOnline
+                ? 'Mobile/VR badge needs Online — status switched to Online'
+                : 'Status saved — Discord sync will retry within 30s'),
     })
   } catch (e: any) {
     console.error('Error in /api/status/update:', e)

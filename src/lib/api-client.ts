@@ -527,6 +527,7 @@ export const api = {
       customStatusEmoji: string | null
       statusPlatform: string
       autoOnline?: boolean
+      autoNone?: boolean
       message?: string
       error?: string
       sync?: { ok: boolean; message: string } | null
@@ -534,7 +535,7 @@ export const api = {
       method: 'POST',
       body: JSON.stringify(data),
     }),
-  statusToggle: (enabled: boolean) => fetchJson<{ ok: boolean; statusEnabled: boolean; userStatus?: string }>('/api/status/toggle', {
+  statusToggle: (enabled: boolean) => fetchJson<{ ok: boolean; statusEnabled: boolean; userStatus?: string; statusPlatform?: string; autoNone?: boolean }>('/api/status/toggle', {
     method: 'POST', body: JSON.stringify({ enabled }),
   }),
 

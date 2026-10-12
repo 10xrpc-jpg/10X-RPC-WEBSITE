@@ -77,6 +77,24 @@ export function normalizeStatusForPlatform(
   return status || 'online'
 }
 
+/**
+ * STATUS-WINS resolution (the "Idle/DND must save VR/Mobile as None" rule).
+ * Discord hides the Mobile/VR badge while the presence status is idle/dnd, so
+ * when the user asserts Idle or Do Not Disturb, the badge platform is
+ * automatically saved as None (desktop) and the chosen status is kept as-is.
+ */
+export function normalizePlatformForStatus(
+  status: string | null | undefined,
+  platform: string | null | undefined,
+  vrActive?: boolean
+): { platform: string; vrActive: boolean; changed: boolean } {
+  const badge = vrActive === true || (!!platform && BADGE_PLATFORMS.has(platform))
+  if (badge && (status === 'idle' || status === 'dnd')) {
+    return { platform: 'desktop', vrActive: false, changed: true }
+  }
+  return { platform: platform || 'desktop', vrActive: vrActive === true, changed: false }
+}
+
 // Flat options for the "RPC DEVICE / PLATFORM" selector (reference design: None / PlayStation / Xbox / Meta Quest)
 export const RPC_PLATFORM_OPTIONS: { value: string; label: string }[] = [
   { value: 'desktop', label: 'None' },
