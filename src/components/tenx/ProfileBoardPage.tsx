@@ -16,7 +16,7 @@ import { useRouter } from './useRouter'
 import { BackButton } from './ui'
 import { BrandMark } from './BrandMark'
 import { ReconnectBanner } from './ReconnectBanner'
-import { User, Star, Plus, X, Gamepad2, BadgeCheck, Loader2, CheckCircle2, Search, Zap, ChevronDown } from 'lucide-react'
+import { User, Star, Plus, X, Gamepad2, BadgeCheck, Loader2, CheckCircle2, Search, Zap, ChevronDown, Ban, TriangleAlert } from 'lucide-react'
 
 /** Once an icon <img> loads, hide the letter fallback behind it — some game
  * icons are transparent PNGs, which would otherwise ghost the initials. */
@@ -152,8 +152,8 @@ export function ProfileBoardPage() {
             <p className="text-xs text-white/45 font-mono truncate">{me.user.id}</p>
             <div className="flex flex-wrap items-center gap-1.5 mt-2">
               {me.session?.gatewayReady && (
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 inline-flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" /> Gateway Live
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 border border-purple-500/30 inline-flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" /> Gateway Live
                 </span>
               )}
               {me.activeGame ? (
@@ -170,15 +170,15 @@ export function ProfileBoardPage() {
                 </span>
               )}
               {me.subscription?.status === 'suspended' ? (
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-red-500/15 text-red-300 border border-red-500/30">
-                  ⛔ Suspended
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-purple-600/20 text-purple-200 border border-purple-500/40 inline-flex items-center gap-1">
+                  <Ban className="w-3 h-3" aria-hidden="true" /> Suspended
                 </span>
               ) : me.subscription?.status === 'trialing' ? (
                 <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-white/5 text-white/50 border border-white/10">
                   {me.subscription.daysLeft}d trial
                 </span>
               ) : me.subscription?.status === 'active' ? (
-                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-300 border border-purple-500/30">
                   {me.subscription.plan === 'lifetime' ? '∞ Lifetime' : `${me.subscription.plan} · ${me.subscription.daysLeft}d`}
                 </span>
               ) : me.trial?.active && !me.subscription ? (
@@ -199,7 +199,7 @@ export function ProfileBoardPage() {
           {/* Section header */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <Star className="w-5 h-5 text-amber-300 fill-amber-300/80" />
+              <Star className="w-5 h-5 text-purple-300 fill-purple-400/60" />
               <h2 className="text-lg font-bold text-white tracking-tight">Favorite Game</h2>
             </div>
             <button
@@ -219,7 +219,7 @@ export function ProfileBoardPage() {
           {/* Favorites list */}
           {favorites.length === 0 ? (
             <div className="p-10 text-center space-y-3 border border-dashed border-white/10 rounded-2xl">
-              <div className="text-4xl select-none">⭐</div>
+              <Star className="w-10 h-10 mx-auto text-purple-300 fill-purple-400/50" aria-hidden="true" />
               <p className="text-white/70 font-medium">No favorite games yet</p>
               <p className="text-xs text-white/40 max-w-xs mx-auto">
                 Tap <span className="text-purple-300 font-semibold">Add Game</span> and search e.g. "Minecraft" — the Application ID is fetched automatically and the game goes live as your Game RPC.
@@ -260,7 +260,7 @@ export function ProfileBoardPage() {
                           <span className="text-sm sm:text-base font-bold text-white group-hover:text-purple-200 transition-colors truncate">
                             {fav.name}
                           </span>
-                          <Star className="w-3.5 h-3.5 shrink-0 text-amber-300 fill-amber-300/80" />
+                          <Star className="w-3.5 h-3.5 shrink-0 text-purple-300 fill-purple-400/60" />
                           {fav.appId && (
                             <span className="shrink-0 hidden sm:inline text-[9px] font-mono text-white/40 border border-white/10 rounded-md px-1.5 py-0.5">
                               ID {fav.appId}
@@ -275,8 +275,8 @@ export function ProfileBoardPage() {
 
                     <div className="flex items-center gap-2 shrink-0 ml-3">
                       {active && (
-                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                        <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-purple-300 border border-purple-500/30 inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm">
+                          <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
                           <span>Active</span>
                         </span>
                       )}
@@ -288,9 +288,9 @@ export function ProfileBoardPage() {
                           onClick={(e) => { e.stopPropagation(); handleRemove(fav) }}
                           disabled={!!removingId}
                           aria-label={`Remove ${fav.name} from favorites`}
-                          className="w-8 h-8 rounded-lg bg-white/5 hover:bg-red-500/15 border border-white/10 hover:border-red-500/40 flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50"
+                          className="w-8 h-8 rounded-lg bg-white/5 hover:bg-purple-500/15 border border-white/10 hover:border-purple-500/40 flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50"
                         >
-                          <X className="w-4 h-4 text-white/50 hover:text-red-300" />
+                          <X className="w-4 h-4 text-white/50 hover:text-purple-300" />
                         </button>
                       )}
                     </div>
@@ -303,7 +303,7 @@ export function ProfileBoardPage() {
       </div>
 
       <p className="text-xs text-white/30 text-center pt-2">
-        ⚠ 10X RPC is not responsible if your account gets banned or blocked. Use at your own risk.
+        <TriangleAlert className="w-3.5 h-3.5 inline-block align-[-3px] mr-1 text-purple-300" aria-hidden="true" />10X RPC is not responsible if your account gets banned or blocked. Use at your own risk.
       </p>
 
       {/* Add Game dialog */}
@@ -512,7 +512,7 @@ function AddFavoriteGameDialog({
                 {app.name}
               </span>
               {app.verified && (
-                <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-sky-400" aria-label="Verified application" />
+                <BadgeCheck className="w-3.5 h-3.5 shrink-0 text-purple-400" aria-label="Verified application" />
               )}
               {!app.isGame && (
                 <span className="shrink-0 text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-white/10 text-white/60 border border-white/15">
@@ -530,8 +530,8 @@ function AddFavoriteGameDialog({
           {busy ? (
             <Loader2 className="w-4 h-4 text-purple-300 animate-spin" />
           ) : alreadyGame ? (
-            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/10 text-amber-300 border border-amber-400/30 inline-flex items-center gap-1 whitespace-nowrap">
-              <Star className="w-3 h-3 fill-amber-300/80" />
+            <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-400/10 text-purple-300 border border-purple-400/30 inline-flex items-center gap-1 whitespace-nowrap">
+              <Star className="w-3 h-3 fill-purple-400/80" />
               <span>Favorite</span>
             </span>
           ) : (
@@ -565,7 +565,7 @@ function AddFavoriteGameDialog({
         <div className="flex items-center justify-between pb-4 border-b border-white/8">
           <div className="flex items-center gap-2.5">
             <span className="w-9 h-9 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center">
-              <Star className="w-4.5 h-4.5 text-amber-300 fill-amber-300/70" />
+              <Star className="w-4.5 h-4.5 text-purple-300 fill-purple-400/70" />
             </span>
             <div>
               <h2 className="text-base font-bold text-white tracking-tight">Add Game</h2>
@@ -636,8 +636,8 @@ function AddFavoriteGameDialog({
                       </div>
                     </div>
                     {fav ? (
-                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-amber-400/10 text-amber-300 border border-amber-400/30 inline-flex items-center gap-1 whitespace-nowrap">
-                        <Star className="w-3 h-3 fill-amber-300/80" />
+                      <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-400/10 text-purple-300 border border-purple-400/30 inline-flex items-center gap-1 whitespace-nowrap">
+                        <Star className="w-3 h-3 fill-purple-400/80" />
                         <span>Favorited</span>
                       </span>
                     ) : (
@@ -754,7 +754,7 @@ function AddFavoriteGameDialog({
 
               {!discordSearching && discordResults.length > 0 && (
                 <p className="text-[11px] text-white/35 px-1 pt-1 flex items-center gap-1.5">
-                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400/70 shrink-0" />
+                  <CheckCircle2 className="w-3.5 h-3.5 text-purple-400/70 shrink-0" />
                   One click grabs the official Application ID, favorites the game and sets it live as your Game RPC.
                 </p>
               )}
