@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
 import { api, type Me } from '@/lib/api-client'
 import { useRouter } from './useRouter'
-import { Card, PurpleSwitch } from './ui'
+import { Card, PurpleSwitch , StatusGlyph} from './ui'
 import { DISCORD_STATUSES } from '@/lib/constants'
 import { Ban, Smartphone, SmilePlus, Globe, Image as ImageIcon, Settings, LogOut } from 'lucide-react'
 import { DiscordPreview } from './DiscordPreview'
@@ -358,10 +358,12 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
             <button
               type="button"
               onClick={() => togglePopup(!statusDropdown, setStatusDropdown)}
-              className={`absolute bottom-1 right-2 w-4 h-4 rounded-full border-2 border-[#13111d] ${statusInfo.color} shadow-lg cursor-pointer transition-transform hover:scale-125 active:scale-95`}
+              className={`absolute bottom-1 right-2 w-4 h-4 rounded-full border-2 border-[#13111d] bg-[#181922] shadow-lg cursor-pointer transition-transform hover:scale-125 active:scale-95 flex items-center justify-center`}
               aria-label="Change status"
               title="Click to change status"
-            />
+            >
+              <StatusGlyph status={userStatus} className="w-full h-full" />
+            </button>
 
             {/* "click here" text */}
             <button
@@ -382,8 +384,11 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                     userStatus === 'online' ? 'bg-white/10 text-white font-medium' : 'text-white/80 hover:text-white hover:bg-white/5'
                   }`}
                 >
-                  <span className="w-2.5 h-2.5 rounded-full bg-purple-400 shadow-sm shadow-purple-400/50" />
-                  <span>Online</span>
+                  <StatusGlyph status="online" className="w-3 h-3" />
+                  <span className="flex-1">Online</span>
+                  <span aria-hidden className={`ml-auto w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${userStatus === 'online' ? 'border-purple-500 bg-purple-500' : 'border-white/25'}`}>
+                    {userStatus === 'online' && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </span>
                 </button>
 
                 <button
@@ -393,8 +398,11 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                     userStatus === 'idle' ? 'bg-white/10 text-white font-medium' : 'text-white/80 hover:text-white hover:bg-white/5'
                   }`}
                 >
-                  <span className="w-2.5 h-2.5 rounded-full bg-purple-300 shadow-sm shadow-purple-300/50" />
-                  <span>Idle</span>
+                  <StatusGlyph status="idle" className="w-3.5 h-3.5" />
+                  <span className="flex-1">Idle</span>
+                  <span aria-hidden className={`ml-auto w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${userStatus === 'idle' ? 'border-purple-500 bg-purple-500' : 'border-white/25'}`}>
+                    {userStatus === 'idle' && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </span>
                 </button>
 
                 <button
@@ -404,8 +412,11 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                     userStatus === 'dnd' ? 'bg-white/10 text-white font-medium' : 'text-white/80 hover:text-white hover:bg-white/5'
                   }`}
                 >
-                  <span className="w-2.5 h-2.5 rounded-full bg-purple-600 shadow-sm shadow-purple-600/50" />
-                  <span>Do Not Disturb</span>
+                  <StatusGlyph status="dnd" className="w-3.5 h-3.5" />
+                  <span className="flex-1">Do Not Disturb</span>
+                  <span aria-hidden className={`ml-auto w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors ${userStatus === 'dnd' ? 'border-purple-500 bg-purple-500' : 'border-white/25'}`}>
+                    {userStatus === 'dnd' && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                  </span>
                 </button>
               </div>
             )}

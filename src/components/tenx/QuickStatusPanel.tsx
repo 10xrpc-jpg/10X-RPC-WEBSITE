@@ -3,17 +3,18 @@
 import { useState } from 'react'
 import { api } from '@/lib/api-client'
 import { DISCORD_STATUSES } from '@/lib/constants'
+import { StatusGlyph } from './ui'
 
 interface QuickStatusProps {
   currentStatus?: string
   onStatusChange?: (status: string) => void
 }
 
-const QUICK_PRESETS: Array<{ status: string; label: string; color: string }> = [
-  { status: 'online', label: 'Online', color: 'bg-purple-400' },
-  { status: 'idle', label: 'Idle', color: 'bg-purple-300' },
-  { status: 'dnd', label: 'DND', color: 'bg-purple-600' },
-  { status: 'invisible', label: 'Invisible', color: 'bg-white/30' },
+const QUICK_PRESETS: Array<{ status: string; label: string }> = [
+  { status: 'online', label: 'Online' },
+  { status: 'idle', label: 'Idle' },
+  { status: 'dnd', label: 'DND' },
+  { status: 'invisible', label: 'Invisible' },
 ]
 
 const QUICK_CUSTOM_STATUSES: Array<{ emoji: string; text: string }> = [
@@ -84,7 +85,7 @@ export function QuickStatusPanel({ currentStatus, onStatusChange }: QuickStatusP
                   : 'bg-[#13141a] border border-white/8 text-white/70 hover:bg-white/5'
               } disabled:opacity-50`}
             >
-              <span className={`w-3 h-3 rounded-full ${p.color}`} />
+              <StatusGlyph status={p.status} className="w-3 h-3" />
               {p.label}
             </button>
           )

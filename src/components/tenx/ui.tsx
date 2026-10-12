@@ -1,12 +1,33 @@
 // 10X RPC — shared UI atoms
 'use client'
 import { cn } from '@/lib/utils'
-import { ArrowLeft } from 'lucide-react'
+import { ArrowLeft, Moon } from 'lucide-react'
 import { Switch } from '@/components/ui/switch'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import type { ReactNode } from 'react'
+
+
+// Discord-authentic status glyph rendered in the site's purple system:
+// online = filled dot · idle = filled moon · dnd = donut with dash ·
+// invisible = hollow ring. Size via className (w-* h-*); inner shapes scale.
+export function StatusGlyph({ status, className }: { status: string; className?: string }) {
+  if (status === 'idle') {
+    return <Moon className={cn('shrink-0 text-purple-300', className)} fill="currentColor" strokeWidth={0} aria-hidden="true" />
+  }
+  if (status === 'dnd') {
+    return (
+      <span className={cn('inline-flex items-center justify-center rounded-full bg-purple-600 shrink-0', className)} aria-hidden="true">
+        <span className="w-[55%] h-[18%] min-h-[2px] rounded-full bg-[#121218]" />
+      </span>
+    )
+  }
+  if (status === 'invisible') {
+    return <span className={cn('inline-block rounded-full border-2 border-white/30 box-border shrink-0', className)} aria-hidden="true" />
+  }
+  return <span className={cn('inline-block rounded-full bg-purple-400 shrink-0', className)} aria-hidden="true" />
+}
 
 export function Card({ className, children }: { className?: string; children: ReactNode }) {
   return (

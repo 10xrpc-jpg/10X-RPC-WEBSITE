@@ -7,6 +7,7 @@ import { useRouter } from './useRouter'
 import { Card, PrimaryButton, GhostButton, PurpleSwitch, BackButton } from './ui'
 import { MAX_ROTATOR_PRESETS, DEFAULT_ROTATOR_PRESETS } from '@/lib/rotator'
 import { DiscordEmoji, normalizeEmojiInput } from './Emoji'
+import { StatusGlyph } from './ui'
 import { Repeat, TriangleAlert, X, ChevronUp, ChevronDown, Plus, MessageCircle } from 'lucide-react'
 
 type StatusType = 'online' | 'idle' | 'dnd'
@@ -339,7 +340,7 @@ function AddPresetModal({
                     : 'bg-[#13141a] text-white/60 hover:text-white'
                 }`}
               >
-                <span className={`w-2 h-2 rounded-full ${s.dot}`} />
+                <StatusGlyph status={s.v} className="w-2.5 h-2.5" />
                 {s.label}
               </button>
             ))}
