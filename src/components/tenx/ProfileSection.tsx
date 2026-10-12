@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import { api, type Me } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { Card, PurpleSwitch , StatusGlyph} from './ui'
-import { DISCORD_STATUSES } from '@/lib/constants'
+import { BADGE_PLATFORMS, DISCORD_STATUSES } from '@/lib/constants'
 import { Ban, Smartphone, SmilePlus, Globe, Image as ImageIcon, Settings, LogOut, UserRound, Timer } from 'lucide-react'
 import { DiscordPreview } from './DiscordPreview'
 import { DiscordEmoji, normalizeEmojiInput } from './Emoji'
@@ -26,6 +26,13 @@ const PLATFORM_ITEMS = [
   { value: 'desktop', label: 'None', icon: Ban, tint: 'text-white/50' },
   { value: 'meta_quest', label: 'VR', icon: VrIcon, tint: 'text-fuchsia-400' },
 ]
+
+// Discord hides the Mobile/VR platform badge while the presence status is
+// idle/dnd (only the moon/dash glyph renders). Enforce the product rule:
+// badge platform active ⇒ status is automatically switched to Online.
+const BADGE_LABEL: Record<string, string> = { mobile: 'Mobile', meta_quest: 'VR' }
+const isBadgePlatform = (p: string | null | undefined) => !!p && BADGE_PLATFORMS.has(p)
+const isHiddenStatus = (s: string | null | undefined) => s === 'idle' || s === 'dnd'
 
 export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
   const { navigate } = useRouter()
@@ -140,30 +147,41 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
 
   const handleStatusSelect = (status: string) => {
     setStatusDropdown(false)
-    setUserStatus(status)
+    // VR/MOBILE BADGE FIX: picking Idle/DND while a Mobile/VR badge is active
+    // would hide the icon on Discord — auto-switch to Online instead.
+    let effective = status
+    if (statusEnabled && isBadgePlatform(selectedPlatform) && isHiddenStatus(status)) {
+      effective = 'online'
+      setUserStatus('online')
+      toast.info(`${BADGE_LABEL[selectedPlatform] || 'Mobile/VR'} badge shows only when Online — status switched to Online`, { duration: 3500 })
+    } else {
+      setUserStatus(status)
+    }
     // If status is currently enabled, save & sync immediately
     if (statusEnabled) {
       // STATUS-NOT-UPDATING FIX: surface the real sync result instead of
       // always showing success — the daemon can fail or defer the push.
-      api.statusUpdate({ userStatus: status })
+      api.statusUpdate({ userStatus: effective })
         .then((res) => {
           if (res.sync && !res.sync.ok) {
             toast.warning('Status saved — Discord will update within 30s', { duration: 3000 })
           } else {
-            toast.success(`Status set to ${status} & synced to Discord`, { duration: 2000 })
+            toast.success(`Status set to ${effective} & synced to Discord`, { duration: 2000 })
           }
           onRefresh()
         })
         .catch(() => toast.error('Failed to update status', { duration: 2500 }))
     } else {
-      toast.success(`Status set to ${status} (click UPDATE to save)`, { duration: 2000 })
+      toast.success(`Status set to ${effective} (click UPDATE to save)`, { duration: 2000 })
     }
   }
 
   const handleToggleStatus = async (v: boolean) => {
     setStatusEnabled(v)
     try {
-      await api.statusToggle(v)
+      const res = await api.statusToggle(v)
+      // Server may have auto-switched Idle/DND → Online (Mobile/VR badge rule)
+      if (v && res.userStatus) setUserStatus(res.userStatus)
       toast.success(v ? 'Status enabled (Online on Discord)' : 'Status disabled (Offline)', { duration: 2000 })
       onRefresh()
     } catch (e) {
@@ -180,13 +198,26 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
         toast.error('Custom message too long (max 128 chars)')
         return
       }
+      // VR/MOBILE BADGE FIX (the requested behavior): when the Mobile or VR
+      // icon is enabled and the Discord status is Idle/Do Not Disturb,
+      // clicking UPDATE automatically switches the status to Online and
+      // applies immediately so the selected icon displays on the profile.
+      let effectiveStatus = userStatus
+      const autoOnline = statusEnabled && isBadgePlatform(selectedPlatform) && isHiddenStatus(userStatus)
+      if (autoOnline) {
+        effectiveStatus = 'online'
+        setUserStatus('online')
+      }
       const result = await api.statusUpdate({
-        userStatus,
+        userStatus: effectiveStatus,
         customStatus: customMsg || null,
         customStatusEmoji: customEmoji || null,
         statusPlatform: selectedPlatform,
       })
       if (result.ok) {
+        if (autoOnline) {
+          toast.info(`${BADGE_LABEL[selectedPlatform] || 'Mobile/VR'} badge shows only when Online — status switched to Online automatically`, { duration: 4000 })
+        }
         if (statusEnabled && result.sync && !result.sync.ok) {
           toast.warning('Saved — Discord sync will retry within 30s', { duration: 3000 })
         } else {
@@ -590,7 +621,18 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                         setSelectedPlatform(item.value)
                         setPlatformOpen(false)
                         try {
-                          await api.statusUpdate({ statusPlatform: item.value })
+                          // VR/MOBILE BADGE FIX: selecting Mobile/VR while the
+                          // status is Idle/DND auto-switches to Online so the
+                          // badge displays immediately.
+                          const autoOnline = isBadgePlatform(item.value) && isHiddenStatus(userStatus)
+                          if (autoOnline) {
+                            setUserStatus('online')
+                            toast.info(`${item.label} badge shows only when Online — status switched to Online`, { duration: 3500 })
+                          }
+                          await api.statusUpdate({
+                            statusPlatform: item.value,
+                            ...(autoOnline ? { userStatus: 'online' } : {}),
+                          })
                           toast.success(`Status platform set to ${item.label}`, { duration: 2000 })
                           onRefresh()
                         } catch (e: any) {

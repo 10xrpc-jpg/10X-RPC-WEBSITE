@@ -526,6 +526,7 @@ export const api = {
       customStatus: string | null
       customStatusEmoji: string | null
       statusPlatform: string
+      autoOnline?: boolean
       message?: string
       error?: string
       sync?: { ok: boolean; message: string } | null

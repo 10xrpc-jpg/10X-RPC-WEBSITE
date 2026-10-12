@@ -3,6 +3,7 @@ import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
+import { normalizeStatusForPlatform } from '@/lib/constants'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,13 +16,28 @@ export async function POST(req: Request) {
     const active = !!body.active
 
     // Update session state in database (Status fields only)
+    const data: Record<string, unknown> = {
+      vrStatusActive: active,
+      statusPlatform: active ? 'meta_quest' : (session.statusPlatform === 'meta_quest' ? 'mobile' : session.statusPlatform),
+      lastPresenceUpdate: new Date(),
+    }
+
+    // ── VR BADGE FIX: Discord hides the VR headset badge while the presence
+    // status is idle/dnd, so "Idle + VR" looked like "the icon is not
+    // showing". Enabling VR automatically switches Idle/DND to Online so the
+    // headset icon always displays immediately.
+    const requested = session.userStatus || 'online'
+    const storedStatus = active
+      ? normalizeStatusForPlatform('meta_quest', requested)
+      : requested
+    if (storedStatus !== requested) {
+      data.userStatus = storedStatus
+    }
+    const autoOnline = storedStatus !== requested
+
     await db.session.updateMany({
       where: { userId: session.userId },
-      data: {
-        vrStatusActive: active,
-        statusPlatform: active ? 'meta_quest' : (session.statusPlatform === 'meta_quest' ? 'mobile' : session.statusPlatform),
-        lastPresenceUpdate: new Date(),
-      },
+      data,
     })
 
     // If Status is enabled and user has Discord token, sync Status to gateway
@@ -33,6 +49,8 @@ export async function POST(req: Request) {
     return NextResponse.json({
       ok: true,
       vrStatusActive: active,
+      userStatus: storedStatus,
+      autoOnline,
       result: presenceResult,
     })
   } catch (e: any) {

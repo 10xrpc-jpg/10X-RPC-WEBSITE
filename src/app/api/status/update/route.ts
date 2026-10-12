@@ -4,6 +4,7 @@ import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
+import { normalizeStatusForPlatform } from '@/lib/constants'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 15
@@ -37,6 +38,29 @@ export async function POST(req: Request) {
         )
       }
       updateData.userStatus = body.userStatus
+    }
+
+    // ── VR/MOBILE BADGE FIX: Discord hides the Mobile/VR platform badge while
+    // the presence status is idle/dnd (only the moon/dash glyph renders), so
+    // "Idle + VR" looked like "the icon is not showing". Enforce the product
+    // rule: when a badge platform (Mobile/VR) is active, idle/dnd is
+    // automatically stored as online so the selected icon always displays.
+    // Effective values AFTER this update (body wins over stored session state).
+    const effPlatform = body.statusPlatform !== undefined
+      ? (body.statusPlatform || 'mobile')
+      : (session.statusPlatform || 'mobile')
+    const effVr = body.statusPlatform !== undefined
+      ? (body.statusPlatform === 'meta_quest')
+      : !!session.vrStatusActive
+    const effStatus = body.userStatus !== undefined
+      ? body.userStatus
+      : (session.userStatus || 'online')
+    const storedStatus = normalizeStatusForPlatform(effPlatform, effStatus, effVr)
+    // Auto-switch applies to BOTH paths: a status change to idle/dnd with a
+    // badge platform active, AND a platform change to Mobile/VR while idle/dnd
+    // is stored (the platform dropdown saves immediately without userStatus).
+    if (storedStatus !== effStatus) {
+      updateData.userStatus = storedStatus
     }
 
     if (body.customStatus !== undefined) {
@@ -81,6 +105,10 @@ export async function POST(req: Request) {
       sync = { ok: !!presence?.ok, message: presence?.message || '' }
     }
 
+    // True when this update flipped idle/dnd → online because a Mobile/VR
+    // badge platform is active (the UI surfaces an explanatory toast).
+    const autoOnline = storedStatus === 'online' && effStatus !== 'online'
+
     return NextResponse.json({
       ok: true,
       statusEnabled: isStatusEnabled,
@@ -88,12 +116,13 @@ export async function POST(req: Request) {
       customStatus: currentSession?.customStatus || null,
       customStatusEmoji: currentSession?.customStatusEmoji || null,
       statusPlatform: currentSession?.statusPlatform || 'mobile',
+      autoOnline,
       sync,
       message: !isStatusEnabled
         ? 'Status configuration saved (Status is OFF)'
         : sync?.ok
-          ? 'Status updated & synced to Discord'
-          : 'Status saved — Discord sync will retry within 30s',
+          ? (autoOnline ? 'Mobile/VR badge needs Online — status switched to Online & synced' : 'Status updated & synced to Discord')
+          : (autoOnline ? 'Mobile/VR badge needs Online — status switched to Online' : 'Status saved — Discord sync will retry within 30s'),
     })
   } catch (e: any) {
     console.error('Error in /api/status/update:', e)

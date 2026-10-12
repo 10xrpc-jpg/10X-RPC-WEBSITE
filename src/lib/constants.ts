@@ -50,6 +50,33 @@ export function platformByValue(value: string) {
   return PLATFORMS.find(p => p.value === value)
 }
 
+// ── VR / Mobile badge ⇒ Online rule (the "VR/mobile status not showing" fix) ─
+// Discord renders the platform badge (phone shape / VR headset) on a profile
+// ONLY while the presence status is "online". With idle/dnd the profile shows
+// just the moon / dash glyph and hides the badge entirely — so selecting
+// Mobile or VR while Idle/Do Not Disturb looks like "the icon is not showing".
+// Product rule: whenever a badge platform is active and the status is
+// idle/dnd, the status is automatically switched to online so the selected
+// icon always displays.
+export const BADGE_PLATFORMS: ReadonlySet<string> = new Set([
+  'mobile', 'android', 'ios', 'samsung', 'meta_quest',
+])
+
+/**
+ * Enforce the badge⇒online rule. Returns the status that should actually be
+ * stored / sent to Discord: when a badge platform (Mobile / VR) is active and
+ * the requested status is idle or dnd, this returns 'online'.
+ */
+export function normalizeStatusForPlatform(
+  platform: string | null | undefined,
+  status: string | null | undefined,
+  vrActive?: boolean
+): string {
+  const badge = vrActive === true || (!!platform && BADGE_PLATFORMS.has(platform))
+  if (badge && (status === 'idle' || status === 'dnd')) return 'online'
+  return status || 'online'
+}
+
 // Flat options for the "RPC DEVICE / PLATFORM" selector (reference design: None / PlayStation / Xbox / Meta Quest)
 export const RPC_PLATFORM_OPTIONS: { value: string; label: string }[] = [
   { value: 'desktop', label: 'None' },
