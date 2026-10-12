@@ -563,7 +563,7 @@ function HeroMockup() {
           <div className="bg-[#121319] border border-white/5 rounded-xl p-3 flex items-center gap-3.5">
             <div className="relative shrink-0">
               <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-600/80 to-purple-900/80 border border-white/10 flex items-center justify-center select-none">
-                <Target className="w-6 h-6 text-white/90" />
+                <Target className="w-6 h-6 text-rose-400/90" />
               </div>
               <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-[#121319] bg-[#1c1d25] flex items-center justify-center">
                 <Star className="w-3 h-3 text-purple-300" />

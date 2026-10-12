@@ -232,7 +232,7 @@ export function UptimePage() {
           {/* Regions & ping */}
           <section aria-label="Regions and ping">
             <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <Globe className="w-5 h-5 text-white/80" /> Regions &amp; Ping
+              <Globe className="w-5 h-5 text-sky-400" /> Regions &amp; Ping
             </h2>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <RegionCard
@@ -281,7 +281,7 @@ export function UptimePage() {
           {/* 24/7 daemon details */}
           <section aria-label="Daemon details">
             <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <Bot className="w-5 h-5 text-white/80" /> 24/7 Daemon
+              <Bot className="w-5 h-5 text-emerald-400" /> 24/7 Daemon
             </h2>
             <Card className="space-y-4">
               {!report ? (
@@ -320,7 +320,7 @@ export function UptimePage() {
           {/* Your ping */}
           <section aria-label="Your ping">
             <h2 className="text-lg font-bold text-white mb-3 flex items-center gap-2">
-              <Zap className="w-5 h-5 text-white/80" /> Your Ping
+              <Zap className="w-5 h-5 text-amber-400" /> Your Ping
             </h2>
             <Card className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">

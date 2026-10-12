@@ -6,7 +6,7 @@ import { api, type Me } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { Card, PurpleSwitch , StatusGlyph} from './ui'
 import { DISCORD_STATUSES } from '@/lib/constants'
-import { Ban, Smartphone, SmilePlus, Globe, Image as ImageIcon, Settings, LogOut } from 'lucide-react'
+import { Ban, Smartphone, SmilePlus, Globe, Image as ImageIcon, Settings, LogOut, UserRound, Timer } from 'lucide-react'
 import { DiscordPreview } from './DiscordPreview'
 import { DiscordEmoji, normalizeEmojiInput } from './Emoji'
 
@@ -22,9 +22,9 @@ function VrIcon({ className = 'w-4 h-4' }: { className?: string }) {
 }
 
 const PLATFORM_ITEMS = [
-  { value: 'mobile', label: 'Mobile', icon: Smartphone },
-  { value: 'desktop', label: 'None', icon: Ban },
-  { value: 'meta_quest', label: 'VR', icon: VrIcon },
+  { value: 'mobile', label: 'Mobile', icon: Smartphone, tint: 'text-sky-400' },
+  { value: 'desktop', label: 'None', icon: Ban, tint: 'text-white/50' },
+  { value: 'meta_quest', label: 'VR', icon: VrIcon, tint: 'text-fuchsia-400' },
 ]
 
 export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => void }) {
@@ -118,12 +118,25 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
       ? `${me.trial.daysLeft} day${me.trial.daysLeft === 1 ? '' : 's'} trial remaining`
       : null
   const subLineClass = sub?.admin
-    ? 'text-white/90'
+    ? 'text-amber-300'
     : sub?.status === 'suspended'
-      ? 'text-white/90'
-      : sub?.status === 'active'
-        ? 'text-white/90'
-        : 'text-white/90'
+      ? 'text-red-300'
+      : sub?.status === 'trialing'
+        ? 'text-sky-300'
+        : sub.neverExpires || sub.plan === 'lifetime'
+          ? 'text-emerald-300'
+          : 'text-purple-300'
+
+  // Big status word under the avatar — colored with the same Discord status palette as the picker
+  const statusWordClass = !statusEnabled
+    ? 'text-white/50'
+    : userStatus === 'online'
+      ? 'text-emerald-400'
+      : userStatus === 'idle'
+        ? 'text-amber-400'
+        : userStatus === 'dnd'
+          ? 'text-red-400'
+          : 'text-white/50'
 
   const handleStatusSelect = (status: string) => {
     setStatusDropdown(false)
@@ -306,35 +319,44 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                 <button
                   type="button"
                   onClick={() => { setUserMenuOpen(false); navigate({ name: 'config' }) }}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-left transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sky-300/90 hover:text-sky-200 hover:bg-sky-500/10 text-left transition-colors"
                 >
-                  <Globe className="w-4 h-4" />
+                  <Globe className="w-4 h-4 text-sky-400" />
                   <span>Set Config</span>
                 </button>
                 <button
                   type="button"
                   onClick={() => { setUserMenuOpen(false); setBgModalOpen(true) }}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white/80 hover:text-white hover:bg-white/5 text-left transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-emerald-300/90 hover:text-emerald-200 hover:bg-emerald-500/10 text-left transition-colors"
                 >
-                  <ImageIcon className="w-4 h-4" />
+                  <ImageIcon className="w-4 h-4 text-emerald-400" />
                   <span>Set Background</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setUserMenuOpen(false); navigate({ name: 'profile' }) }}
+                  aria-label="Open your profile board"
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-purple-300/90 hover:text-purple-200 hover:bg-purple-500/10 text-left transition-colors"
+                >
+                  <UserRound className="w-4 h-4 text-purple-400" />
+                  <span>Profile</span>
                 </button>
                 {((me.user as Record<string, unknown>).discordId === '824940038617694279' || me.user.id === '824940038617694279') && (
                   <button
                     type="button"
                     onClick={() => { setUserMenuOpen(false); navigate({ name: 'admin' }) }}
-                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white/90 hover:text-white hover:bg-white/5 text-left transition-colors"
+                    className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-amber-300/90 hover:text-amber-200 hover:bg-amber-500/10 text-left transition-colors"
                   >
-                    <Settings className="w-4 h-4" />
+                    <Settings className="w-4 h-4 text-amber-400" />
                     <span>Admin Dashboard</span>
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white hover:text-white hover:bg-purple-500/10 text-left border-t border-white/5 mt-1 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-red-300 hover:text-red-200 hover:bg-red-500/10 text-left border-t border-white/5 mt-1 transition-colors"
                 >
-                  <LogOut className="w-4 h-4" />
+                  <LogOut className="w-4 h-4 text-red-400" />
                   <span>Logout</span>
                 </button>
               </div>
@@ -514,7 +536,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
           <h2 className="text-xl sm:text-2xl font-bold text-white tracking-wide">
             {me.user.username}
           </h2>
-          <p className="text-xs sm:text-sm font-semibold tracking-widest text-white/50 uppercase">
+          <p className={`text-xs sm:text-sm font-semibold tracking-widest uppercase ${statusWordClass}`}>
             {statusEnabled ? (userStatus.toUpperCase() || 'ONLINE') : 'OFFLINE'}
           </p>
         </div>
@@ -536,7 +558,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
               onClick={() => togglePopup(!platformOpen, setPlatformOpen)}
               className="w-full h-11 bg-[#181922] border border-white/10 rounded-xl px-3 text-xs text-white hover:bg-white/10 inline-flex items-center justify-center gap-2 font-medium transition-all active:scale-[0.98]"
             >
-              <PlatformIcon className="w-4 h-4 text-white/90" />
+              <PlatformIcon className={`w-4 h-4 ${currentPlatformItem.tint}`} />
               <span>{currentPlatformItem.label}</span>
             </button>
 
@@ -568,7 +590,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                           : 'text-white/80 hover:text-white hover:bg-white/5'
                       }`}
                     >
-                      <ItemIcon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : 'text-white/80'}`} />
+                      <ItemIcon className={`w-4 h-4 shrink-0 ${isSelected ? 'text-white' : item.tint}`} />
                       <span>{item.label}</span>
                     </button>
                   )
@@ -581,8 +603,9 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
           <button
             type="button"
             onClick={() => navigate({ name: 'rotator' })}
-            className="flex-1 h-11 bg-[#181922] border border-white/10 rounded-xl px-3 text-xs text-white hover:bg-white/10 inline-flex items-center justify-center font-medium transition-all active:scale-[0.98]"
+            className="flex-1 h-11 bg-[#181922] border border-white/10 rounded-xl px-3 text-xs text-white hover:bg-white/10 inline-flex items-center justify-center gap-1.5 font-medium transition-all active:scale-[0.98]"
           >
+            <Timer className="w-3.5 h-3.5 text-amber-300" aria-hidden="true" />
             ROTATOR
           </button>
 

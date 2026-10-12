@@ -127,19 +127,19 @@ export function DashboardPage() {
   return (
     <div className="min-h-screen px-4 sm:px-6 py-6 max-w-2xl mx-auto pb-12 flex flex-col">
       {/* Header */}
-      <header className="flex items-center justify-between mb-5">
+      <header className="flex flex-wrap items-center justify-between gap-y-2 mb-5">
         <div className="flex items-center gap-2">
           <BrandMark className="w-9 h-9" />
           <BrandName className="text-lg font-bold" suffix=" RPC" />
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {me.isAdmin && (
             <button
               onClick={() => navigate({ name: 'admin' })}
               aria-label="Open admin dashboard"
-              className="flex items-center gap-1.5 text-xs text-white/90 hover:text-white bg-purple-500/15 border border-purple-500/30 px-3 py-1.5 rounded-lg hover:bg-purple-500/25 transition-all"
+              className="flex items-center gap-1.5 text-xs text-amber-200 hover:text-amber-100 bg-amber-500/10 border border-amber-500/30 px-3 py-1.5 rounded-lg hover:bg-amber-500/20 transition-all"
             >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <svg className="text-amber-400" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
               </svg>
               Admin
@@ -149,9 +149,9 @@ export function DashboardPage() {
             href="https://discord.gg/FZvJfZx2V5"
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 text-xs text-white/90 hover:text-white bg-purple-500/15 border border-purple-500/30 px-3 py-1.5 rounded-lg hover:bg-purple-500/25 transition-all"
+            className="flex items-center gap-1.5 text-xs text-[#c9cdff] hover:text-[#dfe2ff] bg-[#5865F2]/10 border border-[#5865F2]/30 px-3 py-1.5 rounded-lg hover:bg-[#5865F2]/20 transition-all"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <svg className="text-[#8b93ff]" width="14" height="14" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M20.317 4.369a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.061 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.891.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.056c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.028zM8.02 15.331c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.157 2.157-2.157 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
             </svg>
             Discord Server
@@ -159,9 +159,9 @@ export function DashboardPage() {
           <button
             onClick={() => navigate({ name: 'profile' })}
             aria-label="Open your profile board"
-            className="flex items-center gap-1.5 text-xs text-white/90 hover:text-white bg-purple-500/15 border border-purple-500/30 px-3 py-1.5 rounded-lg hover:bg-purple-500/25 transition-all"
+            className="flex items-center gap-1.5 text-xs text-purple-200 hover:text-purple-100 bg-purple-500/15 border border-purple-500/30 px-3 py-1.5 rounded-lg hover:bg-purple-500/25 transition-all"
           >
-            <UserRound className="w-3.5 h-3.5" aria-hidden="true" />
+            <UserRound className="w-3.5 h-3.5 text-purple-400" aria-hidden="true" />
             Profile
           </button>
           <button

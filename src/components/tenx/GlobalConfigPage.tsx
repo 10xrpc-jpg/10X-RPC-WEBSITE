@@ -284,7 +284,7 @@ export function GlobalConfigPage({ initialCity, initialTimezone, initialTempUnit
       </Card>
 
       <Card>
-        <SectionTitle icon={<Settings className="w-5 h-5 text-white/80" />}>Settings</SectionTitle>
+        <SectionTitle icon={<Settings className="w-5 h-5 text-sky-400" />}>Settings</SectionTitle>
 
         <div className="space-y-4">
           {/* City + weather test */}
@@ -396,7 +396,7 @@ export function GlobalConfigPage({ initialCity, initialTimezone, initialTempUnit
 
       {/* Live preview */}
       <Card className="mt-6">
-        <SectionTitle icon={<Eye className="w-5 h-5 text-white/80" />}>Live Preview</SectionTitle>
+        <SectionTitle icon={<Eye className="w-5 h-5 text-emerald-400" />}>Live Preview</SectionTitle>
         <p className="text-sm text-white/60 mb-3">
           Type anything with placeholders — see exactly what Discord will show, using your current (even unsaved) values.
         </p>
@@ -430,7 +430,7 @@ export function GlobalConfigPage({ initialCity, initialTimezone, initialTempUnit
 
       {/* Placeholders Cheat Sheet */}
       <Card className="mt-6">
-        <SectionTitle icon={<Info className="w-5 h-5 text-white/80" />}>
+        <SectionTitle icon={<Info className="w-5 h-5 text-amber-400" />}>
           <span className="text-white">Placeholder Cheat Sheet</span>
         </SectionTitle>
         <p className="text-sm text-white/60 mb-4">
