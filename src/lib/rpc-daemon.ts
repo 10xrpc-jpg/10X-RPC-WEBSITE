@@ -583,7 +583,7 @@ export class RpcDaemon {
     const hasStatus = !!session.statusEnabled
     const hasCustomStatus = !!(session.customStatus || session.customStatusEmoji)
 
-    if (userSock && userSock.ws && userSock.ws.readyState === WebSocket.OPEN) {
+    if (userSock && userSock.ws && userSock.ws.readyState === WebSocket.OPEN && userSock.connected) {
       const activities: Array<Record<string, unknown>> = []
       if (hasStatus && hasCustomStatus) {
         const customActivity = buildCustomStatusActivity(
@@ -866,10 +866,11 @@ export class RpcDaemon {
 
             // Full official-client properties per platform — the platform badge
             // (Active on Mobile / VR headset / console gamepad) is derived from
-            // these by Discord's server. Minimal 3-field sets and
-            // os:'Android'+browser:'Discord VR' never produced a badge (see
-            // gateway-platform.ts header for the classification rules).
-            const { properties, capabilities: identifyCapabilities } = buildIdentify(targetPlatform)
+            // these by Discord's server. Minimal 3-field sets never produced a
+            // badge, and `capabilities` must NEVER be sent (the 4097 bitmask
+            // makes Discord kill the session ~5s after READY — see
+            // gateway-platform.ts header).
+            const { properties } = buildIdentify(targetPlatform)
 
             // Raw user tokens must be sent BARE (Bearer is silently ignored by
             // the gateway); OAuth2 tokens use the Bearer scheme.
@@ -879,7 +880,6 @@ export class RpcDaemon {
               d: {
                 token: bearerToken,
                 properties,
-                ...(identifyCapabilities ? { capabilities: identifyCapabilities } : {}),
               },
             }
             ws.send(JSON.stringify(identify))
@@ -927,10 +927,14 @@ export class RpcDaemon {
             this.cleanupSocket(userSock)
             this.scheduleReconnect(userId, 1000)
           } else if (op === 9) {
-            // Invalid session
+            // Invalid session. Discord sends OP 9 when it refuses the identify
+            // (rate/abuse flag, session churn). Retrying on a FIXED 3s timer
+            // amplified flags into an identify storm (each retry counted as
+            // more churn → more OP 9s → 4003 loops). Use the standard
+            // exponential backoff so repeated OP 9s space out instead.
             console.warn(`[10X RPC Daemon] Discord Gateway sent OP 9 INVALID_SESSION for user ${userId}`)
             this.cleanupSocket(userSock)
-            this.scheduleReconnect(userId, 3000)
+            this.scheduleReconnect(userId)
           }
         } catch (err) {
           console.error(`[10X RPC Daemon] Error handling WS message for user ${userId}:`, err)
@@ -1055,7 +1059,7 @@ export class RpcDaemon {
     const userSock = this.sockets.get(userId)
     if (!userSock || userSock.retryTimer) return
 
-    const delay = customDelayMs ?? Math.min(30000, 1000 * Math.pow(1.5, Math.min(userSock.retryCount, 8)))
+    const delay = customDelayMs ?? Math.min(30000, Math.max(3000, 1000 * Math.pow(1.5, Math.min(userSock.retryCount, 8))))
     userSock.retryCount++
 
     userSock.retryTimer = setTimeout(() => {
@@ -1070,6 +1074,15 @@ export class RpcDaemon {
   private async pushPresenceForUser(userId: string, session: any, force: boolean = false): Promise<void> {
     const userSock = this.sockets.get(userId)
     if (!userSock || !userSock.ws || userSock.ws.readyState !== WebSocket.OPEN) return
+    // Authenticated-only guard: pushing OP 3 into an OPEN-but-not-yet-READY
+    // socket (still identifying, or stuck under a Discord OP 9 flag) makes
+    // Discord close it with 4003 "Not authenticated" — which used to feed a
+    // reconnect storm. The READY handler always pushes fresh DB state right
+    // after authentication, so skipping here loses nothing.
+    if (!userSock.connected) {
+      if (force) console.log(`[10X RPC Daemon] Skipping OP 3 for user ${userId}: socket not authenticated yet (will push on READY)`)
+      return
+    }
 
     type RpcCfgRow = Awaited<ReturnType<typeof db.rpcConfig.findFirst>>
     type GlobalCfgRow = Awaited<ReturnType<typeof db.globalConfig.findUnique>>

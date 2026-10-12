@@ -25,13 +25,19 @@
 //      produced any badge at all — every working implementation sends the
 //      FULL official-client property set (system_locale, browser_user_agent,
 //      os_version, browser_version, client_build_number, release_channel,
-//      referrer fields) plus a per-platform `capabilities` bitmask.
+//      referrer fields).
+//
+// CAPABILITIES NOTE (live-verified 2026-10-12): sending `capabilities` in the
+// IDENTIFY is DANGEROUS. The bitmask 4097 (0x1001) makes Discord invalidate
+// the session ~5s after READY with OP 9 / 4003 (deterministic, any account,
+// any IP) — the presence dies and the user goes offline. Other values may be
+// tolerated (30717 survived hours) but none are needed: classification comes
+// purely from os/browser. We therefore NEVER send capabilities.
 //
 // Do not trim these objects — the "extra" fields are load-bearing.
 
 export interface GatewayIdentify {
   properties: Record<string, unknown>
-  capabilities?: number
 }
 
 const CLIENT_BUILD_NUMBER = 355029
@@ -48,7 +54,7 @@ const SHARED_FIELDS = {
 }
 
 /**
- * Build the IDENTIFY properties (+ capabilities) that make Discord classify
+ * Build the IDENTIFY properties that make Discord classify
  * the session as the requested platform. Unknown values fall back to desktop
  * (the UI's "None").
  */
@@ -68,7 +74,6 @@ export function buildIdentify(platform: string | null | undefined): GatewayIdent
           'Mozilla/5.0 (Linux; Android 14; Meta Quest 3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
         ...SHARED_FIELDS,
       },
-      capabilities: 4097,
     }
   }
 
@@ -85,7 +90,6 @@ export function buildIdentify(platform: string | null | undefined): GatewayIdent
           browser_user_agent: 'Discord/268.0 CFNetwork/1474 Darwin/23.0.0',
           ...SHARED_FIELDS,
         },
-        capabilities: 30717,
       }
     }
     const device = p === 'samsung' ? 'SM-S928B' : 'Pixel 8'
@@ -99,7 +103,6 @@ export function buildIdentify(platform: string | null | undefined): GatewayIdent
         browser_user_agent: `Discord-Android/214116;ROM:14;Device:${device}`,
         ...SHARED_FIELDS,
       },
-      capabilities: 30717,
     }
   }
 
@@ -119,7 +122,6 @@ export function buildIdentify(platform: string | null | undefined): GatewayIdent
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         ...SHARED_FIELDS,
       },
-      capabilities: 8189,
     }
   }
 
@@ -136,7 +138,6 @@ export function buildIdentify(platform: string | null | undefined): GatewayIdent
           'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
         ...SHARED_FIELDS,
       },
-      capabilities: 16381,
     }
   }
 
@@ -152,6 +153,5 @@ export function buildIdentify(platform: string | null | undefined): GatewayIdent
         'Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) discord/1.0.9167 Chrome/124.0.6367.207 Electron/30.2.0 Safari/537.36',
       ...SHARED_FIELDS,
     },
-    capabilities: 16381,
   }
 }

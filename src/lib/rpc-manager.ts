@@ -580,7 +580,9 @@ export async function sendPresenceViaGateway(
             // Full official-client properties per platform — the platform badge
             // (Active on Mobile / VR headset / console gamepad) is derived from
             // these by Discord's server (see gateway-platform.ts header).
-            const { properties, capabilities: identifyCapabilities } = buildIdentify(targetPlatform)
+            // capabilities must NEVER be sent (4097 kills the session ~5s after
+            // READY).
+            const { properties } = buildIdentify(targetPlatform)
 
             // Raw user tokens must be sent BARE (Bearer is silently ignored by
             // the gateway); OAuth2 tokens use the Bearer scheme.
@@ -590,7 +592,6 @@ export async function sendPresenceViaGateway(
               d: {
                 token: bearerToken,
                 properties,
-                ...(identifyCapabilities ? { capabilities: identifyCapabilities } : {}),
               },
             }
             ws.send(JSON.stringify(identify))
