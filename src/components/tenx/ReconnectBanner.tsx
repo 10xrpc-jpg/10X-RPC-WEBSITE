@@ -20,12 +20,12 @@ export function ReconnectBanner({ isDemo }: ReconnectBannerProps) {
     <div
       role="alert"
       aria-live="polite"
-      className="relative overflow-hidden rounded-2xl border border-amber-400/30 bg-gradient-to-r from-amber-500/10 via-[#13111d]/80 to-[#13111d]/80 p-4 sm:p-5"
+      className="relative overflow-hidden rounded-2xl border border-purple-400/30 bg-gradient-to-r from-purple-500/10 via-[#13111d]/80 to-[#13111d]/80 p-4 sm:p-5"
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3 min-w-0">
-          <div className="w-9 h-9 shrink-0 rounded-xl bg-amber-400/15 border border-amber-400/25 flex items-center justify-center">
-            <AlertTriangle className="w-4.5 h-4.5 text-amber-400" />
+          <div className="w-9 h-9 shrink-0 rounded-xl bg-purple-400/15 border border-purple-400/25 flex items-center justify-center">
+            <AlertTriangle className="w-4.5 h-4.5 text-purple-300" />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-bold text-white leading-tight">

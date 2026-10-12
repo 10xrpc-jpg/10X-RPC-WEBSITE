@@ -12,7 +12,7 @@ import { SmartSleepTimerCard } from './SmartSleepTimerCard'
 import { RichPresenceForm } from './RichPresenceForm'
 import { ReconnectBanner } from './ReconnectBanner'
 import { startPlanCheckout } from './subscriptionCheckout'
-import { TriangleAlert, Zap, Check, Ban, Star, ArrowLeft } from 'lucide-react'
+import { TriangleAlert, Zap, Check, Ban, Star, ArrowLeft, Hourglass } from 'lucide-react'
 
 export function DashboardPage() {
   const { navigate } = useRouter()
@@ -63,7 +63,7 @@ export function DashboardPage() {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <div className="glass-card p-6 max-w-md text-center">
-          <p className="text-white font-medium mb-2"><TriangleAlert className="w-4 h-4 inline-block align-[-2px] mr-1 text-red-400" />Something went wrong</p>
+          <p className="text-white font-medium mb-2"><TriangleAlert className="w-4 h-4 inline-block align-[-2px] mr-1 text-purple-300" />Something went wrong</p>
           <p className="text-sm text-white/60 mb-4">{error}</p>
           <button
             onClick={refresh}
@@ -137,7 +137,7 @@ export function DashboardPage() {
             <button
               onClick={() => navigate({ name: 'admin' })}
               aria-label="Open admin dashboard"
-              className="flex items-center gap-1.5 text-xs text-white/90 hover:text-white bg-amber-500/15 border border-amber-500/30 px-3 py-1.5 rounded-lg hover:bg-amber-500/25 transition-all"
+              className="flex items-center gap-1.5 text-xs text-white/90 hover:text-white bg-purple-500/15 border border-purple-500/30 px-3 py-1.5 rounded-lg hover:bg-purple-500/25 transition-all"
             >
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                 <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1 1 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
@@ -208,7 +208,7 @@ export function DashboardPage() {
 
         {/* Footer */}
         <p className="text-xs text-white/30 text-center pt-4">
-          <TriangleAlert className="w-3.5 h-3.5 inline-block align-[-3px] mr-1 text-amber-400" />
+          <TriangleAlert className="w-3.5 h-3.5 inline-block align-[-3px] mr-1 text-purple-300" />
           10X RPC is not responsible if your account gets banned or blocked. Use at your own risk.
         </p>
       </div>
@@ -226,18 +226,18 @@ function GreetingHeader({ me, rpcLive }: { me: Me; rpcLive: boolean }) {
   return (
     <div className="mb-5">
       <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-        {greeting}, <span className="bg-gradient-to-r from-white via-white to-white/60 bg-clip-text text-transparent">{me.user?.username ?? 'there'}</span>
+        {greeting}, <span className="bg-gradient-to-r from-white via-white to-purple-200/80 bg-clip-text text-transparent">{me.user?.username ?? 'there'}</span>
       </h1>
       <div className="mt-2.5 flex flex-wrap items-center gap-2">
         {/* Presence engine state */}
         <span
           className={`inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full border ${
             rpcLive
-              ? 'text-white/90 border-emerald-500/30 bg-emerald-500/10'
+              ? 'text-white/90 border-purple-500/30 bg-purple-500/10'
               : 'text-white/45 border-white/10 bg-white/5'
           }`}
         >
-          <span className={`w-1.5 h-1.5 rounded-full ${rpcLive ? 'bg-emerald-400 animate-pulse' : 'bg-white/30'}`} />
+          <span className={`w-1.5 h-1.5 rounded-full ${rpcLive ? 'bg-purple-400 animate-pulse' : 'bg-white/30'}`} />
           {rpcLive ? 'Live' : 'Offline'}
         </span>
         {/* Subscription state */}
@@ -254,7 +254,7 @@ function GreetingHeader({ me, rpcLive }: { me: Me; rpcLive: boolean }) {
         )}
         {/* VR active */}
         {me.session?.vrStatusActive && (
-          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full border text-white/90 border-cyan-500/30 bg-cyan-500/10">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full border text-white/90 border-purple-500/30 bg-purple-500/10">
             VR Active
           </span>
         )}
@@ -279,23 +279,23 @@ function planPill(me: Me): { label: string; className: string } | null {
   const s = me.subscription
   if (!s) return null
   if (s.status === 'suspended') {
-    return { label: 'Suspended', className: 'text-white/90 border-red-500/30 bg-red-500/10' }
+    return { label: 'Suspended', className: 'text-white/90 border-purple-500/30 bg-purple-500/10' }
   }
   if (s.neverExpires) {
-    return { label: 'Lifetime', className: 'text-white/90 border-amber-500/30 bg-amber-500/10' }
+    return { label: 'Lifetime', className: 'text-white/90 border-purple-500/30 bg-purple-500/10' }
   }
   if (s.status === 'trialing') {
     const msLeft = s.msLeft || 0
     if (msLeft < 24 * 60 * 60 * 1000) {
       const h = Math.max(1, Math.floor(msLeft / (60 * 60 * 1000)))
-      return { label: `Trial · ${h}h left`, className: 'text-white/90 border-amber-500/30 bg-amber-500/10' }
+      return { label: `Trial · ${h}h left`, className: 'text-white/90 border-purple-500/30 bg-purple-500/10' }
     }
     const daysLeft = Math.ceil(msLeft / (24 * 60 * 60 * 1000))
     return { label: `Trial · ${daysLeft}d left`, className: 'text-white/90 border-purple-500/30 bg-purple-500/10' }
   }
   if (s.status === 'active') {
     const name = s.plan && s.plan !== 'free' ? s.plan.charAt(0).toUpperCase() + s.plan.slice(1) : 'Active'
-    return { label: name, className: 'text-white/90 border-emerald-500/30 bg-emerald-500/10' }
+    return { label: name, className: 'text-white/90 border-purple-500/30 bg-purple-500/10' }
   }
   return null
 }
@@ -414,8 +414,7 @@ function periodLabel(days: number): string {
  *  Shared by the suspended + trial-ending banners. Prices/names come from
  *  the admin-managed plan catalog so re-pricing in /admin reflects here
  *  instantly; falls back to the last-known catalog on API failure. */
-function PayButtons({ tone, onDone, prefillName }: {
-  tone: 'red' | 'amber'
+function PayButtons({ onDone, prefillName }: {
   onDone?: () => void
   prefillName?: string | null
 }) {
@@ -463,12 +462,8 @@ function PayButtons({ tone, onDone, prefillName }: {
     })
   }
 
-  const primary = tone === 'red'
-    ? 'text-white bg-red-500/90 hover:bg-red-500'
-    : 'text-white bg-amber-500/90 hover:bg-amber-500'
-  const secondary = tone === 'red'
-    ? 'text-white/90 hover:text-white bg-red-500/20 hover:bg-red-500/40'
-    : 'text-white/90 hover:text-white bg-amber-500/20 hover:bg-amber-500/40'
+  const primary = 'purple-gradient text-white shadow-lg shadow-purple-900/30 hover:opacity-90'
+  const secondary = 'text-white/90 hover:text-white bg-purple-500/15 hover:bg-purple-500/30 border border-purple-500/25'
 
   return (
     <div className="mt-3">
@@ -477,15 +472,15 @@ function PayButtons({ tone, onDone, prefillName }: {
           type="button"
           onClick={() => launch('pro')}
           disabled={busy !== null}
-          className={`text-xs font-semibold px-4 py-2.5 min-h-[44px] rounded-xl transition-all disabled:opacity-60 ${primary}`}
+          className={`text-xs font-semibold px-4 py-2.5 min-h-[44px] rounded-xl transition-all disabled:opacity-60 active:scale-[0.98] ${primary}`}
         >
-          {busy === 'pro' ? 'Opening payment…' : <span className="inline-flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-amber-400" />{labels.pro.name} — {labels.pro.price} / {labels.pro.period}</span>}
+          {busy === 'pro' ? 'Opening payment…' : <span className="inline-flex items-center gap-1.5"><Zap className="w-3.5 h-3.5 text-purple-200" />{labels.pro.name} — {labels.pro.price} / {labels.pro.period}</span>}
         </button>
         <button
           type="button"
           onClick={() => launch('plus')}
           disabled={busy !== null}
-          className={`text-xs font-semibold px-4 py-2.5 min-h-[44px] rounded-xl transition-all disabled:opacity-60 ${secondary}`}
+          className={`text-xs font-semibold px-4 py-2.5 min-h-[44px] rounded-xl transition-all disabled:opacity-60 active:scale-[0.98] ${secondary}`}
         >
           {busy === 'plus' ? 'Opening payment…' : `${labels.plus.name} — ${labels.plus.price} / ${labels.plus.period}`}
         </button>
@@ -510,17 +505,17 @@ export function SubscriptionBanner({ subscription, renewUrl, trialDays, onRefres
   if (!subscription) return null
 
   const paidNote = paid ? (
-    <p className="text-xs font-semibold text-white/90 mt-2" role="status"><Check className="w-3.5 h-3.5 inline-block align-[-3px] mr-0.5 text-emerald-400" />{paid} — subscription active, RPC unlocked. Refreshing…</p>
+    <p className="text-xs font-semibold text-white/90 mt-2" role="status"><Check className="w-3.5 h-3.5 inline-block align-[-3px] mr-0.5 text-purple-300" />{paid} — subscription active, RPC unlocked. Refreshing…</p>
   ) : null
 
   if (subscription.status === 'suspended') {
     return (
       <div
         role="alert"
-        className="rounded-2xl border border-red-500/40 bg-red-500/10 p-4 sm:p-5"
+        className="rounded-2xl border border-purple-500/40 bg-purple-500/10 p-4 sm:p-5"
       >
         <div className="flex items-start gap-3">
-          <Ban className="w-6 h-6 shrink-0 text-red-400" aria-hidden />
+          <Ban className="w-6 h-6 shrink-0 text-purple-300" aria-hidden />
           <div className="flex-1 min-w-0">
             <p className="font-bold text-white/90">Subscription suspended</p>
             <p className="text-sm text-white/50 mt-1 leading-relaxed">
@@ -529,7 +524,6 @@ export function SubscriptionBanner({ subscription, renewUrl, trialDays, onRefres
             </p>
             {paidNote}
             <PayButtons
-              tone="red"
               prefillName={prefillName}
               onDone={() => {
                 setPaid('Payment successful')
@@ -543,7 +537,7 @@ export function SubscriptionBanner({ subscription, renewUrl, trialDays, onRefres
                 rel="noopener noreferrer"
                 className="text-[11px] font-semibold text-white/60 hover:text-white underline underline-offset-2 transition-all"
               >
-                <Star className="w-3 h-3 inline-block align-[-2px] mr-1 text-amber-400" />Renew on Discord instead
+                <Star className="w-3 h-3 inline-block align-[-2px] mr-1 text-purple-300" />Renew on Discord instead
               </a>
             </div>
           </div>
@@ -559,10 +553,10 @@ export function SubscriptionBanner({ subscription, renewUrl, trialDays, onRefres
     return (
       <div
         role="status"
-        className="rounded-2xl border border-amber-500/40 bg-amber-500/10 p-4"
+        className="rounded-2xl border border-purple-500/40 bg-purple-500/10 p-4"
       >
         <div className="flex items-start gap-3">
-          <span className="text-xl shrink-0" aria-hidden>⏳</span>
+          <Hourglass className="w-5 h-5 shrink-0 text-purple-300 mt-0.5" aria-hidden />
           <div className="flex-1 min-w-0">
             <p className="font-semibold text-white/90 text-sm">
               Free trial ends in {hoursLeft} hour{hoursLeft === 1 ? '' : 's'}
@@ -572,7 +566,6 @@ export function SubscriptionBanner({ subscription, renewUrl, trialDays, onRefres
             </p>
             {paidNote}
             <PayButtons
-              tone="amber"
               prefillName={prefillName}
               onDone={() => {
                 setPaid('Payment successful')

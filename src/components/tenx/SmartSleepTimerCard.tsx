@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { api } from '@/lib/api-client'
-import { Clock } from 'lucide-react'
+import { Clock, Hourglass } from 'lucide-react'
 
 export function SmartSleepTimerCard({ currentEndsAt, onSaved }: { currentEndsAt?: string | null; onSaved?: () => void }) {
   const [hours, setHours] = useState('')
@@ -105,8 +105,9 @@ export function SmartSleepTimerCard({ currentEndsAt, onSaved }: { currentEndsAt?
         {/* Active Timer Info (if running) */}
         {currentEndsAt && (
           <div className="mt-5 pt-4 border-t border-white/8 flex items-center justify-between px-2">
-            <p className="text-xs text-white/70">
-              ⏳ Sleeps in <span className="text-white font-medium tabular-nums">{formatCountdown(new Date(currentEndsAt).getTime() - Date.now())}</span>
+            <p className="text-xs text-white/70 flex items-center gap-1.5">
+              <Hourglass className="w-3.5 h-3.5 text-purple-300 inline-block" aria-hidden />
+              Sleeps in <span className="text-white font-medium tabular-nums">{formatCountdown(new Date(currentEndsAt).getTime() - Date.now())}</span>
             </p>
             <button
               type="button"
