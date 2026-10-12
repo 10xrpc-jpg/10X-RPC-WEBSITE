@@ -143,8 +143,18 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
     setUserStatus(status)
     // If status is currently enabled, save & sync immediately
     if (statusEnabled) {
-      api.statusUpdate({ userStatus: status }).then(() => onRefresh()).catch(() => {})
-      toast.success(`Status set to ${status}`, { duration: 2000 })
+      // STATUS-NOT-UPDATING FIX: surface the real sync result instead of
+      // always showing success — the daemon can fail or defer the push.
+      api.statusUpdate({ userStatus: status })
+        .then((res) => {
+          if (res.sync && !res.sync.ok) {
+            toast.warning('Status saved — Discord will update within 30s', { duration: 3000 })
+          } else {
+            toast.success(`Status set to ${status} & synced to Discord`, { duration: 2000 })
+          }
+          onRefresh()
+        })
+        .catch(() => toast.error('Failed to update status', { duration: 2500 }))
     } else {
       toast.success(`Status set to ${status} (click UPDATE to save)`, { duration: 2000 })
     }
@@ -177,7 +187,11 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
         statusPlatform: selectedPlatform,
       })
       if (result.ok) {
-        toast.success(statusEnabled ? 'Status updated & synced to Discord' : 'Status configuration saved (Status is OFF)', { duration: 3000 })
+        if (statusEnabled && result.sync && !result.sync.ok) {
+          toast.warning('Saved — Discord sync will retry within 30s', { duration: 3000 })
+        } else {
+          toast.success(statusEnabled ? 'Status updated & synced to Discord' : 'Status configuration saved (Status is OFF)', { duration: 3000 })
+        }
       } else {
         toast.error('Failed to update status')
       }

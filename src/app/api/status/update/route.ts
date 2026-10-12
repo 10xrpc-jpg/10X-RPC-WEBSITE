@@ -72,8 +72,13 @@ export async function POST(req: Request) {
 
     // If Status is ON and user is authenticated with Discord: sync Status
     // (RPC will remain in whatever state it was in; if RPC is OFF, RPC stays 100% OFF)
+    // ── STATUS-NOT-UPDATING FIX: propagate the daemon sync result so the UI
+    // can be honest — previously a failed daemon notify (or a lost push) was
+    // reported to the user as "Status updated & synced to Discord".
+    let sync: { ok: boolean; message: string } | null = null
     if (isStatusEnabled && session.discordAccessToken) {
-      await syncPresence(session.userId)
+      const presence = await syncPresence(session.userId)
+      sync = { ok: !!presence?.ok, message: presence?.message || '' }
     }
 
     return NextResponse.json({
@@ -83,9 +88,12 @@ export async function POST(req: Request) {
       customStatus: currentSession?.customStatus || null,
       customStatusEmoji: currentSession?.customStatusEmoji || null,
       statusPlatform: currentSession?.statusPlatform || 'mobile',
-      message: isStatusEnabled
-        ? 'Status updated & synced to Discord'
-        : 'Status configuration saved (Status is OFF)',
+      sync,
+      message: !isStatusEnabled
+        ? 'Status configuration saved (Status is OFF)'
+        : sync?.ok
+          ? 'Status updated & synced to Discord'
+          : 'Status saved — Discord sync will retry within 30s',
     })
   } catch (e: any) {
     console.error('Error in /api/status/update:', e)

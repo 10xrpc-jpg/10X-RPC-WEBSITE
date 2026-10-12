@@ -528,6 +528,7 @@ export const api = {
       statusPlatform: string
       message?: string
       error?: string
+      sync?: { ok: boolean; message: string } | null
     }>('/api/status/update', {
       method: 'POST',
       body: JSON.stringify(data),

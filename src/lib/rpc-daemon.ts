@@ -526,7 +526,17 @@ export class RpcDaemon {
         this.sockets.set(session.userId, userSock)
       }
 
-      // If socket is disconnected, connect it
+      // If socket is disconnected, connect it; if connected, re-push the
+      // CURRENT DB state. ── STATUS-NOT-UPDATING FIX: the tick previously
+      // only connected/disconnected sockets and NEVER re-pushed presence for
+      // already-connected users. Any instant-sync that died before its OP 3
+      // landed (the recurring "Can't reach database server" bursts inside
+      // pushPresenceForUser, a lost /sync proxy request, a change made while
+      // a socket was still connecting) was therefore lost FOREVER — the
+      // website told the user "daemon tick will retry within 30s" but the
+      // tick had no retry path. pushPresenceForUser is hash-guarded, so an
+      // unchanged state sends nothing (no OP 3 spam, no rate limits); a
+      // state whose push failed re-sends here within 30s.
       if (!userSock.connected && !userSock.isConnecting) {
         // Auth-fatal guard (4004): skip while the FAILED token is still the
         // user's LATEST token; auto-unblock as soon as a new token lands.
@@ -535,6 +545,8 @@ export class RpcDaemon {
           userSock.failedAuthToken = null // new token — allow a fresh attempt
         }
         this.connectUserSocket(session.userId)
+      } else if (userSock.connected) {
+        void this.pushPresenceForUser(session.userId, session, false).catch(() => {})
       }
     }
 
