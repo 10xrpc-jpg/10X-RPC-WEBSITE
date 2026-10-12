@@ -19,6 +19,7 @@ import {
 import { resolvePlaceholders, type PlaceholderContext } from './placeholders'
 import { sanitizeActivities } from './discord-assets'
 import { discordAuthValue } from './discord-auth'
+import { buildIdentify } from './gateway-platform'
 
 // ─── Subscription gate (raw SQL — Orihost-safe) ─────────────────────────────
 // Access = plan/status lifecycle: free trial (status "trialing", ends
@@ -863,27 +864,12 @@ export class RpcDaemon {
               }
             }, heartbeatInterval)
 
-            const isMobile = targetPlatform === 'android' || targetPlatform === 'ios' || targetPlatform === 'samsung' || targetPlatform === 'mobile'
-            const isConsole = targetPlatform === 'console' || targetPlatform === 'xbox' || targetPlatform === 'ps4' || targetPlatform === 'ps5'
-            const isWeb = targetPlatform === 'web'
-
-            const properties = isQuest
-              ? { os: 'Android', browser: 'Discord VR', device: 'Meta Quest' }
-              : isMobile
-              ? {
-                  os: targetPlatform === 'ios' ? 'iOS' : 'Android',
-                  browser: targetPlatform === 'ios' ? 'Discord iOS' : 'Discord Android',
-                  device: targetPlatform === 'ios' ? 'iPhone' : (targetPlatform === 'samsung' ? 'Samsung Galaxy' : 'Android Device'),
-                }
-              : isConsole
-              ? {
-                  os: targetPlatform === 'xbox' ? 'Xbox' : 'PlayStation',
-                  browser: targetPlatform === 'xbox' ? 'Discord Xbox' : 'Discord PlayStation',
-                  device: targetPlatform === 'xbox' ? 'Xbox Series X' : 'PlayStation 5',
-                }
-              : isWeb
-              ? { os: 'Windows', browser: 'Discord Web', device: 'Chrome' }
-              : { os: 'Windows', browser: 'Discord Client', device: 'Desktop' }
+            // Full official-client properties per platform — the platform badge
+            // (Active on Mobile / VR headset / console gamepad) is derived from
+            // these by Discord's server. Minimal 3-field sets and
+            // os:'Android'+browser:'Discord VR' never produced a badge (see
+            // gateway-platform.ts header for the classification rules).
+            const { properties, capabilities: identifyCapabilities } = buildIdentify(targetPlatform)
 
             // Raw user tokens must be sent BARE (Bearer is silently ignored by
             // the gateway); OAuth2 tokens use the Bearer scheme.
@@ -893,6 +879,7 @@ export class RpcDaemon {
               d: {
                 token: bearerToken,
                 properties,
+                ...(identifyCapabilities ? { capabilities: identifyCapabilities } : {}),
               },
             }
             ws.send(JSON.stringify(identify))

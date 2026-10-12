@@ -8,9 +8,10 @@ import type { RpcConfig } from './api-client'
 import type { PlaceholderContext } from './placeholders'
 import { resolvePlaceholders } from './placeholders'
 import { resolveRpcActivityName } from './constants'
-import { GAME_SPOOF, findGame, DISCORD_APP_ID_RE } from './games'
+import { GAME_SPOOF, findGame, DISCORD_APP_ID_RE, type GameSpoofEntry } from './games'
 import { resolveAssetRef, resolveExternalAsset, sanitizeActivities, type ResolveOpts } from './discord-assets'
 import { discordAuthValue } from './discord-auth'
+import { buildIdentify } from './gateway-platform'
 
 export type { ResolveOpts }
 
@@ -576,39 +577,10 @@ export async function sendPresenceViaGateway(
               }
             }, heartbeatInterval)
 
-            const isMobile = targetPlatform === 'android' || targetPlatform === 'ios' || targetPlatform === 'samsung' || targetPlatform === 'mobile'
-            const isConsole = targetPlatform === 'console' || targetPlatform === 'xbox' || targetPlatform === 'ps4' || targetPlatform === 'ps5'
-            const isWeb = targetPlatform === 'web'
-
-            const properties = isQuest
-              ? {
-                  os: 'Android',
-                  browser: 'Discord VR',
-                  device: 'Meta Quest',
-                }
-              : isMobile
-              ? {
-                  os: targetPlatform === 'ios' ? 'iOS' : 'Android',
-                  browser: targetPlatform === 'ios' ? 'Discord iOS' : 'Discord Android',
-                  device: targetPlatform === 'ios' ? 'iPhone' : (targetPlatform === 'samsung' ? 'Samsung Galaxy' : 'Android Device'),
-                }
-              : isConsole
-              ? {
-                  os: targetPlatform === 'xbox' ? 'Xbox' : 'PlayStation',
-                  browser: targetPlatform === 'xbox' ? 'Discord Xbox' : 'Discord PlayStation',
-                  device: targetPlatform === 'xbox' ? 'Xbox Series X' : 'PlayStation 5',
-                }
-              : isWeb
-              ? {
-                  os: 'Windows',
-                  browser: 'Discord Web',
-                  device: 'Chrome',
-                }
-              : {
-                  os: 'Windows',
-                  browser: 'Discord Client',
-                  device: 'Desktop',
-                }
+            // Full official-client properties per platform — the platform badge
+            // (Active on Mobile / VR headset / console gamepad) is derived from
+            // these by Discord's server (see gateway-platform.ts header).
+            const { properties, capabilities: identifyCapabilities } = buildIdentify(targetPlatform)
 
             // Raw user tokens must be sent BARE (Bearer is silently ignored by
             // the gateway); OAuth2 tokens use the Bearer scheme.
@@ -618,6 +590,7 @@ export async function sendPresenceViaGateway(
               d: {
                 token: bearerToken,
                 properties,
+                ...(identifyCapabilities ? { capabilities: identifyCapabilities } : {}),
               },
             }
             ws.send(JSON.stringify(identify))
