@@ -88,9 +88,9 @@ export function TrialsTab() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-3 gap-2">
-        <StatCard label="Trialing now" value={stats?.trialing ?? 0} color="text-white/90" />
-        <StatCard label="Expired trials" value={stats?.expired ?? 0} color="text-white/90" />
-        <StatCard label="Trial → paid" value={stats?.converted ?? 0} color="text-white" />
+        <StatCard label="Trialing now" value={stats?.trialing ?? 0} color="text-red-300" />
+        <StatCard label="Expired trials" value={stats?.expired ?? 0} color="text-red-300" />
+        <StatCard label="Trial → paid" value={stats?.converted ?? 0} color="text-green-400" />
       </div>
 
       <Card>

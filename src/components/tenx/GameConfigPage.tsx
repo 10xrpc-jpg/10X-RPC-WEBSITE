@@ -128,7 +128,7 @@ export function GameConfigPage({ slug }: { slug: string }) {
       <div className="flex items-center justify-between">
         <BackButton onClick={() => navigate({ name: 'games' })} />
         <div className="flex items-center gap-2.5">
-          <Gamepad2 className="w-6 h-6 text-white stroke-[2.2]" />
+          <Gamepad2 className="w-6 h-6 text-red-400 stroke-[2.2]" />
           <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">{preset.name}</h1>
         </div>
         <button

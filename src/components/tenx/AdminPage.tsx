@@ -357,10 +357,10 @@ export function AdminPage() {
           return (
             <div className="space-y-4">
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <StatCard label="Revenue ₹" value={ps ? Math.round(ps.revenueTotalPaise / 100) : 0} color="text-white/90" />
-                <StatCard label="Revenue 30d ₹" value={ps ? Math.round(ps.revenue30dPaise / 100) : 0} color="text-white" />
-                <StatCard label="Paid" value={ps?.paidCount ?? 0} color="text-white" />
-                <StatCard label="Paying users" value={ps?.payingUsers ?? 0} color="text-white" />
+                <StatCard label="Revenue ₹" value={ps ? Math.round(ps.revenueTotalPaise / 100) : 0} color="text-amber-300" />
+                <StatCard label="Revenue 30d ₹" value={ps ? Math.round(ps.revenue30dPaise / 100) : 0} color="text-emerald-400" />
+                <StatCard label="Paid" value={ps?.paidCount ?? 0} color="text-red-400" />
+                <StatCard label="Paying users" value={ps?.payingUsers ?? 0} color="text-sky-400" />
               </div>
 
               <Card>
@@ -421,10 +421,10 @@ export function AdminPage() {
         {tab === 'sessions' && (
           <div className="space-y-4">
             <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-              <StatCard label="Active" value={sessionSummary?.activeCount ?? c?.activeSessions ?? 0} color="text-white" />
-              <StatCard label="Expiring 24h" value={sessionSummary?.expiringSoon24h ?? 0} color="text-white/90" />
-              <StatCard label="With Token" value={sessionSummary?.withTokenActive ?? c?.sessionsWithToken ?? 0} color="text-white" />
-              <StatCard label="RPC Live" value={sessionSummary?.rpcLiveActive ?? c?.rpcLive ?? 0} color="text-white" />
+              <StatCard label="Active" value={sessionSummary?.activeCount ?? c?.activeSessions ?? 0} color="text-green-400" />
+              <StatCard label="Expiring 24h" value={sessionSummary?.expiringSoon24h ?? 0} color="text-amber-300" />
+              <StatCard label="With Token" value={sessionSummary?.withTokenActive ?? c?.sessionsWithToken ?? 0} color="text-sky-400" />
+              <StatCard label="RPC Live" value={sessionSummary?.rpcLiveActive ?? c?.rpcLive ?? 0} color="text-green-400" />
               <StatCard label="Expired" value={sessionSummary?.expiredCount ?? 0} color="text-white/60" />
             </div>
 
@@ -653,12 +653,12 @@ function OverviewTab({ sys, stats, c }: { sys: AdminStats['system'] | undefined;
 
       {/* Platform stats */}
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-        <StatCard label="Users" value={c ? c.totalUsers : 0} color="text-white/90" />
-        <StatCard label="RPC Live" value={c?.rpcLive ?? 0} color="text-white" />
-        <StatCard label="With Token" value={c?.sessionsWithToken ?? 0} color="text-white" />
-        <StatCard label="Status On" value={c?.statusEnabled ?? 0} color="text-white" />
-        <StatCard label="VR Active" value={c?.vrActive ?? 0} color="text-white/90" />
-        <StatCard label="New 24h" value={c?.newUsers24h ?? 0} color="text-white/90" />
+        <StatCard label="Users" value={c ? c.totalUsers : 0} color="text-red-300" />
+        <StatCard label="RPC Live" value={c?.rpcLive ?? 0} color="text-green-400" />
+        <StatCard label="With Token" value={c?.sessionsWithToken ?? 0} color="text-sky-400" />
+        <StatCard label="Status On" value={c?.statusEnabled ?? 0} color="text-red-400" />
+        <StatCard label="VR Active" value={c?.vrActive ?? 0} color="text-cyan-300" />
+        <StatCard label="New 24h" value={c?.newUsers24h ?? 0} color="text-amber-300" />
       </div>
 
       {/* 7-day signup trend */}

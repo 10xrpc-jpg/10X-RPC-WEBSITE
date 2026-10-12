@@ -92,11 +92,11 @@ export function planLabel(plan: string): string {
 }
 
 const CHIP_TONES: Record<string, string> = {
-  green: 'bg-green-500/15 text-white/90 border-green-500/30',
-  red: 'bg-red-500/15 text-white/90 border-red-500/30',
-  amber: 'bg-amber-500/15 text-white/90 border-amber-500/30',
-  violet: 'bg-purple-500/15 text-white/90 border-purple-500/30',
-  sky: 'bg-sky-500/15 text-white/90 border-sky-500/30',
+  green: 'bg-green-500/15 text-emerald-300 border-green-500/30',
+  red: 'bg-red-500/15 text-red-300 border-red-500/30',
+  amber: 'bg-amber-500/15 text-amber-300 border-amber-500/30',
+  violet: 'bg-purple-500/15 text-purple-300 border-purple-500/30',
+  sky: 'bg-sky-500/15 text-sky-300 border-sky-500/30',
   gray: 'bg-white/5 text-white/40 border-white/10',
 }
 

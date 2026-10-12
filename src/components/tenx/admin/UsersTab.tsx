@@ -69,12 +69,12 @@ export function UsersTab() {
       {/* summary cards */}
       {s && (
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-          <StatCard label="Users" value={s.total} color="text-white/90" />
-          <StatCard label="Paid active" value={s.active} color="text-white" />
-          <StatCard label="Trials" value={s.trialing} color="text-white/90" />
-          <StatCard label="Expiring 7d" value={s.expiringSoon} color="text-white/90" />
-          <StatCard label="Suspended" value={s.suspended} color="text-white/90" />
-          <StatCard label="Lifetime" value={s.lifetime} color="text-white/90" />
+          <StatCard label="Users" value={s.total} color="text-red-300" />
+          <StatCard label="Paid active" value={s.active} color="text-green-400" />
+          <StatCard label="Trials" value={s.trialing} color="text-red-300" />
+          <StatCard label="Expiring 7d" value={s.expiringSoon} color="text-amber-300" />
+          <StatCard label="Suspended" value={s.suspended} color="text-red-300" />
+          <StatCard label="Lifetime" value={s.lifetime} color="text-sky-300" />
         </div>
       )}
 

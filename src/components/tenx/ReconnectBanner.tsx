@@ -25,7 +25,7 @@ export function ReconnectBanner({ isDemo }: ReconnectBannerProps) {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-start gap-3 min-w-0">
           <div className="w-9 h-9 shrink-0 rounded-xl bg-amber-400/15 border border-amber-400/25 flex items-center justify-center">
-            <AlertTriangle className="w-4.5 h-4.5 text-white" />
+            <AlertTriangle className="w-4.5 h-4.5 text-amber-400" />
           </div>
           <div className="min-w-0">
             <p className="text-sm font-bold text-white leading-tight">
