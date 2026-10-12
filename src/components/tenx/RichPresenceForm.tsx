@@ -574,7 +574,7 @@ export function RichPresenceForm({
                 type="button"
                 onClick={handleSave}
                 disabled={saving}
-                className="bg-[#1e1f26] hover:bg-[#282933] border border-white/10 text-white font-medium text-xs tracking-widest uppercase px-8 py-3 rounded-xl transition-all active:scale-[0.98] disabled:opacity-50"
+                className="purple-gradient shadow-lg shadow-purple-900/30 hover:opacity-90 text-white font-medium text-xs tracking-widest uppercase px-8 py-3 rounded-xl transition-all active:scale-[0.98] disabled:opacity-50"
               >
                 {saving ? 'SAVING...' : 'UPDATE'}
               </button>

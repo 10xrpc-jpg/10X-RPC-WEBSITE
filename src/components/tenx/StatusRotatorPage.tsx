@@ -379,7 +379,7 @@ function AddPresetModal({
           <button
             onClick={handleSave}
             disabled={busy || !text.trim()}
-            className="bg-white text-black font-bold rounded-xl px-6 py-2.5 text-sm hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50"
+            className="purple-gradient shadow-lg shadow-purple-900/30 hover:opacity-90 text-white font-bold rounded-xl px-6 py-2.5 text-sm active:scale-[0.98] transition-all disabled:opacity-50"
           >
             {busy ? 'Saving...' : 'Save'}
           </button>

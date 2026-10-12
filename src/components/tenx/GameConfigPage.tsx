@@ -134,7 +134,7 @@ export function GameConfigPage({ slug }: { slug: string }) {
         <button
           onClick={handleSave}
           disabled={saving}
-          className="bg-[#20212a] hover:bg-[#282935] border border-white/10 rounded-xl px-4 py-2 text-xs font-semibold text-white uppercase tracking-wider transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+          className="purple-gradient shadow-lg shadow-purple-900/30 hover:opacity-90 rounded-xl px-4 py-2 text-xs font-semibold text-white uppercase tracking-wider transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
         >
           {saving ? '...' : 'Save'}
         </button>
@@ -339,7 +339,7 @@ export function GameConfigPage({ slug }: { slug: string }) {
               type="button"
               onClick={handleSave}
               disabled={saving}
-              className="bg-[#1e1f26] hover:bg-[#282933] border border-white/10 text-white font-medium text-xs tracking-widest uppercase px-8 py-3 rounded-xl transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+              className="purple-gradient shadow-lg shadow-purple-900/30 hover:opacity-90 text-white font-medium text-xs tracking-widest uppercase px-8 py-3 rounded-xl transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
             >
               {saving ? 'SAVING...' : 'SAVE CONFIGURATION'}
             </button>

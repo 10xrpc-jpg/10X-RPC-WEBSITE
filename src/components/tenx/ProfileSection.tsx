@@ -580,7 +580,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
             type="button"
             onClick={handleUpdate}
             disabled={saving}
-            className="flex-1 h-11 bg-[#181922] border border-white/10 rounded-xl px-3 text-xs text-white hover:bg-white/10 inline-flex items-center justify-center font-medium transition-all active:scale-[0.98] disabled:opacity-50"
+            className="flex-1 h-11 purple-gradient shadow-lg shadow-purple-900/30 hover:opacity-90 rounded-xl px-3 text-xs text-white inline-flex items-center justify-center font-medium transition-all active:scale-[0.98] disabled:opacity-50"
           >
             {saving ? '...' : 'UPDATE'}
           </button>
@@ -655,7 +655,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
               <button
                 onClick={handleSaveBg}
                 disabled={saving}
-                className="flex-1 bg-white text-black font-bold rounded-xl px-4 py-2.5 text-sm hover:opacity-90 active:scale-[0.98] transition-all disabled:opacity-50"
+                className="flex-1 purple-gradient shadow-lg shadow-purple-900/30 hover:opacity-90 text-white font-bold rounded-xl px-4 py-2.5 text-sm active:scale-[0.98] transition-all disabled:opacity-50"
               >
                 {saving ? 'Saving...' : 'Save'}
               </button>

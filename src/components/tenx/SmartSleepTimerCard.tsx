@@ -90,7 +90,7 @@ export function SmartSleepTimerCard({ currentEndsAt, onSaved }: { currentEndsAt?
             type="button"
             onClick={handleSave}
             disabled={saving || !hours}
-            className="h-11 px-5 bg-[#20212a] hover:bg-[#282935] border border-white/10 rounded-xl text-xs font-semibold uppercase tracking-wider text-white transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
+            className="h-11 px-5 purple-gradient shadow-lg shadow-purple-900/30 hover:opacity-90 rounded-xl text-xs font-semibold uppercase tracking-wider text-white transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer"
           >
             {saving ? '...' : 'SAVE'}
           </button>
