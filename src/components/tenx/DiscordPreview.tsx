@@ -66,7 +66,7 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
       <div className="relative z-10">
         {/* Header: LIVE PREVIEW + Status */}
         <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-bold tracking-widest text-white uppercase">
+          <span className="text-xs font-bold tracking-widest text-purple-400 uppercase">
             LIVE PREVIEW
           </span>
           <div className="flex items-center gap-2">

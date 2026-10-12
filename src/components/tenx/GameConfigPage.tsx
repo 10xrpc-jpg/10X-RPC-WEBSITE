@@ -148,7 +148,7 @@ export function GameConfigPage({ slug }: { slug: string }) {
         <div className="relative z-10 space-y-4">
           {/* Enable RPC toggle row */}
           <div className="flex items-center justify-between px-1 pb-2 border-b border-white/8">
-            <span className="text-sm font-extrabold tracking-widest text-white uppercase">
+            <span className="text-sm font-extrabold tracking-widest text-purple-400 uppercase">
               ENABLE GAME RPC
             </span>
             <PurpleSwitch checked={enabled} onCheckedChange={setEnabled} />
@@ -371,7 +371,7 @@ export function GameConfigPage({ slug }: { slug: string }) {
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-bold tracking-wider text-white uppercase block">
+      <label className="text-xs font-bold tracking-wider text-purple-400 uppercase block">
         {label}
       </label>
       {children}

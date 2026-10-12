@@ -510,7 +510,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
 
         {/* ENABLE STATUS Toggle Row */}
         <div className="relative z-10 flex items-center justify-between px-1 mb-4 pt-1">
-          <span className="text-xs sm:text-sm font-extrabold tracking-widest text-white uppercase">
+          <span className="text-xs sm:text-sm font-extrabold tracking-widest text-purple-400 uppercase">
             ENABLE STATUS
           </span>
           <PurpleSwitch checked={statusEnabled} onCheckedChange={handleToggleStatus} />
@@ -614,7 +614,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
             <h2 className="text-xl font-bold text-white text-center">Set Background</h2>
 
             <div className="space-y-1.5">
-              <label className="text-xs uppercase tracking-wider text-white font-semibold">Image URL</label>
+              <label className="text-xs uppercase tracking-wider text-purple-400 font-semibold">Image URL</label>
               <input
                 type="url"
                 value={bgUrl}

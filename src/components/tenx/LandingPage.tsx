@@ -527,7 +527,7 @@ function HeroMockup() {
 
       <div className="relative z-10">
         <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-bold tracking-widest text-white uppercase">Live Preview</span>
+          <span className="text-xs font-bold tracking-widest text-purple-400 uppercase">Live Preview</span>
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-white">
             <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
             LIVE

@@ -277,7 +277,7 @@ function AddPresetModal({
 
         {/* Emoji — unicode or Nitro custom emoji */}
         <div className="space-y-1.5">
-          <label className="text-sm text-white/80 font-medium">Emoji</label>
+          <label className="text-sm text-purple-400 font-medium">Emoji</label>
           <input
             type="text"
             value={emoji}
@@ -298,7 +298,7 @@ function AddPresetModal({
 
         {/* Message */}
         <div className="space-y-1.5">
-          <label className="text-sm text-white/80 font-medium">Message</label>
+          <label className="text-sm text-purple-400 font-medium">Message</label>
           <input
             type="text"
             value={text}
@@ -319,7 +319,7 @@ function AddPresetModal({
 
         {/* Status Type — connected segmented control */}
         <div className="space-y-1.5">
-          <label className="text-sm text-white/80 font-medium">Status Type</label>
+          <label className="text-sm text-purple-400 font-medium">Status Type</label>
           <div className="flex rounded-xl border border-white/10 overflow-hidden">
             {([
               { v: 'online', label: 'ONLINE', dot: 'bg-purple-400' },
@@ -348,7 +348,7 @@ function AddPresetModal({
 
         {/* Duration (Seconds) */}
         <div className="space-y-1.5">
-          <label className="text-sm text-white/80 font-medium">Duration (Seconds)</label>
+          <label className="text-sm text-purple-400 font-medium">Duration (Seconds)</label>
           <input
             type="number"
             value={durationSecs}

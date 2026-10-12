@@ -562,7 +562,7 @@ export function RichPresenceForm({
           <div className="border-t border-white/10 pt-6 mt-6">
             {/* ENABLE RPC Toggle Row */}
             <div className="flex items-center justify-between px-1 mb-5">
-              <span className="text-sm sm:text-base font-extrabold tracking-widest text-white uppercase">
+              <span className="text-sm sm:text-base font-extrabold tracking-widest text-purple-400 uppercase">
                 ENABLE RPC
               </span>
               <PurpleSwitch checked={enabled} onCheckedChange={handleToggle} />
@@ -621,7 +621,7 @@ export function RichPresenceForm({
 function FormField({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-bold tracking-wider text-white uppercase block">
+      <label className="text-xs font-bold tracking-wider text-purple-400 uppercase block">
         {label}
       </label>
       {children}

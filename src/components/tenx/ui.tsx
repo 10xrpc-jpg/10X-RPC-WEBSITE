@@ -31,7 +31,7 @@ export function SectionTitle({ icon, children, right }: { icon?: ReactNode; chil
 export function Field({ label, hint, children }: { label: ReactNode; hint?: string; children: ReactNode }) {
   return (
     <div className="space-y-1.5">
-      <Label className="text-[11px] uppercase tracking-wider text-white font-semibold">{label}</Label>
+      <Label className="text-[11px] uppercase tracking-wider text-purple-400 font-semibold">{label}</Label>
       {children}
       {hint && <p className="text-xs text-white/45">{hint}</p>}
     </div>

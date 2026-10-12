@@ -871,7 +871,7 @@ function AddGameDialog({
           <div className="space-y-4 pt-4">
             {/* Application ID — the classic power-user flow (official name + icon auto-fill) */}
             <div className="space-y-1.5">
-              <label htmlFor="custom-game-appid" className="text-xs font-bold tracking-wider text-white uppercase block">
+              <label htmlFor="custom-game-appid" className="text-xs font-bold tracking-wider text-purple-400 uppercase block">
                 Application ID
               </label>
               <input
