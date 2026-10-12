@@ -198,10 +198,10 @@ export function GamesPage() {
               <span>Added</span>
             </span>
           ) : busy ? (
-            <Loader2 className="w-4 h-4 text-red-300 animate-spin" />
+            <Loader2 className="w-4 h-4 text-purple-300 animate-spin" />
           ) : (
             <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
-              <Plus className="w-3.5 h-3.5 text-red-300 stroke-[2.5]" />
+              <Plus className="w-3.5 h-3.5 text-purple-300 stroke-[2.5]" />
             </span>
           )}
         </div>
@@ -215,13 +215,13 @@ export function GamesPage() {
       <div className="flex items-center justify-between">
         <BackButton onClick={() => navigate({ name: 'dashboard' })} />
         <div className="flex items-center gap-2.5">
-          <Gamepad2 className="w-6 h-6 text-red-400 stroke-[2.2]" />
+          <Gamepad2 className="w-6 h-6 text-purple-300 stroke-[2.2]" />
           <h1 className="text-2xl font-bold text-white tracking-tight">Games</h1>
         </div>
         <div className="min-w-[90px] flex justify-end">
           {activeCount > 0 && (
-            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 text-white/90 border border-emerald-500/30 inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-purple-500/15 text-white/90 border border-purple-500/30 inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
               <span>{activeCount} active</span>
             </span>
           )}
@@ -320,8 +320,8 @@ export function GamesPage() {
 
                 <div className="flex items-center gap-2 shrink-0 ml-3">
                   {g.enabled && (
-                    <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-white/90 border border-emerald-500/30 inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-purple-500/15 text-white/90 border border-purple-500/30 inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm">
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
                       <span>Active</span>
                     </span>
                   )}
@@ -380,7 +380,7 @@ export function GamesPage() {
                     {loadingMore ? (
                       <Loader2 className="w-3.5 h-3.5 text-white/90 animate-spin" />
                     ) : (
-                      <ChevronDown className="w-3.5 h-3.5 text-red-300" />
+                      <ChevronDown className="w-3.5 h-3.5 text-purple-300" />
                     )}
                     {loadingMore ? 'Loading more...' : 'See more'}
                   </button>
@@ -412,7 +412,7 @@ export function GamesPage() {
                 className="w-full flex items-center justify-center gap-2 p-3.5 bg-transparent hover:bg-purple-500/5 border border-dashed border-white/15 hover:border-purple-500/50 rounded-2xl transition-all text-left cursor-pointer group active:scale-[0.99]"
               >
                 <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
-                  <Plus className="w-3.5 h-3.5 text-red-300 stroke-[2.5]" />
+                  <Plus className="w-3.5 h-3.5 text-purple-300 stroke-[2.5]" />
                 </span>
                 <span className="text-sm font-bold text-white/60 group-hover:text-white transition-colors">
                   Add Games
@@ -689,10 +689,10 @@ function AddGameDialog({
               <span>Added</span>
             </span>
           ) : busy ? (
-            <Loader2 className="w-4 h-4 text-red-300 animate-spin" />
+            <Loader2 className="w-4 h-4 text-purple-300 animate-spin" />
           ) : (
             <span className="w-6 h-6 rounded-full bg-purple-500/15 border border-purple-500/30 flex items-center justify-center group-hover:bg-purple-500/25 group-hover:scale-110 transition-all">
-              <Plus className="w-3.5 h-3.5 text-red-300 stroke-[2.5]" />
+              <Plus className="w-3.5 h-3.5 text-purple-300 stroke-[2.5]" />
             </span>
           )}
         </div>
@@ -724,7 +724,7 @@ function AddGameDialog({
         <div className="flex items-center justify-between pb-4 border-b border-white/8">
           <div className="flex items-center gap-2.5">
             <span className="w-9 h-9 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center">
-              <Plus className="w-4.5 h-4.5 text-red-300 stroke-[2.5]" />
+              <Plus className="w-4.5 h-4.5 text-purple-300 stroke-[2.5]" />
             </span>
             <div>
               <h2 className="text-base font-bold text-white tracking-tight">Add a Game</h2>
@@ -802,7 +802,7 @@ function AddGameDialog({
                       {loadingMore ? (
                         <Loader2 className="w-3.5 h-3.5 text-white/90 animate-spin" />
                       ) : (
-                        <ChevronDown className="w-3.5 h-3.5 text-red-300" />
+                        <ChevronDown className="w-3.5 h-3.5 text-purple-300" />
                       )}
                       {loadingMore ? 'Loading more...' : 'See more'}
                     </button>
@@ -846,7 +846,7 @@ function AddGameDialog({
                   {loadingMore ? (
                     <Loader2 className="w-3.5 h-3.5 text-white/90 animate-spin" />
                   ) : (
-                    <ChevronDown className="w-3.5 h-3.5 text-red-300" />
+                    <ChevronDown className="w-3.5 h-3.5 text-purple-300" />
                   )}
                   {loadingMore ? 'Loading more...' : 'See more'}
                 </button>
@@ -897,7 +897,7 @@ function AddGameDialog({
 
             {/* Found-app preview (auto-filled official identity) */}
             {foundApp && (
-              <div className="flex items-center gap-3 p-3 rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.07]">
+              <div className="flex items-center gap-3 p-3 rounded-2xl border border-purple-500/25 bg-purple-500/[0.07]">
                 <div className="w-10 h-10 rounded-lg overflow-hidden bg-[#121319] border border-white/10 shrink-0 relative">
                   <div className="absolute inset-0 icon-fallback flex items-center justify-center text-[10px] font-bold text-white/70 select-none">
                     {foundApp.name.slice(0, 2).toUpperCase()}

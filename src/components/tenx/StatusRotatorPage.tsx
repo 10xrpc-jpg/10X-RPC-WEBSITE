@@ -128,7 +128,7 @@ export function StatusRotatorPage({ initial }: { initial?: Me }) {
         {/* Status indicator when enabled */}
         {enabled && presets.length > 0 && (
           <div className="glass-card-inner p-3 mb-4 flex items-center gap-2 text-xs">
-            <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+            <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
             <span className="text-white/80">
               Rotator active — cycling through {presets.length} preset{presets.length === 1 ? '' : 's'}
             </span>
@@ -285,7 +285,7 @@ function AddPresetModal({
             placeholder="ex. ✨ or <:CuteBoy:1326137929852129345>"
             maxLength={64}
             className={`w-full bg-[#13141a] border rounded-xl px-4 py-3 text-sm text-white outline-none focus:ring-2 focus:ring-purple-500/40 placeholder:text-white/40 ${
-              errors.emoji ? 'border-red-500/50' : 'border-white/8'
+              errors.emoji ? 'border-purple-500/50' : 'border-white/8'
             }`}
             aria-label="Emoji"
             aria-invalid={!!errors.emoji}
@@ -306,7 +306,7 @@ function AddPresetModal({
             placeholder="What are you doing?"
             maxLength={128}
             className={`w-full bg-[#13141a] border rounded-xl px-4 py-3 text-sm text-white outline-none focus:ring-2 focus:ring-purple-500/40 placeholder:text-white/40 ${
-              errors.text ? 'border-red-500/50' : 'border-white/8'
+              errors.text ? 'border-purple-500/50' : 'border-white/8'
             }`}
             aria-label="Message"
             aria-invalid={!!errors.text}
@@ -322,9 +322,9 @@ function AddPresetModal({
           <label className="text-sm text-white/80 font-medium">Status Type</label>
           <div className="flex rounded-xl border border-white/10 overflow-hidden">
             {([
-              { v: 'online', label: 'ONLINE', dot: 'bg-green-500' },
-              { v: 'idle', label: 'IDLE', dot: 'bg-yellow-500' },
-              { v: 'dnd', label: 'DND', dot: 'bg-red-500' },
+              { v: 'online', label: 'ONLINE', dot: 'bg-purple-400' },
+              { v: 'idle', label: 'IDLE', dot: 'bg-purple-300' },
+              { v: 'dnd', label: 'DND', dot: 'bg-purple-600' },
             ] as const).map((s, i) => (
               <button
                 key={s.v}
@@ -357,7 +357,7 @@ function AddPresetModal({
             max="3600"
             placeholder="15"
             className={`w-full bg-[#13141a] border rounded-xl px-4 py-3 text-sm text-white outline-none focus:ring-2 focus:ring-purple-500/40 ${
-              errors.duration ? 'border-red-500/50' : 'border-white/8'
+              errors.duration ? 'border-purple-500/50' : 'border-white/8'
             }`}
             aria-label="Duration in seconds"
             aria-invalid={!!errors.duration}

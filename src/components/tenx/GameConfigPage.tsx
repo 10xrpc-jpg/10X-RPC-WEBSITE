@@ -128,7 +128,7 @@ export function GameConfigPage({ slug }: { slug: string }) {
       <div className="flex items-center justify-between">
         <BackButton onClick={() => navigate({ name: 'games' })} />
         <div className="flex items-center gap-2.5">
-          <Gamepad2 className="w-6 h-6 text-red-400 stroke-[2.2]" />
+          <Gamepad2 className="w-6 h-6 text-purple-300 stroke-[2.2]" />
           <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">{preset.name}</h1>
         </div>
         <button
@@ -354,8 +354,8 @@ export function GameConfigPage({ slug }: { slug: string }) {
                 disabled={deleting}
                 className={`font-medium text-xs tracking-widest uppercase px-8 py-3 rounded-xl border transition-all active:scale-[0.98] disabled:opacity-50 cursor-pointer ${
                   confirmDelete
-                    ? 'bg-red-500/20 hover:bg-red-500/30 border-red-500/50 text-white/90'
-                    : 'bg-transparent hover:bg-red-500/10 border-white/10 text-white/40 hover:text-white hover:border-red-500/40'
+                    ? 'bg-purple-500/20 hover:bg-purple-500/30 border-purple-500/50 text-white/90'
+                    : 'bg-transparent hover:bg-purple-500/10 border-white/10 text-white/40 hover:text-white hover:border-purple-500/40'
                 }`}
               >
                 {deleting ? 'DELETING...' : confirmDelete ? 'TAP AGAIN TO CONFIRM' : 'DELETE GAME'}

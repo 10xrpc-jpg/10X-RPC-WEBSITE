@@ -147,7 +147,7 @@ export function LandingPage() {
         <section className="relative overflow-hidden">
           <div className="absolute inset-0 hero-grid pointer-events-none" aria-hidden />
           <div className="absolute -top-40 left-1/4 w-[520px] h-[520px] bg-purple-600/20 rounded-full blur-[130px] animate-aurora pointer-events-none" aria-hidden />
-          <div className="absolute top-24 -right-40 w-[440px] h-[440px] bg-fuchsia-600/12 rounded-full blur-[120px] animate-aurora-slow pointer-events-none" aria-hidden />
+          <div className="absolute top-24 -right-40 w-[440px] h-[440px] bg-purple-600/12 rounded-full blur-[120px] animate-aurora-slow pointer-events-none" aria-hidden />
 
           <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-14 sm:pt-20 pb-10 sm:pb-14 grid lg:grid-cols-[1.05fr_0.95fr] gap-12 lg:gap-10 items-center">
             {/* Copy */}
@@ -157,7 +157,7 @@ export function LandingPage() {
                   href="#features"
                   className="inline-flex items-center gap-1.5 rounded-full border border-purple-500/30 bg-purple-500/10 px-4 py-1.5 text-xs sm:text-sm text-white/90 hover:bg-purple-500/20 hover:border-purple-500/50 transition-colors"
                 >
-                  <Zap className="w-3.5 h-3.5 text-amber-400" />
+                  <Zap className="w-3.5 h-3.5 text-purple-300" />
                   <span>New: Gamer RPC with ready-made presets</span>
                   <ChevronRight className="w-3.5 h-3.5" />
                 </a>
@@ -204,9 +204,9 @@ export function LandingPage() {
                 initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.6, delay: 0.4 }}
                 className="mt-8 flex flex-wrap items-center justify-center lg:justify-start gap-x-5 gap-y-2 text-xs text-white/50"
               >
-                <span className="inline-flex items-center gap-1.5"><Lock className="w-3.5 h-3.5 text-red-400" /> No tokens needed</span>
-                <span className="inline-flex items-center gap-1.5"><Cloud className="w-3.5 h-3.5 text-red-400" /> 100% cloud</span>
-                <span className="inline-flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-red-400" /> Official API only</span>
+                <span className="inline-flex items-center gap-1.5"><Lock className="w-3.5 h-3.5 text-purple-300" /> No tokens needed</span>
+                <span className="inline-flex items-center gap-1.5"><Cloud className="w-3.5 h-3.5 text-purple-300" /> 100% cloud</span>
+                <span className="inline-flex items-center gap-1.5"><ShieldCheck className="w-3.5 h-3.5 text-purple-300" /> Official API only</span>
               </motion.div>
             </div>
 
@@ -272,8 +272,8 @@ export function LandingPage() {
               {SAFETY.map((s, i) => (
                 <Reveal key={s.title} delay={i * 0.06}>
                   <div className="glass-card p-5 flex items-start gap-3.5 h-full">
-                    <div className="shrink-0 w-10 h-10 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center">
-                      <s.icon className="w-5 h-5 text-emerald-400" />
+                    <div className="shrink-0 w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
+                      <s.icon className="w-5 h-5 text-purple-300" />
                     </div>
                     <div>
                       <h3 className="font-bold text-white text-sm sm:text-base">{s.title}</h3>
@@ -315,7 +315,7 @@ export function LandingPage() {
               <div className="mt-12 grid grid-cols-2 md:grid-cols-4 gap-4">
                 {STATS.map(s => (
                   <div key={s.label} className="glass-card-inner px-4 py-6 text-center">
-                    <div className="text-3xl sm:text-4xl font-black bg-gradient-to-r from-white via-white to-red-400 bg-clip-text text-transparent">{s.value}</div>
+                    <div className="text-3xl sm:text-4xl font-black bg-gradient-to-r from-white via-white to-purple-300/80 bg-clip-text text-transparent">{s.value}</div>
                     <div className="text-xs text-white/50 mt-1.5">{s.label}</div>
                   </div>
                 ))}
@@ -392,7 +392,7 @@ export function LandingPage() {
           <Reveal>
             <div className="max-w-4xl mx-auto relative overflow-hidden rounded-[2rem] glass-card border-purple-500/20 purple-glow px-6 py-14 sm:py-16 text-center">
               <div className="absolute -top-24 left-1/3 w-80 h-80 bg-purple-600/25 rounded-full blur-[100px] pointer-events-none" aria-hidden />
-              <div className="absolute -bottom-28 right-1/4 w-72 h-72 bg-fuchsia-600/15 rounded-full blur-[100px] pointer-events-none" aria-hidden />
+              <div className="absolute -bottom-28 right-1/4 w-72 h-72 bg-purple-600/15 rounded-full blur-[100px] pointer-events-none" aria-hidden />
               <div className="relative">
                 <h2 className="text-3xl sm:text-5xl font-black text-white tracking-tight">
                   Ready to <BrandName /> your presence?
@@ -413,7 +413,7 @@ export function LandingPage() {
                   </GhostButton>
                 </div>
                 <p className="mt-5 text-xs text-white/40 flex items-center justify-center gap-1.5 flex-wrap">
-                  <Check className="w-3.5 h-3.5 text-emerald-400" /> No card needed
+                  <Check className="w-3.5 h-3.5 text-purple-300" /> No card needed
                   <span className="text-white/20">·</span> Cancel anytime
                 </p>
               </div>
@@ -500,7 +500,7 @@ function Reveal({ children, delay = 0, className }: { children: React.ReactNode;
 function SectionHeading({ eyebrow, title, sub }: { eyebrow: string; title: string; sub?: string }) {
   return (
     <Reveal className="text-center max-w-2xl mx-auto mb-12 sm:mb-14">
-      <p className="text-xs font-bold uppercase tracking-[0.25em] text-red-400">{eyebrow}</p>
+      <p className="text-xs font-bold uppercase tracking-[0.25em] text-purple-300">{eyebrow}</p>
       <h2 className="mt-3 text-3xl sm:text-5xl font-black text-white tracking-tight">{title}</h2>
       {sub && <p className="mt-4 text-base text-white/60 leading-relaxed">{sub}</p>}
     </Reveal>
@@ -510,8 +510,11 @@ function SectionHeading({ eyebrow, title, sub }: { eyebrow: string; title: strin
 /* ---------- hero mockup (static, self-contained) ---------- */
 
 function HeroMockup() {
-  const [now, setNow] = useState(Date.now())
   const start = useState(() => Date.now() - 47 * 60 * 1000)[0] // session started 47 min ago
+  // Seed `now` with `start` (not Date.now()) so SSR and hydration agree on the
+  // first render; the interval takes over right after mount. Prevents the
+  // "46m 59s vs 47m 0s" hydration mismatch.
+  const [now, setNow] = useState(start)
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
@@ -526,7 +529,7 @@ function HeroMockup() {
         <div className="flex items-center justify-between mb-4">
           <span className="text-xs font-bold tracking-widest text-white uppercase">Live Preview</span>
           <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-white">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
             LIVE
           </span>
         </div>
@@ -535,10 +538,10 @@ function HeroMockup() {
           {/* user row */}
           <div className="flex items-start gap-3">
             <div className="relative shrink-0">
-              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-500 to-fuchsia-500 flex items-center justify-center text-sm font-bold text-white ring-1 ring-white/10">
+              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center text-sm font-bold text-white ring-1 ring-white/10">
                 A
               </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-[#1a1b22]" title="Online" />
+              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-purple-400 border-2 border-[#1a1b22]" title="Online" />
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -559,11 +562,11 @@ function HeroMockup() {
           {/* activity card */}
           <div className="bg-[#121319] border border-white/5 rounded-xl p-3 flex items-center gap-3.5">
             <div className="relative shrink-0">
-              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-rose-500/80 to-purple-600/80 border border-white/10 flex items-center justify-center select-none">
+              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-600/80 to-purple-900/80 border border-white/10 flex items-center justify-center select-none">
                 <Target className="w-6 h-6 text-white/90" />
               </div>
               <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-[#121319] bg-[#1c1d25] flex items-center justify-center">
-                <Star className="w-3 h-3 text-amber-400" />
+                <Star className="w-3 h-3 text-purple-300" />
               </div>
             </div>
             <div className="flex-1 min-w-0 space-y-0.5">

@@ -266,7 +266,7 @@ export function GlobalConfigPage({ initialCity, initialTimezone, initialTempUnit
 
       <p className="text-sm text-white/60 mb-6 text-center">
         Power your RPC with dynamic placeholders — time, weather, location, timers.
-        {dirty && <Badge className="ml-2 bg-amber-500/15 text-white border border-amber-500/30">unsaved changes</Badge>}
+        {dirty && <Badge className="ml-2 bg-purple-500/15 text-white border border-purple-500/30">unsaved changes</Badge>}
       </p>
 
       {/* Live local time */}
@@ -277,8 +277,8 @@ export function GlobalConfigPage({ initialCity, initialTimezone, initialTempUnit
             <p className="text-3xl font-black text-white font-mono mt-1 tabular-nums">{localTime}</p>
             <p className="text-sm text-white/50 mt-0.5">{localDate} · {timezone}{city ? ` · ${city}` : ''}</p>
           </div>
-          <Badge className="bg-emerald-500/15 text-white border border-emerald-500/30">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" /> live
+          <Badge className="bg-purple-500/15 text-white border border-purple-500/30">
+            <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" /> live
           </Badge>
         </div>
       </Card>
@@ -466,7 +466,7 @@ export function GlobalConfigPage({ initialCity, initialTimezone, initialTempUnit
           })}
         </div>
 
-        <div className="mt-4 glass-card-inner p-3 border-l-2 border-orange-400">
+        <div className="mt-4 glass-card-inner p-3 border-l-2 border-purple-400">
           <p className="text-xs text-white/90 font-semibold mb-1">Example usage (click to try in preview):</p>
           <div className="space-y-1">
             {EXAMPLES.map(ex => (

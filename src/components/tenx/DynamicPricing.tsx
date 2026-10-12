@@ -104,7 +104,7 @@ export function PricingCard({ name, price, originalPrice, period, badge, feature
   return (
     <div className={`glass-card-inner p-6 relative h-full flex flex-col hover:-translate-y-1 transition-all duration-300 ${highlighted ? 'border-purple-500/40 shadow-[0_0_28px_rgba(168,85,247,0.16)]' : 'hover:border-white/12'}`}>
       {badge && (
-        <span className="absolute -top-2.5 right-4 text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-500 text-white shadow-lg">
+        <span className="absolute -top-2.5 right-4 text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-gradient-to-r from-purple-500 to-purple-700 text-white shadow-lg">
           {badge}
         </span>
       )}
@@ -117,7 +117,7 @@ export function PricingCard({ name, price, originalPrice, period, badge, feature
       <ul className="space-y-2.5 mb-6">
         {features.map(f => (
           <li key={f} className="flex items-start gap-2.5 text-sm text-white/70">
-            <Check className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" strokeWidth={3} />
+            <Check className="w-4 h-4 text-purple-300 mt-0.5 shrink-0" strokeWidth={3} />
             <span>{f}</span>
           </li>
         ))}
@@ -125,7 +125,7 @@ export function PricingCard({ name, price, originalPrice, period, badge, feature
       {ctaStyle === 'primary' ? (
         <button
           onClick={onCta}
-          className="mt-auto w-full bg-gradient-to-r from-purple-600 to-fuchsia-500 text-white font-bold rounded-xl py-3 hover:opacity-90 active:scale-[0.98] transition-all shadow-lg shadow-purple-900/30"
+          className="mt-auto w-full purple-gradient text-white font-bold rounded-xl py-3 hover:opacity-90 active:scale-[0.98] transition-all shadow-lg shadow-purple-900/30"
         >
           {cta}
         </button>

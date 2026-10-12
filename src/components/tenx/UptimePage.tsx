@@ -32,16 +32,16 @@ function serverGrade(ping: number | null | undefined, ok: boolean): PingGrade {
 }
 
 const GRADE_DOT: Record<PingGrade, string> = {
-  good: 'bg-emerald-400',
-  ok: 'bg-amber-400',
-  slow: 'bg-orange-500',
-  down: 'bg-red-500',
+  good: 'bg-purple-400',
+  ok: 'bg-purple-500',
+  slow: 'bg-purple-600',
+  down: 'bg-white/25',
 }
 const GRADE_BAR: Record<PingGrade, string> = {
-  good: 'bg-emerald-400',
-  ok: 'bg-amber-400',
-  slow: 'bg-orange-500',
-  down: 'bg-red-500',
+  good: 'bg-purple-400',
+  ok: 'bg-purple-500',
+  slow: 'bg-purple-600',
+  down: 'bg-white/25',
 }
 const GRADE_TEXT: Record<PingGrade, string> = {
   good: 'text-white',
@@ -159,10 +159,10 @@ export function UptimePage() {
   const bannerTone = report == null
     ? 'border-white/10 bg-white/5'
     : loadError || report.ok === false
-      ? 'border-red-500/40 bg-red-500/10'
+      ? 'border-purple-600/50 bg-purple-600/10'
       : operational
-        ? 'border-emerald-500/40 bg-emerald-500/10'
-        : 'border-amber-500/40 bg-amber-500/10'
+        ? 'border-purple-400/30 bg-purple-400/10'
+        : 'border-purple-500/30 bg-purple-500/10'
 
   const browserGrade = grade(pingHistory.at(-1)?.ms, pingHistory.at(-1)?.ok !== false)
 
@@ -193,7 +193,7 @@ export function UptimePage() {
             {loadError ? (
               <div className="flex flex-col items-center gap-1">
                 <span className="flex items-center gap-2.5 text-xl sm:text-2xl font-bold text-white">
-                  <span className="w-3.5 h-3.5 rounded-full bg-red-500 animate-pulse" />
+                  <span className="w-3.5 h-3.5 rounded-full bg-purple-600 animate-pulse" />
                   Status API unreachable
                 </span>
                 <span className="text-sm text-white/50">{loadError}</span>
@@ -205,17 +205,17 @@ export function UptimePage() {
               </span>
             ) : operational ? (
               <span className="flex items-center justify-center gap-2.5 text-xl sm:text-2xl font-bold text-white">
-                <span className="w-3.5 h-3.5 rounded-full bg-emerald-400" />
+                <span className="w-3.5 h-3.5 rounded-full bg-purple-400" />
                 All Systems Operational
               </span>
             ) : report.degraded ? (
               <span className="flex items-center justify-center gap-2.5 text-xl sm:text-2xl font-bold text-white">
-                <span className="w-3.5 h-3.5 rounded-full bg-amber-400 animate-pulse" />
+                <span className="w-3.5 h-3.5 rounded-full bg-purple-500 animate-pulse" />
                 Degraded Performance
               </span>
             ) : (
               <span className="flex items-center justify-center gap-2.5 text-xl sm:text-2xl font-bold text-white">
-                <span className="w-3.5 h-3.5 rounded-full bg-red-500 animate-pulse" />
+                <span className="w-3.5 h-3.5 rounded-full bg-purple-600 animate-pulse" />
                 Service Disruption
               </span>
             )}
@@ -291,8 +291,8 @@ export function UptimePage() {
               ) : (
                 <>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge className={report.daemon.ok ? 'bg-emerald-500/15 text-white' : 'bg-red-500/15 text-white'}>
-                      <span className={`w-2 h-2 rounded-full ${report.daemon.ok ? 'bg-emerald-400' : 'bg-red-500'}`} />
+                    <Badge className={report.daemon.ok ? 'bg-purple-500/15 text-white' : 'bg-white/10 text-white'}>
+                      <span className={`w-2 h-2 rounded-full ${report.daemon.ok ? 'bg-purple-400' : 'bg-white/40'}`} />
                       {report.daemon.ok ? 'Running' : report.daemon.running === false ? 'Stopped' : 'Unreachable'}
                     </Badge>
                     <Badge className="bg-white/5 text-white/70 border border-white/10">
@@ -304,7 +304,7 @@ export function UptimePage() {
                       </Badge>
                     )}
                     {report.node.maintenance && (
-                      <Badge className="bg-amber-500/15 text-white">node under maintenance</Badge>
+                      <Badge className="bg-purple-500/15 text-white">node under maintenance</Badge>
                     )}
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
