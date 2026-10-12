@@ -978,7 +978,10 @@ export async function applyPresence(
   const isStatusActive = !!(session as any).statusEnabled
   const statusPlatform = (session as any).statusPlatform || 'mobile'
   const explicitPlatform = isRpcActive ? (selection.config?.platform || 'desktop') : statusPlatform
-  const isVr = (isStatusActive && statusPlatform === 'meta_quest') || (isRpcActive && selection.config?.platform === 'meta_quest')
+  // VR unification — honor vrStatusActive even if statusPlatform drifted
+  // (mirrors the daemon's connectUserSocket/pushPresenceForUser logic so the
+  // IDENTIFY properties and the OP 3 payload always agree).
+  const isVr = (isStatusActive && (statusPlatform === 'meta_quest' || !!(session as any).vrStatusActive)) || (isRpcActive && selection.config?.platform === 'meta_quest')
 
   // Custom games may carry a Discord Application ID — spoof that application.
   const selectedGameAppId = isRpcActive && selection.mode === 'game'

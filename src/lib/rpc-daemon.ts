@@ -136,6 +136,12 @@ interface ActiveUserSocket {
   /** Token sent with the last IDENTIFY — lets the close handler remember
    *  exactly which token Discord rejected. */
   identifiedWith?: string | null
+  /** Platform whose properties were sent with the CURRENT socket's IDENTIFY.
+   *  Discord derives the "Active on Mobile / Meta Quest / Desktop" badge from
+   *  these IDENTIFY properties — OP 3 can NOT change it. When the desired
+   *  platform differs from this value the socket must be re-identified
+   *  (fresh gateway connection) for VR / mobile status to switch instantly. */
+  identifiedPlatform?: string
   /** The Discord token whose IDENTIFY was rejected with 4004 (Authentication
    *  failed). 4004 means the token ITSELF is dead (revoked/reset) — retrying
    *  the same token hits 4004 forever. Auth stays fatal until the stored
@@ -688,8 +694,22 @@ export class RpcDaemon {
       this.sockets.set(userId, userSock)
     }
 
-    if (!userSock.connected && !userSock.isConnecting) {
-      await this.connectUserSocket(userId)
+    // INSTANT-UPDATE FIX (VR / mobile status not applying right away):
+    // an explicit user action must never be silently dropped. Previously:
+    //   • a socket stuck "connecting" (or waiting on a retry backoff timer)
+    //     made syncUser a no-op — the save waited for the next tick or the
+    //     backoff (up to 60s);
+    //   • a socket flagged connected but half-open/closed silently swallowed
+    //     the push (pushPresenceForUser returns on non-OPEN readyState).
+    if (!userSock.connected || !userSock.ws || userSock.ws.readyState !== WebSocket.OPEN) {
+      // Half-open / closed / connecting — force a clean reconnect path.
+      if (userSock.connected || userSock.ws) this.cleanupSocket(userSock)
+      // The user just acted: supersede any scheduled backoff retry.
+      if (userSock.retryTimer) {
+        clearTimeout(userSock.retryTimer)
+        userSock.retryTimer = undefined
+      }
+      if (!userSock.isConnecting) await this.connectUserSocket(userId)
     } else {
       await this.pushPresenceForUser(userId, session, true)
     }
@@ -808,6 +828,7 @@ export class RpcDaemon {
       const isQuest = activePlatform === 'meta_quest' || (isStatusActive && session.vrStatusActive)
       const targetPlatform = isQuest ? 'meta_quest' : activePlatform
       userSock.platform = targetPlatform
+      userSock.identifiedPlatform = targetPlatform
 
       const ws = new WebSocket(CONFIG.discord.gatewayUrl)
       userSock.ws = ws
@@ -898,8 +919,21 @@ export class RpcDaemon {
               },
             }).catch(() => {})
 
-            // Push current presence immediately
-            await this.pushPresenceForUser(userId, session, true)
+            // Push current presence immediately — ALWAYS from a FRESH DB read:
+            // the connect-time snapshot can be seconds old, so a save that
+            // landed while the socket was connecting must not wait for the
+            // next 30s tick to appear on Discord.
+            const freshSession = await db.session.findFirst({
+              where: {
+                userId,
+                expiresAt: { gt: new Date() },
+                discordAccessToken: { not: null },
+              },
+              orderBy: { createdAt: 'desc' },
+            }).catch(() => null)
+            if (freshSession) {
+              await this.pushPresenceForUser(userId, freshSession, true)
+            }
           } else if (op === 7) {
             // Discord requested reconnect
             console.log(`[10X RPC Daemon] Discord Gateway sent OP 7 RECONNECT for user ${userId}. Reconnecting...`)
@@ -1089,7 +1123,35 @@ export class RpcDaemon {
     const activePlatform = isStatusActive
       ? (session.statusPlatform || 'mobile')
       : (isRpcActive ? (selection.config?.platform || 'desktop') : (session.statusPlatform || 'mobile'))
-    userSock.platform = activePlatform === 'meta_quest' ? 'meta_quest' : activePlatform
+    // Same VR/platform unification as connectUserSocket — the IDENTIFY
+    // properties and the OP 3 payload must always agree.
+    const isQuest = activePlatform === 'meta_quest' || (isStatusActive && session.vrStatusActive)
+    const targetPlatform = isQuest ? 'meta_quest' : activePlatform
+
+    // ════════════════════════════════════════════════════════════════════
+    // PLATFORM-INSTANT-UPDATE FIX (the "VR / mobile status not updating"
+    // bug): Discord derives the profile's "Active on Mobile / Meta Quest /
+    // Desktop" badge from the session's IDENTIFY properties — an OP 3
+    // presence update can NOT change it. This method previously just
+    // overwrote userSock.platform and kept pushing OP 3 on the SAME socket,
+    // so switching Mobile ↔ Meta Quest (VR) ↔ Desktop/Console/Web changed
+    // nothing on Discord until an unrelated reconnect happened. Detect the
+    // change here and re-identify with a fresh gateway connection: the new
+    // IDENTIFY carries the new platform properties and the READY push lands
+    // the current presence — the badge flips in ~1s, instantly.
+    // ════════════════════════════════════════════════════════════════════
+    if (userSock.connected && userSock.identifiedPlatform && userSock.identifiedPlatform !== targetPlatform) {
+      console.log(`[10X RPC Daemon] Platform change for user ${userId}: ${userSock.identifiedPlatform} -> ${targetPlatform} — re-identifying gateway session`)
+      this.cleanupSocket(userSock)
+      userSock.retryCount = 0
+      if (userSock.retryTimer) {
+        clearTimeout(userSock.retryTimer)
+        userSock.retryTimer = undefined
+      }
+      await this.connectUserSocket(userId)
+      return
+    }
+    userSock.platform = targetPlatform
 
     // Custom games may carry a Discord Application ID — spoof that application.
     const selectedGameAppId = isRpcActive && selection.mode === 'game'
@@ -1108,8 +1170,8 @@ export class RpcDaemon {
       customStatus: isStatusActive ? session.customStatus : null,
       customStatusEmoji: isStatusActive ? session.customStatusEmoji : null,
       placeholderCtx,
-      vrStatusActive: (isStatusActive && session.statusPlatform === 'meta_quest') || (isRpcActive && selection.config?.platform === 'meta_quest'),
-      platform: isRpcActive ? (selection.config?.platform || 'desktop') : (session.statusPlatform || 'mobile'),
+      vrStatusActive: (isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive)) || (isRpcActive && selection.config?.platform === 'meta_quest'),
+      platform: isRpcActive ? (selection.config?.platform || 'desktop') : targetPlatform,
       // User OAuth token — required to resolve image URLs into animated-capable
       // mp:external asset references via Discord's external-assets endpoint.
       userAccessToken: session.discordAccessToken,
