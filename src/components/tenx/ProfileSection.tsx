@@ -332,7 +332,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                 <button
                   type="button"
                   onClick={handleLogout}
-                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white hover:text-white hover:bg-red-500/10 text-left border-t border-white/5 mt-1 transition-colors"
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-white hover:text-white hover:bg-purple-500/10 text-left border-t border-white/5 mt-1 transition-colors"
                 >
                   <LogOut className="w-4 h-4" />
                   <span>Logout</span>
@@ -382,7 +382,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                     userStatus === 'online' ? 'bg-white/10 text-white font-medium' : 'text-white/80 hover:text-white hover:bg-white/5'
                   }`}
                 >
-                  <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-sm shadow-emerald-500/50" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-400 shadow-sm shadow-purple-400/50" />
                   <span>Online</span>
                 </button>
 
@@ -393,7 +393,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                     userStatus === 'idle' ? 'bg-white/10 text-white font-medium' : 'text-white/80 hover:text-white hover:bg-white/5'
                   }`}
                 >
-                  <span className="w-2.5 h-2.5 rounded-full bg-amber-500 shadow-sm shadow-amber-500/50" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-300 shadow-sm shadow-purple-300/50" />
                   <span>Idle</span>
                 </button>
 
@@ -404,7 +404,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                     userStatus === 'dnd' ? 'bg-white/10 text-white font-medium' : 'text-white/80 hover:text-white hover:bg-white/5'
                   }`}
                 >
-                  <span className="w-2.5 h-2.5 rounded-full bg-rose-500 shadow-sm shadow-rose-500/50" />
+                  <span className="w-2.5 h-2.5 rounded-full bg-purple-600 shadow-sm shadow-purple-600/50" />
                   <span>Do Not Disturb</span>
                 </button>
               </div>

@@ -10,10 +10,10 @@ interface QuickStatusProps {
 }
 
 const QUICK_PRESETS: Array<{ status: string; label: string; color: string }> = [
-  { status: 'online', label: 'Online', color: 'bg-green-500' },
-  { status: 'idle', label: 'Idle', color: 'bg-yellow-500' },
-  { status: 'dnd', label: 'DND', color: 'bg-red-500' },
-  { status: 'invisible', label: 'Invisible', color: 'bg-gray-500' },
+  { status: 'online', label: 'Online', color: 'bg-purple-400' },
+  { status: 'idle', label: 'Idle', color: 'bg-purple-300' },
+  { status: 'dnd', label: 'DND', color: 'bg-purple-600' },
+  { status: 'invisible', label: 'Invisible', color: 'bg-white/30' },
 ]
 
 const QUICK_CUSTOM_STATUSES: Array<{ emoji: string; text: string }> = [

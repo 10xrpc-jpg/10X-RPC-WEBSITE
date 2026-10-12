@@ -40,10 +40,10 @@ export interface DiscordStatus {
 }
 
 export const DISCORD_STATUSES: DiscordStatus[] = [
-  { value: 'online', label: 'Online', color: 'bg-green-500', emoji: '🟢' },
-  { value: 'idle', label: 'Idle', color: 'bg-yellow-500', emoji: '🟡' },
-  { value: 'dnd', label: 'Do Not Disturb', color: 'bg-red-500', emoji: '🔴' },
-  { value: 'invisible', label: 'Invisible', color: 'bg-gray-500', emoji: '⚫' },
+  { value: 'online', label: 'Online', color: 'bg-purple-400', emoji: '🟢' },
+  { value: 'idle', label: 'Idle', color: 'bg-purple-300', emoji: '🟡' },
+  { value: 'dnd', label: 'Do Not Disturb', color: 'bg-purple-600', emoji: '🔴' },
+  { value: 'invisible', label: 'Invisible', color: 'bg-white/30', emoji: '⚫' },
 ]
 
 export function platformByValue(value: string) {

@@ -224,7 +224,7 @@ export function RichPresenceForm({
         {/* Mutual-exclusivity notice: while Gamer RPC is active, this Normal RPC
             config is remembered but idle — enabling Normal RPC auto-disables it. */}
         {rpcMode === 'game' && (
-          <div className="relative z-10 mb-5 flex items-start gap-2.5 text-xs text-white/80 bg-amber-500/10 border border-amber-500/25 rounded-xl px-3.5 py-2.5">
+          <div className="relative z-10 mb-5 flex items-start gap-2.5 text-xs text-white/80 bg-purple-500/10 border border-purple-500/25 rounded-xl px-3.5 py-2.5">
             <Gamepad2 className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
             <span>
               <strong>Game RPC is currently active{activeGameName ? ` — ${activeGameName}` : ''}.</strong>{' '}
@@ -332,11 +332,11 @@ export function RichPresenceForm({
               autoComplete="off"
               className={`w-full h-12 bg-[#12131a] border rounded-xl px-4 text-sm text-white placeholder:text-white/35 outline-none transition-colors ${
                 appLookup.status === 'invalid'
-                  ? 'border-amber-500/50 focus:border-amber-400/70'
+                  ? 'border-purple-500/60 focus:border-purple-400/70'
                   : appLookup.status === 'found'
-                    ? 'border-emerald-500/40 focus:border-emerald-400/60'
+                    ? 'border-purple-400/60 focus:border-purple-300/70'
                     : appLookup.status === 'not_found'
-                      ? 'border-red-500/40 focus:border-red-400/60'
+                      ? 'border-purple-500/60 focus:border-purple-400/70'
                       : 'border-white/10 hover:border-white/20 focus:border-purple-500/50'
               }`}
             />
@@ -354,7 +354,7 @@ export function RichPresenceForm({
               </p>
             )}
             {appLookup.status === 'found' && (
-              <div className="flex items-center gap-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-3 py-2" role="status" aria-live="polite">
+              <div className="flex items-center gap-2.5 bg-purple-500/10 border border-purple-500/30 rounded-xl px-3 py-2" role="status" aria-live="polite">
                 {appLookup.iconUrl ? (
                   <img src={appLookup.iconUrl} alt={`${appLookup.name} icon`} className="w-6 h-6 rounded-md object-cover flex-shrink-0" />
                 ) : (

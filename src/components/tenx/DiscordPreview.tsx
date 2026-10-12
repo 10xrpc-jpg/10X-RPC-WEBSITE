@@ -71,12 +71,12 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
           </span>
           <div className="flex items-center gap-2">
             {hasDiscordToken === false && (
-              <span className="text-[10px] uppercase tracking-wider font-bold text-white/80 bg-yellow-400/10 border border-yellow-400/20 px-2 py-0.5 rounded-full">
+              <span className="text-[10px] uppercase tracking-wider font-bold text-white/80 bg-purple-400/10 border border-purple-400/20 px-2 py-0.5 rounded-full">
                 DEMO
               </span>
             )}
             <span className={`inline-flex items-center gap-1.5 text-xs font-semibold ${rpcEnabled ? 'text-white' : 'text-white/40'}`}>
-              <span className={`w-2 h-2 rounded-full ${rpcEnabled ? 'bg-emerald-400 animate-pulse' : 'bg-white/30'}`} />
+              <span className={`w-2 h-2 rounded-full ${rpcEnabled ? 'bg-purple-400 animate-pulse' : 'bg-white/30'}`} />
               <span>{rpcEnabled ? 'LIVE' : 'OFFLINE'}</span>
             </span>
           </div>
@@ -101,14 +101,14 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
               {/* Discord status dot with optional VR badge */}
               {rpcEnabled && platform === 'meta_quest' ? (
                 <div
-                  className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-emerald-500 border-2 border-[#1a1b22] flex items-center justify-center text-[9px] shadow-sm animate-pulse"
+                  className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-purple-500 border-2 border-[#1a1b22] flex items-center justify-center text-[9px] shadow-sm animate-pulse"
                   title="Active on Meta Quest VR"
                 >
                   <Glasses className="w-2.5 h-2.5 text-white" />
                 </div>
               ) : rpcEnabled ? (
                 <div
-                  className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-emerald-500 border-2 border-[#1a1b22]"
+                  className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-purple-500 border-2 border-[#1a1b22]"
                   title="Online"
                 />
               ) : (
