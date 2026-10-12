@@ -108,12 +108,12 @@ export function DiscordPreview({ config, username, avatarUrl, platform, rpcEnabl
                 </div>
               ) : rpcEnabled ? (
                 <div
-                  className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-purple-500 border-2 border-[#1a1b22]"
+                  className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[#23A559] border-2 border-[#1a1b22]"
                   title="Online"
                 />
               ) : (
                 <div
-                  className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-white/20 border-2 border-[#1a1b22]"
+                  className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[#80848E] border-2 border-[#1a1b22]"
                   title="Offline"
                 />
               )}

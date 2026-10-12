@@ -323,9 +323,9 @@ function AddPresetModal({
           <label className="text-sm text-purple-400 font-medium">Status Type</label>
           <div className="flex rounded-xl border border-white/10 overflow-hidden">
             {([
-              { v: 'online', label: 'ONLINE', dot: 'bg-purple-400' },
-              { v: 'idle', label: 'IDLE', dot: 'bg-purple-300' },
-              { v: 'dnd', label: 'DND', dot: 'bg-purple-600' },
+              { v: 'online', label: 'ONLINE' },
+              { v: 'idle', label: 'IDLE' },
+              { v: 'dnd', label: 'DND' },
             ] as const).map((s, i) => (
               <button
                 key={s.v}
