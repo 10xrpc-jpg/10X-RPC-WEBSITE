@@ -91,7 +91,27 @@ export interface Me {
   /** Multi-RPC: every slot (max 3) with its own config + enabled flag. */
   rpcSlots?: RpcConfig[]
   /** RPC Auto Rotate settings (optional runtime rotation across enabled RPCs). */
-  autoRotate?: { enabled: boolean; secs: number } | null
+  autoRotate?: {
+    enabled: boolean
+    secs: number
+    /** forward | reverse | shuffle (Task 87). */
+    order: 'forward' | 'reverse' | 'shuffle'
+    /** false = the Game RPC keeps its own always-visible session while slots rotate. */
+    includeGame: boolean
+    /** Manual advance counter ("Skip to next RPC"). */
+    skip: number
+    /** Rotation clock anchor (ms epoch) — the UI recomputes the countdown from it. */
+    refMs: number | null
+  } | null
+  /** Task 87 — live rotation state (what the daemon is publishing right now). */
+  rotationPreview?: {
+    pool: Array<{ name: string; type: string; game: boolean }>
+    nowIndex: number
+    nowName: string
+    nextIndex: number
+    nextName: string
+    nextSwitchInSecs: number
+  } | null
   /** The ACTIVE RPC mode's own config (game config in Gamer RPC mode). */
   activeRpcConfig?: RpcConfig | null
   /** The currently enabled game (Gamer RPC config owner), if any. */
@@ -515,7 +535,7 @@ export const api = {
     ok: boolean
     maxSlots: number
     slots: RpcConfig[]
-    autoRotate: { enabled: boolean; secs: number }
+    autoRotate: Me['autoRotate']
     game: { slug: string; name: string; enabled: boolean } | null
   }>('/api/rpc/slots'),
   rpcSlotCreate: () => fetchJson<{
@@ -548,14 +568,20 @@ export const api = {
   }>(`/api/rpc/slots/${id}/toggle`, {
     method: 'POST', body: JSON.stringify({ enabled }),
   }),
-  rpcRotateSave: (enabled: boolean, secs: number) => fetchJson<{
+  rpcRotateSave: (enabled: boolean, secs: number, order?: 'forward' | 'reverse' | 'shuffle', includeGame?: boolean) => fetchJson<{
     ok: boolean
-    autoRotate?: { enabled: boolean; secs: number }
+    autoRotate?: NonNullable<Me['autoRotate']>
     message?: string
     error?: string
   }>('/api/rpc/rotate', {
-    method: 'POST', body: JSON.stringify({ enabled, secs }),
+    method: 'POST', body: JSON.stringify({ enabled, secs, order, includeGame }),
   }),
+  rpcRotateSkip: () => fetchJson<{
+    ok: boolean
+    autoRotate?: NonNullable<Me['autoRotate']>
+    message?: string
+    error?: string
+  }>('/api/rpc/rotate/skip', { method: 'POST' }),
 
   customStatus: (emoji: string | null, text: string | null) =>
     fetchJson<{ ok: boolean }>('/api/rpc/custom-status', {

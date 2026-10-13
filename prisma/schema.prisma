@@ -168,6 +168,14 @@ model GlobalConfig {
    *  ENABLED RPC slots (+ enabled game). Never modifies saved configs. */
   rpcAutoRotate       Boolean  @default(false)
   rpcRotateSecs       Int      @default(30)
+  /** Task 87 — rotation order: forward | reverse | shuffle (deterministic). */
+  rpcRotateOrder      String   @default("forward")
+  /** Task 87 — when false, the Game RPC does NOT join the rotation: it keeps
+   *  its own always-visible Discord session while the slots rotate. */
+  rpcRotateIncludeGame Boolean @default(true)
+  /** Task 87 — manual advance counter ("Skip to next RPC"). Incremented via
+   *  raw SQL WITHOUT touching updatedAt (the rotation anchor). */
+  rpcRotateSkip       Int      @default(0)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }

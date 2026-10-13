@@ -73,11 +73,12 @@ export function TextInput(props: React.InputHTMLAttributes<HTMLInputElement>) {
   )
 }
 
-export function PurpleSwitch({ checked, onCheckedChange }: { checked: boolean; onCheckedChange: (v: boolean) => void }) {
+export function PurpleSwitch({ checked, onCheckedChange, ariaLabel }: { checked: boolean; onCheckedChange: (v: boolean) => void; ariaLabel?: string }) {
   return (
     <Switch
       checked={checked}
       onCheckedChange={onCheckedChange}
+      aria-label={ariaLabel}
       className="data-[state=checked]:bg-purple-500 data-[state=unchecked]:bg-white/10"
     />
   )

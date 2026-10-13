@@ -12,6 +12,9 @@ import { GAME_SPOOF, findGame, DISCORD_APP_ID_RE, isGameApplicationId, type Game
 import { resolveAssetRef, resolveExternalAsset, sanitizeActivities, type ResolveOpts } from './discord-assets'
 import { discordAuthValue } from './discord-auth'
 import { buildIdentify } from './gateway-platform'
+import { rotateCycleIndex, normalizeRotateOrder, type RotateOrder } from './rotation'
+
+export type { RotateOrder }
 
 export type { ResolveOpts }
 
@@ -329,15 +332,21 @@ export function selectActiveRpcConfigs(
 export interface RuntimeCandidateResult extends MultiRpcSelection {
   /** How the runtime picked what is being sent. */
   runtimeMode: 'single' | 'simultaneous' | 'rotate'
-  /** 0-based index into the FULL candidate list while rotating (else null). */
+  /** 0-based index into the ROTATION POOL while rotating (else null). */
   rotateIndex: number | null
+  /** Length of the rotation pool while rotating (else null). */
+  rotatePoolLength: number | null
 }
 
 /**
  * Resolve which candidates are PUBLISHED right now.
  *
- * Auto Rotate (optional): picks exactly one candidate, deterministically, by
- * elapsed time from a stable reference — index = floor(elapsed / secs) % N.
+ * Auto Rotate (optional): picks exactly ONE candidate from the ROTATION POOL,
+ * deterministically, by elapsed time from a stable reference — the index comes
+ * from the shared pure math in rotation.ts (forward / reverse / shuffle, plus
+ * the manual "Skip" counter). The pool is the enabled candidates EXCLUDING the
+ * Game RPC when `rotateIncludeGame` is false — in that case the game keeps its
+ * own always-visible session (the daemon opens it as a separate extra).
  * Stateless across daemon restarts/multi-instance (same inputs → same index).
  * Auto Rotate is a RUNTIME-ONLY overlay: it never writes configs, never flips
  * enabled flags, never touches Game RPC settings, app IDs, buttons, images or
@@ -351,28 +360,49 @@ export function resolveRuntimeCandidates(opts: {
   rotateSecs?: number | null
   /** Stable rotation clock anchor (ms epoch) — e.g. rotate settings' updatedAt. */
   rotateRefMs?: number | null
+  /** Task 87 — rotation order (forward | reverse | shuffle). */
+  rotateOrder?: RotateOrder | string | null
+  /** Task 87 — manual advance counter ("Skip to next"). */
+  rotateSkip?: number | null
+  /** Task 87 — include the Game RPC in the rotation pool (default true). */
+  rotateIncludeGame?: boolean | null
+  /** Shuffle seed — the userId, so the permutation is stable per user. */
+  rotateSeed?: string | null
   nowMs?: number
 }): RuntimeCandidateResult {
   const sel = selectActiveRpcConfigs(opts.rpcEnabled, opts.rpcConfigs, opts.enabledGame)
   if (!sel.active) {
-    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null }
+    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null }
   }
   if (sel.candidates.length === 1) {
-    return { ...sel, runtimeMode: 'single', rotateIndex: null }
+    return { ...sel, runtimeMode: 'single', rotateIndex: null, rotatePoolLength: null }
   }
   if (!opts.autoRotate) {
-    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null }
+    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null }
   }
-  const secs = Math.max(15, Math.min(3600, Math.floor(Number(opts.rotateSecs ?? 30)) || 30))
-  const nowMs = opts.nowMs ?? Date.now()
-  const ref = opts.rotateRefMs && !isNaN(opts.rotateRefMs) && opts.rotateRefMs <= nowMs ? opts.rotateRefMs : nowMs
-  const elapsed = Math.max(0, Math.floor((nowMs - ref) / 1000))
-  const idx = Math.floor(elapsed / secs) % sel.candidates.length
+  // Rotation pool — Game RPC only joins when includeGame is on (default).
+  const includeGame = opts.rotateIncludeGame !== false
+  const pool = includeGame ? sel.candidates : sel.candidates.filter(c => !c.gameSlug)
+  if (pool.length < 2) {
+    // Nothing to cycle (e.g. one slot + excluded game) — simultaneous keeps
+    // every candidate visible; the excluded game gets its own extra session.
+    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null }
+  }
+  const idx = rotateCycleIndex({
+    refMs: opts.rotateRefMs,
+    secs: Number(opts.rotateSecs ?? 30),
+    skip: opts.rotateSkip,
+    order: normalizeRotateOrder(opts.rotateOrder),
+    length: pool.length,
+    seed: opts.rotateSeed ?? null,
+    nowMs: opts.nowMs,
+  })
   return {
     active: true,
-    candidates: [sel.candidates[idx]],
+    candidates: [pool[idx]],
     runtimeMode: 'rotate',
     rotateIndex: idx,
+    rotatePoolLength: pool.length,
   }
 }
 

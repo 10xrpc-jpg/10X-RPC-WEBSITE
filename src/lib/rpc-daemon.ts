@@ -24,6 +24,7 @@ import { resolvePlaceholders, type PlaceholderContext } from './placeholders'
 import { sanitizeActivities } from './discord-assets'
 import { discordAuthValue } from './discord-auth'
 import { buildIdentify } from './gateway-platform'
+import { normalizeRotateOrder, type RotateOrder } from './rotation'
 
 // ─── Subscription gate (raw SQL — Orihost-safe) ─────────────────────────────
 // Access = plan/status lifecycle: free trial (status "trialing", ends
@@ -126,27 +127,73 @@ async function loadDaemonSubStates(userIds: string[]): Promise<Map<string, Daemo
 // predate the rpcAutoRotate/rpcRotateSecs columns — raw SQL only needs the
 // COLUMNS to exist (pushed by the website's db:push). Missing columns / table
 // → rotation OFF (safe default, nothing else affected).
+
 interface RpcRotateSettings {
   enabled: boolean
   secs: number
   /** Rotation clock anchor (GlobalConfig.updatedAt) — stable across restarts. */
   refMs: number | null
+  /** Task 87 — forward | reverse | shuffle. */
+  order: RotateOrder
+  /** Task 87 — false = the Game RPC stays OUT of the rotation and keeps its
+   *  own always-visible session while the slots rotate. */
+  includeGame: boolean
+  /** Task 87 — manual advance counter ("Skip to next"). */
+  skip: number
+}
+
+const ROTATE_DEFAULTS: RpcRotateSettings = {
+  enabled: false,
+  secs: 30,
+  refMs: null,
+  order: 'forward',
+  includeGame: true,
+  skip: 0,
 }
 
 async function fetchRpcRotateSettings(userId: string): Promise<RpcRotateSettings> {
   try {
-    const rows = await db.$queryRaw<Array<{ rpcAutoRotate: boolean | number; rpcRotateSecs: number | null; updatedAt: Date | string }>>`
-      SELECT "rpcAutoRotate", "rpcRotateSecs", "updatedAt"
-      FROM "GlobalConfig" WHERE "userId" = ${userId} LIMIT 1`
-    const r = rows?.[0]
-    if (!r) return { enabled: false, secs: 30, refMs: null }
-    return {
-      enabled: r.rpcAutoRotate === true || (r.rpcAutoRotate as unknown) === 1,
-      secs: Math.max(15, Math.min(3600, Number(r.rpcRotateSecs ?? 30) || 30)),
-      refMs: r.updatedAt ? new Date(r.updatedAt).getTime() : null,
+    // Extended read — needs the Task-87 columns. Falls back to the legacy
+    // read when the DB predates them (rotation still works: forward order,
+    // game included, no skip).
+    try {
+      const rows = await db.$queryRaw<Array<{
+        rpcAutoRotate: boolean | number
+        rpcRotateSecs: number | null
+        rpcRotateOrder: string | null
+        rpcRotateIncludeGame: boolean | number | null
+        rpcRotateSkip: number | null
+        updatedAt: Date | string
+      }>>`
+        SELECT "rpcAutoRotate", "rpcRotateSecs", "rpcRotateOrder",
+               "rpcRotateIncludeGame", "rpcRotateSkip", "updatedAt"
+        FROM "GlobalConfig" WHERE "userId" = ${userId} LIMIT 1`
+      const r = rows?.[0]
+      if (!r) return ROTATE_DEFAULTS
+      const inc = r.rpcRotateIncludeGame
+      return {
+        enabled: r.rpcAutoRotate === true || (r.rpcAutoRotate as unknown) === 1,
+        secs: Math.max(15, Math.min(3600, Number(r.rpcRotateSecs ?? 30) || 30)),
+        refMs: r.updatedAt ? new Date(r.updatedAt).getTime() : null,
+        order: normalizeRotateOrder(r.rpcRotateOrder),
+        includeGame: inc !== false && (inc as unknown) !== 0,
+        skip: Math.max(0, Math.min(1_000_000_000, Math.floor(Number(r.rpcRotateSkip) || 0))),
+      }
+    } catch {
+      const rows = await db.$queryRaw<Array<{ rpcAutoRotate: boolean | number; rpcRotateSecs: number | null; updatedAt: Date | string }>>`
+        SELECT "rpcAutoRotate", "rpcRotateSecs", "updatedAt"
+        FROM "GlobalConfig" WHERE "userId" = ${userId} LIMIT 1`
+      const r = rows?.[0]
+      if (!r) return ROTATE_DEFAULTS
+      return {
+        ...ROTATE_DEFAULTS,
+        enabled: r.rpcAutoRotate === true || (r.rpcAutoRotate as unknown) === 1,
+        secs: Math.max(15, Math.min(3600, Number(r.rpcRotateSecs ?? 30) || 30)),
+        refMs: r.updatedAt ? new Date(r.updatedAt).getTime() : null,
+      }
     }
   } catch {
-    return { enabled: false, secs: 30, refMs: null }
+    return ROTATE_DEFAULTS
   }
 }
 
@@ -1262,6 +1309,10 @@ export class RpcDaemon {
       autoRotate: rotate.enabled,
       rotateSecs: rotate.secs,
       rotateRefMs: rotate.refMs,
+      rotateOrder: rotate.order,
+      rotateSkip: rotate.skip,
+      rotateIncludeGame: rotate.includeGame,
+      rotateSeed: userId,
     })
     const isRpcActive = runtime.active
     const isStatusActive = !!session.statusEnabled
@@ -1305,8 +1356,13 @@ export class RpcDaemon {
     userSock.platform = targetPlatform
 
     // The GAME candidate (isolated Game RPC) may carry a custom Application ID
-    // ("Add Games") — spoof that application.
-    const gameCandidate = runtime.candidates.find(c => c.gameSlug)
+    // ("Add Games") — spoof that application. In rotate mode with the game
+    // EXCLUDED from the pool (Task 87) the game is not in runtime.candidates —
+    // resolve it from the FULL list so its app id + extra session still work.
+    const rotateGameExtra = isRpcActive && runtime.runtimeMode === 'rotate' && !rotate.includeGame
+      ? (fullSelection.candidates.find(c => c.gameSlug) ?? null)
+      : null
+    const gameCandidate = runtime.candidates.find(c => c.gameSlug) ?? rotateGameExtra
     if (gameCandidate && !gameCandidate.gameAppId) {
       gameCandidate.gameAppId = await fetchGameAppId(userId, gameCandidate.gameSlug)
     }
@@ -1326,6 +1382,12 @@ export class RpcDaemon {
     const multiSessionActive = isRpcActive
       && runtime.runtimeMode === 'simultaneous'
       && runtime.candidates.length >= 2
+    // Task 87 — rotate mode with the game EXCLUDED from the pool: the game
+    // keeps its own always-visible extra session while the slots rotate.
+    const rotateGameExtraActive = isRpcActive
+      && runtime.runtimeMode === 'rotate'
+      && !rotate.includeGame
+      && !!rotateGameExtra
 
     // Task 85 — NO Application-ID shell overlay: normal slots present under
     // the user's custom Application ID or the 10X RPC application (game ids
@@ -1355,7 +1417,18 @@ export class RpcDaemon {
       const idx = c.id ? allConfigIndex.get(c.id) : undefined
       return typeof idx === 'number' && idx >= 1 ? idx - 1 : 4
     }
-    if (multiSessionActive) {
+    // Task 87 — the extra-session SOURCE list. Simultaneous mode: every
+    // candidate beyond the first (existing Task 84 behavior). Rotate mode
+    // with the game EXCLUDED from the pool: exactly the game candidate — it
+    // stays visible in its own session while the slots rotate in the main
+    // session.
+    interface ExtraSource { cand: RpcCandidate; hint: number }
+    const extrasSource: ExtraSource[] = multiSessionActive
+      ? runtime.candidates.slice(1, 5).map(cand => ({ cand, hint: stableHintOf(cand) }))
+      : rotateGameExtraActive && rotateGameExtra
+        ? [{ cand: rotateGameExtra, hint: stableHintOf(rotateGameExtra) }]
+        : []
+    if (extrasSource.length > 0) {
       const globalVr = (isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive)) || (isRpcActive && fullSelection.candidates[0]?.platform === 'meta_quest')
       const globalPlatform = isRpcActive ? (fullSelection.candidates[0]?.platform || 'desktop') : targetPlatform
       // Task 84c/84d — every extra session gets a DISTINCT platform class (the
@@ -1366,17 +1439,21 @@ export class RpcDaemon {
       // 5 classes total = main + 4 extras max.
       const platformAssignments = assignSessionPlatforms(
         targetPlatform,
-        runtime.candidates.slice(1, 5).map(c => c.platform),
+        extrasSource.map(e => e.cand.platform),
         // Task 84d — STABLE per-candidate hints (see allConfigIndex above):
         // toggling a middle slot never reshuffles the others (no reopen
         // churn / zombie sessions / card flicker).
-        runtime.candidates.slice(1, 5).map(stableHintOf)
+        extrasSource.map(e => e.hint)
       )
-      for (let i = 1; i < runtime.candidates.length && extras.length < 4; i++) {
-        const cand = runtime.candidates[i]
-        const assignedPlatform = platformAssignments[i - 1]
+      for (let i = 0; i < extrasSource.length && extras.length < 4; i++) {
+        const cand = extrasSource[i].cand
+        const assignedPlatform = platformAssignments[i]
         if (!assignedPlatform) {
-          mainFallback.push(cand) // no free platform class — fold back into the main push
+          // No free platform class — in simultaneous mode fold back into the
+          // main push so the candidate never vanishes. In rotate+game-pinned
+          // mode there is no fold-back (the game is intentionally NOT in the
+          // main rotation push) — it just waits for the next tick's retry.
+          if (multiSessionActive) mainFallback.push(cand)
           continue
         }
         try {
@@ -1390,7 +1467,9 @@ export class RpcDaemon {
             rpcAppIdMap,
           })
           const safe = sanitizeActivities(built as Array<Record<string, unknown>>)
-          if (safe.length === 0) mainFallback.push(cand)
+          if (safe.length === 0) {
+            if (multiSessionActive) mainFallback.push(cand)
+          }
           if (safe.length > 0) {
             // Task 84d — CRITICAL: do NOT set a `platform` field inside the
             // activity payload. Isolated via probe10 (SESSIONS_REPLACE live
@@ -1421,7 +1500,7 @@ export class RpcDaemon {
               pl: assignedPlatform,
             })
             extras.push({
-              idx: i,
+              idx: multiSessionActive ? i + 1 : 0,
               key: cand.id ?? `game:${cand.gameSlug ?? cand.name ?? `slot${i + 1}`}`,
               label: String((safe[0] as { name?: string }).name ?? cand.name ?? `RPC ${i + 1}`),
               platform: assignedPlatform,
@@ -1474,8 +1553,9 @@ export class RpcDaemon {
 
     // MULTI-SESSION maintenance — extras carry their own hash guards, so this
     // is cheap every tick and recovers dead sessions even when the main push
-    // is unchanged. Auto Rotate / single-candidate / RPC-off → closes extras.
-    this.maintainSlotSessions(userId, session.discordAccessToken ?? '', status, extras, multiSessionActive)
+    // is unchanged. Auto Rotate (game included) / single-candidate / RPC-off
+    // → closes extras. Rotate with the game PINNED keeps its extra alive.
+    this.maintainSlotSessions(userId, session.discordAccessToken ?? '', status, extras, multiSessionActive || rotateGameExtraActive)
 
     // Avoid spamming identical OP 3 payloads unless forced (prevents rate limits)
     if (!force && userSock.lastActivitiesHash === activitiesHash && userSock.lastStatus === status) {
@@ -1483,7 +1563,7 @@ export class RpcDaemon {
     }
 
     if (isRpcActive && runtime.runtimeMode === 'rotate' && runtime.rotateIndex != null) {
-      console.log(`[10X RPC Daemon] Auto Rotate for user ${userId}: candidate ${runtime.rotateIndex + 1}/${fullSelection.candidates.length} (${runtime.candidates[0]?.name ?? '?'}) every ${rotate.secs}s`)
+      console.log(`[10X RPC Daemon] Auto Rotate for user ${userId}: candidate ${runtime.rotateIndex + 1}/${runtime.rotatePoolLength ?? fullSelection.candidates.length} (${runtime.candidates[0]?.name ?? '?'}) every ${rotate.secs}s, order=${rotate.order}${rotate.skip > 0 ? `, skip+${rotate.skip}` : ''}${rotate.includeGame ? '' : ', game pinned to its own session'}`)
     }
 
     // If socket is open and payload is ready, send OP 3

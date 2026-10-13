@@ -5,6 +5,8 @@ import { db } from '@/lib/db'
 import { avatarUrl } from '@/lib/discord-oauth'
 import { CONFIG } from '@/lib/config'
 import { resolveRuntimeCandidates, type RpcCandidate } from '@/lib/rpc-manager'
+import { rotateCycleIndex, rotateNextSwitchInSecs } from '@/lib/rotation'
+import { rotateSettingsView } from '@/lib/rpc-rotate-settings'
 import { sweepSubscription, subscriptionView } from '@/lib/subscription'
 import { getTrialConfig } from '@/lib/trial-config'
 import { serializeSlot } from '@/lib/rpc-slots'
@@ -121,14 +123,61 @@ export async function GET() {
   // ══ MULTI-RPC — up to 3 independent slots + the isolated Game RPC ══
   // runtime = what the daemon is ACTUALLY publishing right now (Auto Rotate
   // aware). Saved configs are never modified here.
+  const rotateView = rotateSettingsView(globalConfig)
+  const fullSelection = resolveRuntimeCandidates({
+    rpcEnabled: session.rpcEnabled,
+    rpcConfigs: rpcSlots as Array<RpcCandidate & { enabled: boolean }>,
+    enabledGame,
+  })
   const runtime = resolveRuntimeCandidates({
     rpcEnabled: session.rpcEnabled,
     rpcConfigs: rpcSlots as Array<RpcCandidate & { enabled: boolean }>,
     enabledGame,
-    autoRotate: (globalConfig as { rpcAutoRotate?: boolean } | null)?.rpcAutoRotate ?? false,
-    rotateSecs: (globalConfig as { rpcRotateSecs?: number } | null)?.rpcRotateSecs ?? 30,
-    rotateRefMs: globalConfig?.updatedAt ? new Date(globalConfig.updatedAt).getTime() : null,
+    autoRotate: rotateView.enabled,
+    rotateSecs: rotateView.secs,
+    rotateRefMs: rotateView.refMs,
+    rotateOrder: rotateView.order,
+    rotateSkip: rotateView.skip,
+    rotateIncludeGame: rotateView.includeGame,
+    rotateSeed: session.userId,
   })
+
+  // ══ ROTATION PREVIEW (Task 87) — what the dashboard's live strip renders.
+  // Computed with the SAME deterministic formula the daemon uses, so the
+  // "now showing" name + countdown always match what Discord displays.
+  let rotationPreview: {
+    pool: Array<{ name: string; type: string; game: boolean }>
+    nowIndex: number
+    nowName: string
+    nextIndex: number
+    nextName: string
+    nextSwitchInSecs: number
+  } | null = null
+  if (runtime.active && runtime.runtimeMode === 'rotate' && runtime.rotateIndex != null && runtime.rotatePoolLength) {
+    const poolCandidates = rotateView.includeGame
+      ? fullSelection.candidates
+      : fullSelection.candidates.filter(c => !c.gameSlug)
+    const pool = poolCandidates.map(c => ({ name: c.name, type: c.type, game: !!c.gameSlug }))
+    const nowMs = Date.now()
+    const nextIn = rotateNextSwitchInSecs({ refMs: rotateView.refMs, secs: rotateView.secs, nowMs })
+    const nextIdx = rotateCycleIndex({
+      refMs: rotateView.refMs,
+      secs: rotateView.secs,
+      skip: rotateView.skip,
+      order: rotateView.order,
+      length: pool.length,
+      seed: session.userId,
+      nowMs: nowMs + nextIn * 1000 + 250,
+    })
+    rotationPreview = {
+      pool,
+      nowIndex: runtime.rotateIndex,
+      nowName: pool[runtime.rotateIndex]?.name ?? runtime.candidates[0]?.name ?? '',
+      nextIndex: nextIdx,
+      nextName: pool[nextIdx]?.name ?? '',
+      nextSwitchInSecs: nextIn,
+    }
+  }
   const activeRpcConfig = runtime.active && runtime.candidates[0]
     ? serializeRpcConfig(runtime.candidates[0])
     : null
@@ -191,10 +240,11 @@ export async function GET() {
     } : null,
     // Multi-RPC: every slot (max 3) + optional Auto Rotate settings.
     rpcSlots: rpcSlots.map(serializeSlot),
-    autoRotate: {
-      enabled: (globalConfig as { rpcAutoRotate?: boolean } | null)?.rpcAutoRotate ?? false,
-      secs: (globalConfig as { rpcRotateSecs?: number } | null)?.rpcRotateSecs ?? 30,
-    },
+    autoRotate: rotateView,
+    // Task 87 — live rotation state for the dashboard strip (null when not
+    // rotating). The UI recomputes the countdown locally every second from
+    // autoRotate.refMs/secs/skip/order using the same shared formula.
+    rotationPreview,
     rpcConfig: rpcConfig ? {
       ...serializeRpcConfig(rpcConfig),
       enabled: rpcConfig.enabled,

@@ -5,21 +5,57 @@
 // ever affect another. Multi-Session runtime: every enabled RPC runs as its
 // own Discord session at the same time — Auto Rotate is the optional
 // one-at-a-time cycling mode and never modifies any saved configuration.
+//
+// Task 87 — the Auto Rotate card is now a full control center:
+//   • LIVE "now on your profile" strip with a per-second countdown + progress
+//     bar, computed from the SAME deterministic formula the daemon uses
+//     (src/lib/rotation.ts) — the preview always matches Discord.
+//   • Rotation ORDER: forward / reverse / shuffle (deterministic shuffle that
+//     remixes every full cycle).
+//   • "Keep Game RPC always visible": the game can opt OUT of the rotation
+//     and stay on its own session while the slots rotate.
+//   • SKIP NOW: advance to the next RPC immediately.
+//   • More intervals: 15s … 30 minutes.
 'use client'
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import { api, type Me, type RpcConfig } from '@/lib/api-client'
+import { rotateCycleIndex, rotateNextSwitchInSecs, type RotateOrder } from '@/lib/rotation'
 import { RichPresenceForm } from './RichPresenceForm'
 import { PurpleSwitch } from './ui'
-import { Plus, RefreshCcw, ChevronsDown, Layers } from 'lucide-react'
+import {
+  Plus, RefreshCcw, ChevronsDown, Layers, ArrowRight, ArrowLeft,
+  Shuffle, SkipForward, Radio, Gamepad2, type LucideIcon,
+} from 'lucide-react'
 
 const ROTATE_OPTIONS = [
+  { secs: 15, label: '15 seconds' },
   { secs: 30, label: '30 seconds' },
+  { secs: 45, label: '45 seconds' },
   { secs: 60, label: '1 minute' },
   { secs: 120, label: '2 minutes' },
   { secs: 300, label: '5 minutes' },
   { secs: 600, label: '10 minutes' },
+  { secs: 900, label: '15 minutes' },
+  { secs: 1800, label: '30 minutes' },
 ]
+
+const ORDER_OPTIONS: Array<{ value: RotateOrder; label: string; icon: LucideIcon; hint: string }> = [
+  { value: 'forward', label: 'Forward', icon: ArrowRight, hint: 'Slot order — RPC 1 → RPC 2 → RPC 3.' },
+  { value: 'reverse', label: 'Reverse', icon: ArrowLeft, hint: 'Runs the chain backwards.' },
+  { value: 'shuffle', label: 'Shuffle', icon: Shuffle, hint: 'Random order — remixed every full cycle.' },
+]
+
+type AutoRotate = NonNullable<Me['autoRotate']>
+
+const DEFAULT_ROTATE: AutoRotate = {
+  enabled: false, secs: 30, order: 'forward', includeGame: true, skip: 0, refMs: null,
+}
+
+function mmss(totalSecs: number): string {
+  const s = Math.max(0, Math.floor(totalSecs))
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
+}
 
 export function RpcSlotsManager({
   me,
@@ -34,21 +70,120 @@ export function RpcSlotsManager({
   onDraftChange?: (cfg: RpcConfig) => void
 }) {
   const slots = me.rpcSlots ?? (me.rpcConfig ? [me.rpcConfig] : [])
-  const rotate = me.autoRotate ?? { enabled: false, secs: 30 }
+  const rotate: AutoRotate = me.autoRotate ?? DEFAULT_ROTATE
   const atCap = slots.length >= 3
 
   const [adding, setAdding] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [rotateEnabled, setRotateEnabled] = useState(rotate.enabled)
   const [rotateSecs, setRotateSecs] = useState(rotate.secs)
+  const [rotateOrder, setRotateOrder] = useState<RotateOrder>(rotate.order)
+  const [rotateIncludeGame, setRotateIncludeGame] = useState(rotate.includeGame)
+  const [rotateSkip, setRotateSkip] = useState(rotate.skip)
+  const [rotateRefMs, setRotateRefMs] = useState<number | null>(rotate.refMs)
   const [savingRotate, setSavingRotate] = useState(false)
+  const [skipping, setSkipping] = useState(false)
+  const [nowMs, setNowMs] = useState(() => Date.now())
 
-  const enabledCount = slots.filter(s => s.enabled).length
+  const enabledSlots = slots.filter(s => s.enabled)
   const enabledGame = me.activeGame?.enabled ? me.activeGame : null
+  // Full chain (slots + game) — used by the Multi-Session status texts.
   const rotationChain = [
-    ...slots.filter(s => s.enabled).map(s => `RPC ${s.slot ?? '?'}`),
+    ...enabledSlots.map(s => `RPC ${s.slot ?? '?'}`),
     ...(enabledGame ? ['Game RPC'] : []),
   ]
+  // Rotation POOL (Task 87) — the game only joins when includeGame is on.
+  const pool = useMemo(() => ([
+    ...enabledSlots.map(s => ({ name: `RPC ${s.slot ?? '?'}`, game: false })),
+    ...(enabledGame && rotateIncludeGame ? [{ name: 'Game RPC', game: true }] : []),
+  ]), [enabledSlots.length, enabledGame?.slug, rotateIncludeGame])
+  const poolLen = pool.length
+  const masterOn = !!me.session?.rpcEnabled
+  const rotating = rotateEnabled && poolLen >= 2 && masterOn
+
+  // Live clock — ticks every second ONLY while the strip is visible.
+  useEffect(() => {
+    if (!rotating) return
+    setNowMs(Date.now())
+    const t = setInterval(() => setNowMs(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [rotating])
+
+  // Same deterministic math as the daemon (shared rotation.ts) — identical
+  // inputs produce the RPC that is ACTUALLY on the profile right now.
+  const live = useMemo(() => {
+    if (!rotating) return null
+    const idx = rotateCycleIndex({
+      refMs: rotateRefMs, secs: rotateSecs, skip: rotateSkip,
+      order: rotateOrder, length: poolLen, seed: me.user.id, nowMs,
+    })
+    const nextIn = rotateNextSwitchInSecs({ refMs: rotateRefMs, secs: rotateSecs, nowMs })
+    const nextIdx = rotateCycleIndex({
+      refMs: rotateRefMs, secs: rotateSecs, skip: rotateSkip,
+      order: rotateOrder, length: poolLen, seed: me.user.id,
+      nowMs: nowMs + nextIn * 1000 + 250,
+    })
+    return {
+      now: pool[idx] ?? null,
+      next: pool[nextIdx] ?? null,
+      nextIn,
+      progressPct: Math.min(100, Math.max(0, ((rotateSecs - nextIn) / rotateSecs) * 100)),
+    }
+  }, [rotating, rotateRefMs, rotateSecs, rotateSkip, rotateOrder, poolLen, me.user.id, nowMs, pool])
+
+  const applyRotateResponse = (v?: AutoRotate) => {
+    if (!v) return
+    setRotateEnabled(v.enabled)
+    setRotateSecs(v.secs)
+    setRotateOrder(v.order)
+    setRotateIncludeGame(v.includeGame)
+    setRotateSkip(v.skip)
+    setRotateRefMs(v.refMs)
+  }
+
+  const saveRotate = async (patch: { enabled?: boolean; secs?: number; order?: RotateOrder; includeGame?: boolean }) => {
+    setSavingRotate(true)
+    try {
+      const res = await api.rpcRotateSave(
+        patch.enabled ?? rotateEnabled,
+        patch.secs ?? rotateSecs,
+        patch.order ?? rotateOrder,
+        patch.includeGame ?? rotateIncludeGame,
+      )
+      if (res.ok) {
+        applyRotateResponse(res.autoRotate)
+        toast.success(res.message || 'Auto Rotate settings saved', { duration: 2500 })
+        onRefresh()
+      } else {
+        toast.error('Failed to save Auto Rotate settings')
+      }
+    } catch (e) {
+      console.error(e)
+      toast.error('Failed to save Auto Rotate settings')
+    } finally {
+      setSavingRotate(false)
+    }
+  }
+
+  const handleSkip = async () => {
+    if (skipping) return
+    setSkipping(true)
+    try {
+      const res = await api.rpcRotateSkip()
+      if (res.ok) {
+        applyRotateResponse(res.autoRotate)
+        toast.success(res.message || 'Skipped to the next RPC', { duration: 2200 })
+        onRefresh()
+      } else {
+        toast.error(res.message || 'Could not skip — Auto Rotate may be off')
+      }
+    } catch (e) {
+      console.error(e)
+      toast.error('Could not skip')
+    } finally {
+      setSkipping(false)
+    }
+  }
 
   const handleAdd = async () => {
     if (adding || atCap) return
@@ -88,27 +223,8 @@ export function RpcSlotsManager({
     }
   }
 
-  const saveRotate = async (enabled: boolean, secs: number) => {
-    setSavingRotate(true)
-    try {
-      const res = await api.rpcRotateSave(enabled, secs)
-      if (res.ok) {
-        if (res.autoRotate) {
-          setRotateEnabled(res.autoRotate.enabled)
-          setRotateSecs(res.autoRotate.secs)
-        }
-        toast.success(res.message || 'Auto Rotate settings saved', { duration: 2500 })
-        onRefresh()
-      } else {
-        toast.error('Failed to save Auto Rotate settings')
-      }
-    } catch (e) {
-      console.error(e)
-      toast.error('Failed to save Auto Rotate settings')
-    } finally {
-      setSavingRotate(false)
-    }
-  }
+  const secsLabel = rotateSecs < 60 ? `${rotateSecs} seconds` : `${Math.round(rotateSecs / 60)} minute${rotateSecs >= 120 ? 's' : ''}`
+  const orderHint = ORDER_OPTIONS.find(o => o.value === rotateOrder)?.hint
 
   return (
     <div className="space-y-4">
@@ -160,7 +276,8 @@ export function RpcSlotsManager({
           </div>
           <PurpleSwitch
             checked={rotateEnabled}
-            onCheckedChange={v => { setRotateEnabled(v); saveRotate(v, rotateSecs) }}
+            onCheckedChange={v => { setRotateEnabled(v); saveRotate({ enabled: v }) }}
+            ariaLabel="Auto Rotate on or off"
           />
         </div>
 
@@ -170,7 +287,7 @@ export function RpcSlotsManager({
           rotateEnabled ? (
             <p className="relative z-10 text-xs text-white/45 leading-relaxed mb-4 px-0.5">
               Auto Rotate is ON — your {rotationChain.length} RPCs take turns on your profile every{' '}
-              {rotateSecs < 60 ? `${rotateSecs} seconds` : `${Math.round(rotateSecs / 60)} minute${rotateSecs >= 120 ? 's' : ''}`}.{' '}
+              {secsLabel} ({rotateOrder === 'shuffle' ? 'shuffled' : rotateOrder} order).{' '}
               Turn it off to run all of them at the same time.
             </p>
           ) : (
@@ -197,6 +314,55 @@ export function RpcSlotsManager({
           </p>
         )}
 
+        {/* ── LIVE rotation strip (Task 87) — matches the daemon's formula ── */}
+        {rotating && live && (
+          <div
+            className="relative z-10 mb-4 rounded-2xl border border-purple-500/30 bg-purple-500/[0.08] p-4"
+            role="status"
+            aria-live="polite"
+            aria-label="Live rotation status"
+          >
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-[10px] font-bold tracking-widest text-purple-300 uppercase min-w-0">
+                <Radio className="w-3.5 h-3.5 animate-pulse shrink-0" aria-hidden />
+                <span className="truncate">Now on your profile</span>
+              </div>
+              <button
+                type="button"
+                onClick={handleSkip}
+                disabled={skipping || savingRotate}
+                className="flex items-center gap-1.5 rounded-full border border-purple-400/40 bg-purple-500/15 hover:bg-purple-500/30 px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest text-purple-100 transition-all hover:border-purple-300/60 active:scale-95 disabled:opacity-50 cursor-pointer shrink-0"
+                aria-label="Skip to the next RPC now"
+              >
+                <SkipForward className="w-3 h-3" aria-hidden />
+                {skipping ? 'Skipping…' : 'Skip now'}
+              </button>
+            </div>
+            <div className="mt-2 flex items-baseline justify-between gap-3 min-w-0">
+              <p className="text-sm font-bold text-white truncate">
+                {live.now?.game ? '🎮 ' : ''}{live.now?.name ?? '—'}
+              </p>
+              <p className="text-[11px] text-white/55 shrink-0 tabular-nums">
+                next: <span className="text-white/80 font-semibold">{live.next?.game ? '🎮 ' : ''}{live.next?.name ?? '—'}</span>
+                {' '}in <span className="text-purple-200 font-bold tabular-nums">{mmss(live.nextIn)}</span>
+              </p>
+            </div>
+            <div
+              className="mt-2.5 h-1 rounded-full bg-white/10 overflow-hidden"
+              role="progressbar"
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={Math.round(live.progressPct)}
+              aria-label="Time until the next switch"
+            >
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-purple-500 to-fuchsia-400 transition-all duration-1000 ease-linear"
+                style={{ width: `${live.progressPct}%` }}
+              />
+            </div>
+          </div>
+        )}
+
         <div className="relative z-10">
           <label className="text-xs font-bold tracking-wider text-purple-400 uppercase block mb-1.5">
             ROTATION INTERVAL
@@ -207,7 +373,7 @@ export function RpcSlotsManager({
             onChange={e => {
               const secs = Number(e.target.value)
               setRotateSecs(secs)
-              saveRotate(true, secs)
+              saveRotate({ secs })
             }}
             className="w-full h-12 bg-[#12131a] border border-white/10 hover:border-white/20 focus:border-purple-500/50 rounded-xl px-4 text-sm text-white outline-none transition-colors disabled:opacity-50 cursor-pointer"
             aria-label="Auto Rotate interval"
@@ -219,20 +385,91 @@ export function RpcSlotsManager({
             ))}
           </select>
 
+          {/* ── Rotation order (Task 87) ── */}
+          <div className="mt-4">
+            <label className="text-xs font-bold tracking-wider text-purple-400 uppercase block mb-1.5">
+              ROTATION ORDER
+            </label>
+            <div className="grid grid-cols-3 gap-2" role="group" aria-label="Rotation order">
+              {ORDER_OPTIONS.map(o => {
+                const active = rotateOrder === o.value
+                return (
+                  <button
+                    key={o.value}
+                    type="button"
+                    disabled={!rotateEnabled || savingRotate}
+                    onClick={() => { setRotateOrder(o.value); saveRotate({ order: o.value }) }}
+                    aria-pressed={active}
+                    className={`flex items-center justify-center gap-1.5 h-11 rounded-xl border text-xs font-bold uppercase tracking-wider transition-all active:scale-[0.97] disabled:opacity-50 cursor-pointer ${
+                      active
+                        ? 'border-purple-400/70 bg-purple-500/25 text-white shadow-lg shadow-purple-950/40'
+                        : 'border-white/10 bg-[#12131a] text-white/60 hover:border-white/25 hover:text-white/90'
+                    }`}
+                  >
+                    <o.icon className="w-4 h-4" aria-hidden />
+                    {o.label}
+                  </button>
+                )
+              })}
+            </div>
+            {orderHint && (
+              <p className="mt-1.5 text-[11px] text-white/45 px-0.5">{orderHint}</p>
+            )}
+          </div>
+
+          {/* ── Keep Game RPC always visible (Task 87) ── */}
+          {enabledGame && (
+            <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3.5">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold text-white flex items-center gap-1.5">
+                  <Gamepad2 className="w-3.5 h-3.5 text-purple-300 shrink-0" aria-hidden />
+                  Keep Game RPC always visible
+                </p>
+                <p className="mt-0.5 text-[11px] text-white/50 leading-relaxed">
+                  {rotateIncludeGame
+                    ? 'Game RPC joins the rotation — it takes turns with your slots.'
+                    : 'Game RPC stays on its own always-on session while your slots rotate.'}
+                </p>
+              </div>
+              <div className="shrink-0">
+                <PurpleSwitch
+                  checked={rotateIncludeGame}
+                  onCheckedChange={v => { setRotateIncludeGame(v); saveRotate({ includeGame: v }) }}
+                  ariaLabel="Include Game RPC in the rotation"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Rotation order preview line */}
           {rotateEnabled && rotationChain.length > 0 && (
             <p className="mt-3 text-[11px] text-white/50 px-0.5" role="status" aria-live="polite">
-              Rotation order:{' '}
-              <span className="text-white/75 font-semibold">
-                {rotationChain.join(' → ')}
-              </span>
-              {rotationChain.length > 1 && (
-                <span className="text-white/35"> → {rotationChain[0]} → …</span>
+              {rotateOrder === 'shuffle' ? (
+                <>Shuffled rotation over:{' '}
+                  <span className="text-white/75 font-semibold">{rotationChain.join(', ')}</span>
+                  <span className="text-white/35"> — the order remixes every full cycle.</span>
+                </>
+              ) : (
+                (() => {
+                  const chain = rotateOrder === 'reverse' ? [...rotationChain].reverse() : rotationChain
+                  return (
+                    <>Rotation order:{' '}
+                      <span className="text-white/75 font-semibold">{chain.join(' → ')}</span>
+                      {chain.length > 1 && <span className="text-white/35"> → {chain[0]} → …</span>}
+                    </>
+                  )
+                })()
               )}
             </p>
           )}
-          {rotateEnabled && enabledCount === 0 && !enabledGame && (
+          {rotateEnabled && enabledSlots.length === 0 && !enabledGame && (
             <p className="mt-3 text-[11px] text-white/50 px-0.5">
               Enable at least two RPCs to see rotation.
+            </p>
+          )}
+          {rotateEnabled && !masterOn && rotationChain.length >= 2 && (
+            <p className="mt-3 text-[11px] text-amber-300/80 px-0.5">
+              Master RPC is off — turn it on to see rotation live.
             </p>
           )}
         </div>

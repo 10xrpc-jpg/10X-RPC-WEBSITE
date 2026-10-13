@@ -6,6 +6,7 @@ import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { MAX_RPC_SLOTS, normalizeRpcSlots, nextFreeSlot, serializeSlot } from '@/lib/rpc-slots'
+import { rotateSettingsView } from '@/lib/rpc-rotate-settings'
 
 export const dynamic = 'force-dynamic'
 
@@ -24,10 +25,7 @@ export async function GET() {
     ok: true,
     maxSlots: MAX_RPC_SLOTS,
     slots: rows.map(serializeSlot),
-    autoRotate: {
-      enabled: (globalConfig as { rpcAutoRotate?: boolean } | null)?.rpcAutoRotate ?? false,
-      secs: (globalConfig as { rpcRotateSecs?: number } | null)?.rpcRotateSecs ?? 30,
-    },
+    autoRotate: rotateSettingsView(globalConfig),
     game: enabledGame
       ? { slug: enabledGame.gameSlug, name: enabledGame.gameName, enabled: enabledGame.enabled }
       : null,
