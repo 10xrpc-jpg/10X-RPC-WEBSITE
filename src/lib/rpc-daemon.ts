@@ -185,8 +185,47 @@ interface ActiveUserSocket {
   failedAuthToken?: string | null
 }
 
+// ─── MULTI-SESSION RUNTIME (Task 84 — “3 RPCs at the same time”) ───────────
+// A single gateway session renders exactly ONE activity card on Discord —
+// sending 3 activities in one OP 3 gets collapsed to one by the client
+// (verified live 2026-10-13). Discord's social layer DOES aggregate
+// activities from SEPARATE concurrent sessions (that is how a desktop game
+// + Spotify + a console session all appear at once), and the Gaming SDK
+// gateway accepts several concurrent sessions per OAuth token (verified:
+// 5 simultaneous READYs, no 4003s). So in SIMULTANEOUS mode with 2+ enabled
+// candidates, every candidate beyond the first gets its OWN extra gateway
+// session that pushes exactly that one activity — giving each enabled RPC
+// its own presence source so Discord can display them together.
+// Auto Rotate keeps the single-session behavior (one activity at a time, by
+// design). Extras are runtime-only: they never read/write saved configs.
+interface SlotSession {
+  /** Stable candidate identity (RpcConfig id or game:<slug>). */
+  key: string
+  ws: WebSocket | null
+  heartbeatTimer?: NodeJS.Timeout
+  heartbeatAck: boolean
+  lastHeartbeatSentAt?: number
+  connected: boolean
+  isConnecting: boolean
+  identifiedPlatform?: string
+  /** Signature of the activity this session was opened with. */
+  lastActivityHash: string
+  /** The activity payload this session pushed (for status re-pushes). */
+  lastActivity: Record<string, unknown> | null
+  lastPushedStatus?: string
+  failCount: number
+  lastFailAt?: number
+  /** Set when the session was closed before/while connecting (deferred
+   *  staggered connects check this so a stale timer never reconnects). */
+  aborted: boolean
+}
+
 export class RpcDaemon {
   private sockets = new Map<string, ActiveUserSocket>()
+  /** Multi-Session extras: userId → (candidate key → session). */
+  private slotSessions = new Map<string, Map<string, SlotSession>>()
+  /** Token fingerprint each user's extras were opened with (reopen on refresh). */
+  private slotSessionsToken = new Map<string, string>()
   private tickTimer?: NodeJS.Timeout
   private watchdogTimer?: NodeJS.Timeout
   private isRunning = false
@@ -525,7 +564,19 @@ export class RpcDaemon {
       if (!latestTokenByUser.has(s.userId)) latestTokenByUser.set(s.userId, s.discordAccessToken || null)
     }
 
-    for (const session of activeSessions) {
+    // ── MULTI-SESSION / STABILITY FIX (Task 84) ────────────────────────────
+    // Iterate ONE (latest) session PER USER — not every session row. A user
+    // with 2 valid session rows (different tokens) used to be processed TWICE
+    // per tick with ALTERNATING tokens, which (a) flip-flopped the platform
+    // target into an endless re-identify loop and (b) tore down + reopened
+    // every Multi-Session extra every tick (token-fingerprint guard) — the
+    // "OP 9 storm / extra sessions never stable" bug.
+    const latestSessionByUser = new Map<string, typeof activeSessions[number]>()
+    for (const s of activeSessions) {
+      if (!latestSessionByUser.has(s.userId)) latestSessionByUser.set(s.userId, s)
+    }
+
+    for (const session of latestSessionByUser.values()) {
       // Subscription gate — expired trial/period users are not tracked (the
       // tick loop + website sweeps transition them to "suspended"). Admins bypass.
       if (!CONFIG.admin.discordIds.includes(session.user.discordId) &&
@@ -1232,6 +1283,8 @@ export class RpcDaemon {
     // ════════════════════════════════════════════════════════════════════
     if (userSock.connected && userSock.identifiedPlatform && userSock.identifiedPlatform !== targetPlatform) {
       console.log(`[10X RPC Daemon] Platform change for user ${userId}: ${userSock.identifiedPlatform} -> ${targetPlatform} — re-identifying gateway session`)
+      // Extras re-identify on the next maintenance pass too.
+      this.closeAllSlotSessions(userId)
       this.cleanupSocket(userSock)
       userSock.retryCount = 0
       if (userSock.retryTimer) {
@@ -1255,8 +1308,79 @@ export class RpcDaemon {
     // client generated before the RpcConfig.appId/slot columns existed.
     const rpcAppIdMap = await fetchRpcAppIds(userId)
 
+    // ── MULTI-SESSION (Task 84 — "3 RPCs at the same time") ────────────────
+    // ONE gateway session renders exactly ONE activity card on Discord
+    // (3 activities in a single OP 3 collapse to one — verified live), while
+    // Discord's social layer aggregates activities from SEPARATE concurrent
+    // sessions (how desktop game + Spotify + console presences coexist).
+    // In simultaneous mode with 2+ enabled candidates every candidate beyond
+    // the first gets its OWN extra session pushing exactly that activity.
+    const multiSessionActive = isRpcActive
+      && runtime.runtimeMode === 'simultaneous'
+      && runtime.candidates.length >= 2
+    const extras: Array<{ idx: number; key: string; label: string; platform: string; activity: Record<string, unknown>; configHash: string }> = []
+    if (multiSessionActive) {
+      const globalVr = (isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive)) || (isRpcActive && fullSelection.candidates[0]?.platform === 'meta_quest')
+      const globalPlatform = isRpcActive ? (fullSelection.candidates[0]?.platform || 'desktop') : targetPlatform
+      for (let i = 1; i < runtime.candidates.length && extras.length < 3; i++) {
+        const cand = runtime.candidates[i]
+        try {
+          const built = await buildPresenceActivities({
+            rpcConfigs: [cand],
+            customStatus: null,
+            placeholderCtx,
+            vrStatusActive: globalVr,
+            platform: globalPlatform,
+            userAccessToken: session.discordAccessToken,
+            rpcAppIdMap,
+          })
+          const safe = sanitizeActivities(built as Array<Record<string, unknown>>)
+          if (safe.length > 0) {
+            // STABLE config hash — the session reopen guard. Resolved activities
+            // churn every tick (dynamic placeholders), the row's fields don't.
+            const configHash = JSON.stringify({
+              n: cand.name, t: cand.type, p: cand.platform,
+              s: cand.state ?? null, d: cand.details ?? null,
+              li: cand.largeImage ?? null, lt: cand.largeText ?? null,
+              si: cand.smallImage ?? null, st: cand.smallText ?? null,
+              b1: cand.button1Label ?? null, b1u: cand.button1Url ?? null,
+              b2: cand.button2Label ?? null, b2u: cand.button2Url ?? null,
+              pc: cand.partyCurrent ?? null, pm: cand.partyMax ?? null,
+              pi: cand.partyId ?? null, psec: cand.partySecret ?? null,
+              sa: cand.startMinsAgo ?? null, et: cand.endTotalMins ?? null,
+              ap: cand.appId ?? null, gid: cand.gameSlug ?? null,
+              gap: cand.gameAppId ?? null,
+              u: (cand as { updatedAt?: unknown }).updatedAt ?? null,
+            })
+            extras.push({
+              idx: i,
+              key: cand.id ?? `game:${cand.gameSlug ?? cand.name ?? `slot${i + 1}`}`,
+              label: String((safe[0] as { name?: string }).name ?? cand.name ?? `RPC ${i + 1}`),
+              platform: cand.platform || targetPlatform,
+              activity: safe[0],
+              configHash,
+            })
+          }
+        } catch { /* one broken candidate must never break the others */ }
+      }
+    }
+    // A candidate whose own extra session keeps failing folds back into the
+    // main OP 3 (worst case = the classic all-in-one-array behavior).
+    const unhealthyExtraIdx = new Set(
+      extras
+        .filter(e => {
+          const sess = this.slotSessions.get(userId)?.get(e.key)
+          return !!sess && !sess.connected && sess.failCount >= 2
+        })
+        .map(e => e.idx)
+    )
+
     const activities = await buildPresenceActivities({
-      rpcConfigs: isRpcActive ? runtime.candidates : [],
+      rpcConfigs: isRpcActive
+        // Multi-Session: the main session carries candidate 1 (+ any extras
+        // whose own sessions keep failing); the rest ride their own sessions.
+        ? runtime.candidates.filter((_, i) => i === 0 || unhealthyExtraIdx.has(i))
+        : [],
       customStatus: isStatusActive ? session.customStatus : null,
       customStatusEmoji: isStatusActive ? session.customStatusEmoji : null,
       placeholderCtx,
@@ -1276,6 +1400,11 @@ export class RpcDaemon {
 
     const status = isStatusActive ? (session.userStatus || 'online') : (isRpcActive ? 'online' : 'invisible')
     const activitiesHash = JSON.stringify({ status, activities: safeActivities })
+
+    // MULTI-SESSION maintenance — extras carry their own hash guards, so this
+    // is cheap every tick and recovers dead sessions even when the main push
+    // is unchanged. Auto Rotate / single-candidate / RPC-off → closes extras.
+    this.maintainSlotSessions(userId, session.discordAccessToken ?? '', status, extras, multiSessionActive)
 
     // Avoid spamming identical OP 3 payloads unless forced (prevents rate limits)
     if (!force && userSock.lastActivitiesHash === activitiesHash && userSock.lastStatus === status) {
@@ -1328,6 +1457,8 @@ export class RpcDaemon {
    * Disconnect and remove a user from the daemon.
    */
   public disconnectUser(userId: string): void {
+    // Extras are independent of the main socket — always tear them down here.
+    this.closeAllSlotSessions(userId)
     const userSock = this.sockets.get(userId)
     if (!userSock) return
 
@@ -1351,14 +1482,318 @@ export class RpcDaemon {
     userSock.connectingSince = undefined
     userSock.lastHeartbeatSentAt = undefined
     if (userSock.ws) {
+      const ws = userSock.ws
+      // Same hygiene as closeSlotSession: never leave the socket listener-less
+      // (a close during CONNECTING emits 'error' asynchronously) and never
+      // call close() on a CONNECTING socket (throws in some ws versions).
+      try { ws.removeAllListeners() } catch {}
+      try { ws.on('error', () => {}) } catch {}
       try {
-        userSock.ws.removeAllListeners()
-        userSock.ws.close()
-      } catch {}
+        if (ws.readyState === WebSocket.OPEN) ws.close()
+        else ws.terminate()
+      } catch {
+        try { ws.terminate() } catch {}
+      }
       userSock.ws = null
     }
     userSock.connected = false
     userSock.isConnecting = false
+  }
+
+  // ────────────────────────────────────────────────────────────────────────
+  // MULTI-SESSION METHODS — one extra gateway session per additional RPC.
+  // ────────────────────────────────────────────────────────────────────────
+
+  private slotSessionMap(userId: string): Map<string, SlotSession> {
+    let m = this.slotSessions.get(userId)
+    if (!m) {
+      m = new Map<string, SlotSession>()
+      this.slotSessions.set(userId, m)
+    }
+    return m
+  }
+
+  /** Total live extra sessions (health endpoint). */
+  private slotSessionLiveCount(): number {
+    let n = 0
+    for (const m of this.slotSessions.values()) {
+      for (const s of m.values()) if (s.connected) n++
+    }
+    return n
+  }
+
+  private closeSlotSession(sess: SlotSession): void {
+    sess.aborted = true
+    if (sess.heartbeatTimer) {
+      clearInterval(sess.heartbeatTimer)
+      sess.heartbeatTimer = undefined
+    }
+    if (sess.ws) {
+      const ws = sess.ws
+      // Removing all listeners first leaves the socket without an 'error'
+      // handler — a close() during CONNECTING aborts the handshake and emits
+      // 'error' asynchronously → uncaughtException. Re-attach a no-op handler
+      // after stripping listeners and use terminate() for non-OPEN states
+      // (close() itself throws in the CONNECTING state in some ws versions).
+      try { ws.removeAllListeners() } catch {}
+      try { ws.on('error', () => {}) } catch {}
+      try {
+        if (ws.readyState === WebSocket.OPEN) ws.close()
+        else ws.terminate()
+      } catch {
+        try { ws.terminate() } catch {}
+      }
+      sess.ws = null
+    }
+    sess.connected = false
+    sess.isConnecting = false
+  }
+
+  /** Close every extra session of a user (rotate on, RPC off, platform or
+   *  token changed, user disconnected). Next multi-session tick re-opens. */
+  closeAllSlotSessions(userId: string): void {
+    const m = this.slotSessions.get(userId)
+    if (!m) return
+    for (const sess of m.values()) this.closeSlotSession(sess)
+    this.slotSessions.delete(userId)
+    this.slotSessionsToken.delete(userId)
+  }
+
+  /** Open ONE extra session that pushes exactly `activity` (single activity
+   *  per session — the Multi-Session model). The session entry is created
+   *  synchronously; the WebSocket connect itself can be deferred (`delayMs`)
+   *  to stagger identifies and avoid Discord OP 9 rate-limit bursts.
+   *  Fire-and-forget; failures are recorded on the session and retried with
+   *  backoff by maintainSlotSessions. */
+  private openSlotSession(
+    userId: string,
+    key: string,
+    label: string,
+    token: string,
+    platform: string,
+    status: string,
+    activity: Record<string, unknown>,
+    configHash: string,
+    delayMs: number = 0
+  ): void {
+    const map = this.slotSessionMap(userId)
+    const prev = map.get(key)
+    if (prev) this.closeSlotSession(prev)
+
+    const sess: SlotSession = {
+      key,
+      ws: null,
+      heartbeatAck: true,
+      connected: false,
+      isConnecting: true,
+      identifiedPlatform: platform,
+      lastActivityHash: configHash,
+      lastActivity: activity,
+      lastPushedStatus: status,
+      failCount: prev?.failCount ?? 0,
+      aborted: false,
+    }
+    map.set(key, sess)
+
+    const connect = () => {
+      if (sess.aborted || sess.ws || sess.connected) return
+      try {
+        const ws = new WebSocket(CONFIG.discord.gatewayUrl)
+        sess.ws = ws
+        let settled = false
+        const connectTimeout = setTimeout(() => {
+          if (!settled) {
+            settled = true
+            sess.failCount++
+            sess.lastFailAt = Date.now()
+            sess.isConnecting = false
+            console.warn(`[10X RPC Daemon] Slot session connect timeout for user ${userId} (${label})`)
+            try { ws.terminate() } catch {}
+          }
+        }, 15000)
+
+      ws.on('message', (data: Buffer | string) => {
+        try {
+          const payload = JSON.parse(typeof data === 'string' ? data : data.toString())
+          const op = payload.op
+          const t = payload.t
+          if (op === 10) {
+            const interval = payload.d?.heartbeat_interval || 41250
+            sess.heartbeatTimer = setInterval(() => {
+              if (!sess.ws || sess.ws.readyState !== WebSocket.OPEN) {
+                if (sess.heartbeatTimer) clearInterval(sess.heartbeatTimer)
+                return
+              }
+              if (!sess.heartbeatAck && sess.lastHeartbeatSentAt && Date.now() - sess.lastHeartbeatSentAt > 20000) {
+                // Zombie — drop it; the next maintenance tick re-opens.
+                if (sess.heartbeatTimer) clearInterval(sess.heartbeatTimer)
+                sess.failCount++
+                sess.lastFailAt = Date.now()
+                this.closeSlotSession(sess)
+                return
+              }
+              sess.heartbeatAck = false
+              sess.lastHeartbeatSentAt = Date.now()
+              try { ws.send(JSON.stringify({ op: 1, d: null })) } catch {}
+            }, interval)
+            const { properties } = buildIdentify(platform)
+            ws.send(JSON.stringify({ op: 2, d: { token: discordAuthValue(token), properties } }))
+          } else if (op === 11) {
+            sess.heartbeatAck = true
+            sess.lastHeartbeatSentAt = undefined
+          } else if (op === 1) {
+            try { ws.send(JSON.stringify({ op: 1, d: null })) } catch {}
+          } else if (op === 0 && t === 'READY') {
+            if (!settled) {
+              settled = true
+              clearTimeout(connectTimeout)
+            }
+            sess.connected = true
+            sess.isConnecting = false
+            sess.failCount = 0
+            try {
+              ws.send(JSON.stringify({
+                op: 3,
+                d: { status, activities: [activity], afk: false, since: null },
+              }))
+              console.log(`[10X RPC Daemon] Multi-Session: extra session live for user ${userId} — "${label}" (platform=${platform})`)
+            } catch {}
+          } else if (op === 0 && t === 'PRESENCE_UPDATE') {
+            // Echo — the authoritative "what Discord accepted" for THIS slot.
+            try {
+              const acts = payload.d?.activities
+              if (Array.isArray(acts)) {
+                const sig = acts.map((a: { name?: string; type?: number }) => `${a.name ?? '?'}:${a.type ?? '?'}`).join('|')
+                console.log(`[10X RPC Daemon] Multi-Session echo for user ${userId} ("${label}"): [${sig}]`)
+              }
+            } catch {}
+          } else if (op === 9) {
+            if (!settled) {
+              settled = true
+              clearTimeout(connectTimeout)
+            }
+            sess.failCount++
+            sess.lastFailAt = Date.now()
+            sess.isConnecting = false
+            this.closeSlotSession(sess)
+            console.warn(`[10X RPC Daemon] Slot session OP 9 for user ${userId} ("${label}") — backing off`)
+          }
+        } catch { /* ignore parse errors */ }
+      })
+
+      ws.on('error', () => {
+        if (!settled) {
+          settled = true
+          clearTimeout(connectTimeout)
+        }
+        sess.failCount++
+        sess.lastFailAt = Date.now()
+        sess.isConnecting = false
+        this.closeSlotSession(sess)
+      })
+
+      ws.on('close', () => {
+        if (!settled) {
+          settled = true
+          clearTimeout(connectTimeout)
+        }
+        if (sess.connected) {
+          sess.failCount++
+          sess.lastFailAt = Date.now()
+        }
+        sess.connected = false
+        sess.isConnecting = false
+        if (sess.heartbeatTimer) {
+          clearInterval(sess.heartbeatTimer)
+          sess.heartbeatTimer = undefined
+        }
+      })
+      } catch (err) {
+        sess.failCount++
+        sess.lastFailAt = Date.now()
+        sess.isConnecting = false
+        console.warn(`[10X RPC Daemon] Slot session open failed for user ${userId} ("${label}"):`, err)
+      }
+    }
+
+    // Staggered connect: burst-identifying several extra sessions at once
+    // trips Discord's per-token identify rate limit (OP 9) — space them out.
+    if (delayMs > 0) setTimeout(connect, delayMs)
+    else connect()
+  }
+
+  /**
+   * Keep the user's extra per-RPC sessions in sync with the desired extras.
+   * Runs every tick — per-session hash guards make it a no-op when nothing
+   * changed. `active=false` (rotate / single candidate / RPC off) closes all.
+   */
+  private maintainSlotSessions(
+    userId: string,
+    token: string,
+    status: string,
+    extras: Array<{ key: string; label: string; platform: string; activity: Record<string, unknown>; configHash: string }>,
+    active: boolean
+  ): void {
+    if (!active) {
+      if (this.slotSessions.has(userId)) {
+        this.closeAllSlotSessions(userId)
+        console.log(`[10X RPC Daemon] Multi-Session off for user ${userId} — extra RPC sessions closed`)
+      }
+      return
+    }
+
+    // Token changed (refresh / re-login) → rebuild every extra with the new token.
+    const fingerprint = token ? token.slice(-12) : ''
+    if (this.slotSessionsToken.get(userId) !== fingerprint) {
+      this.closeAllSlotSessions(userId)
+      this.slotSessionsToken.set(userId, fingerprint)
+    }
+
+    const map = this.slotSessionMap(userId)
+    const wanted = new Set(extras.map(e => e.key))
+    for (const [key, sess] of map) {
+      if (!wanted.has(key)) {
+        this.closeSlotSession(sess)
+        map.delete(key)
+      }
+    }
+
+    const now = Date.now()
+    // Identify-burst guard: every actual (re)connect this pass gets a
+    // 1.5s × ordinal delay so a mass open never trips Discord's OP 9.
+    let openOrdinal = 0
+    const stagger = () => (openOrdinal++ * 1500)
+    for (const e of extras) {
+      const sess = map.get(e.key)
+      // NOTE: the reopen guard compares the STABLE CONFIG hash — the resolved
+      // activity re-resolves dynamic placeholders ({time}/{uptime}…) every
+      // tick, so hashing it would churn sessions (identify storms → OP 9).
+      if (!sess) {
+        this.openSlotSession(userId, e.key, e.label, token, e.platform, status, e.activity, e.configHash, stagger())
+        continue
+      }
+      // Config changed on a live session → re-open with the new activity.
+      if (sess.connected && sess.lastActivityHash !== e.configHash) {
+        this.openSlotSession(userId, e.key, e.label, token, e.platform, status, e.activity, e.configHash, stagger())
+        continue
+      }
+      // Status changed (dnd/idle/online) → re-push status + same activity.
+      if (sess.connected && sess.lastPushedStatus !== status && sess.ws && sess.ws.readyState === WebSocket.OPEN && sess.lastActivity) {
+        try {
+          sess.ws.send(JSON.stringify({
+            op: 3,
+            d: { status, activities: [sess.lastActivity], afk: false, since: null },
+          }))
+          sess.lastPushedStatus = status
+        } catch {}
+        continue
+      }
+      // Dead session → re-open after a short backoff (no reconnect storms).
+      if (!sess.connected && !sess.isConnecting) {
+        if (sess.lastFailAt && now - sess.lastFailAt < 45000) continue
+        this.openSlotSession(userId, e.key, e.label, token, e.platform, status, e.activity, e.configHash, stagger())
+      }
+    }
   }
 
   /**
@@ -1370,6 +1805,7 @@ export class RpcDaemon {
       uptimeSeconds: Math.floor((Date.now() - this.startTime) / 1000),
       lastTickAt: this.lastTickAt,
       activeConnections: Array.from(this.sockets.values()).filter(s => s.connected).length,
+      multiSessionConnections: this.slotSessionLiveCount(),
       totalTrackedUsers: this.sockets.size,
       authFailedUsers: Array.from(this.sockets.values()).filter(s => s.failedAuthToken).length,
       users: Array.from(this.sockets.values()).map(s => ({

@@ -2,15 +2,16 @@
 // Renders one independent card per created slot (max 3), the "+ Add RPC"
 // button (hidden at the cap), the optional Auto Rotate settings card, and the
 // Game RPC CTA. Each slot owns its own config + enable state; no slot can
-// ever affect another. Auto Rotate is runtime-only — it never modifies any
-// saved configuration.
+// ever affect another. Multi-Session runtime: every enabled RPC runs as its
+// own Discord session at the same time — Auto Rotate is the optional
+// one-at-a-time cycling mode and never modifies any saved configuration.
 'use client'
 import { useState } from 'react'
 import { toast } from 'sonner'
 import { api, type Me, type RpcConfig } from '@/lib/api-client'
 import { RichPresenceForm } from './RichPresenceForm'
 import { PurpleSwitch } from './ui'
-import { Plus, RefreshCcw, ChevronsDown, Layers, TriangleAlert, Zap } from 'lucide-react'
+import { Plus, RefreshCcw, ChevronsDown, Layers } from 'lucide-react'
 
 const ROTATE_OPTIONS = [
   { secs: 30, label: '30 seconds' },
@@ -163,41 +164,36 @@ export function RpcSlotsManager({
           />
         </div>
 
-        <p className="relative z-10 text-xs text-white/45 leading-relaxed mb-4 px-0.5">
-          Discord shows one Rich Presence at a time. Auto Rotate cycles your enabled RPCs so
-          every one of them gets time on your profile. Rotation never modifies your saved
-          configurations.
-        </p>
-
-        {/* Honest multi-RPC notice — Discord renders ONE presence, so with rotate
-            off the extra enabled RPCs stay saved but invisible on the profile. */}
-        {rotationChain.length >= 2 && !rotateEnabled && (
-          <div
-            className="relative z-10 mb-4 rounded-2xl border border-amber-500/30 bg-amber-500/[0.07] p-4"
-            role="status"
-          >
-            <div className="flex items-start gap-2.5">
-              <TriangleAlert className="w-4.5 h-4.5 text-amber-400 shrink-0 mt-0.5" aria-hidden />
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-amber-200 leading-relaxed">
-                  {rotationChain.length} RPCs are running — but Discord only displays one at a time.
-                </p>
-                <p className="mt-1 text-[11px] text-white/55 leading-relaxed">
-                  With Auto Rotate off, Discord shows just one of your enabled RPCs ({rotationChain.join(', ')})
-                  — the others stay saved but hidden. Enable Auto Rotate to cycle through all of them.
-                </p>
-                <button
-                  type="button"
-                  onClick={() => saveRotate(true, rotateSecs || 30)}
-                  disabled={savingRotate}
-                  className="mt-2.5 inline-flex items-center gap-1.5 rounded-lg bg-purple-600 hover:bg-purple-500 active:bg-purple-700 disabled:opacity-60 text-white text-xs font-bold px-3.5 py-2 transition-colors cursor-pointer"
-                >
-                  <Zap className="w-3.5 h-3.5" aria-hidden />
-                  {savingRotate ? 'Enabling…' : 'Enable Auto Rotate'}
-                </button>
+        {/* Multi-Session status — all enabled RPCs run at once as their own
+            Discord sessions; Auto Rotate is the optional cycling mode. */}
+        {rotationChain.length >= 2 ? (
+          rotateEnabled ? (
+            <p className="relative z-10 text-xs text-white/45 leading-relaxed mb-4 px-0.5">
+              Auto Rotate is ON — your {rotationChain.length} RPCs take turns on your profile every{' '}
+              {rotateSecs < 60 ? `${rotateSecs} seconds` : `${Math.round(rotateSecs / 60)} minute${rotateSecs >= 120 ? 's' : ''}`}.{' '}
+              Turn it off to run all of them at the same time.
+            </p>
+          ) : (
+            <div className="relative z-10 mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.07] p-4" role="status">
+              <div className="flex items-start gap-2.5">
+                <Layers className="w-4.5 h-4.5 text-emerald-400 shrink-0 mt-0.5" aria-hidden />
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold text-emerald-200 leading-relaxed">
+                    Multi-Session is ON — all {rotationChain.length} RPCs are running at the same time ({rotationChain.join(', ')}).
+                  </p>
+                  <p className="mt-1 text-[11px] text-white/55 leading-relaxed">
+                    Each RPC runs as its own Discord session so they can all show on your profile together.
+                    Auto Rotate stays off — nothing cycles.
+                  </p>
+                </div>
               </div>
             </div>
-          </div>
+          )
+        ) : (
+          <p className="relative z-10 text-xs text-white/45 leading-relaxed mb-4 px-0.5">
+            Optional: cycle your enabled RPCs one at a time instead of running them all at once.
+            Rotation never modifies your saved configurations.
+          </p>
         )}
 
         <div className="relative z-10">

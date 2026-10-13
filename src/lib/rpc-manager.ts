@@ -469,7 +469,13 @@ export async function buildPresenceActivities(options: {
 
   for (const cfg of candidates) {
     if (cfg.enabled === false && !cfg.gameSlug) continue
-    const activity = await buildCandidateActivity(cfg, ctx, options)
+    // Per-candidate elapsed clock: every slot's "elapsed" timer runs from its
+    // OWN last save (row updatedAt), not the first slot's — with Multi-Session
+    // each activity card shows its own correct elapsed time.
+    const ownUpdated = (cfg as { updatedAt?: Date | string | null }).updatedAt
+    const ownMs = ownUpdated ? new Date(ownUpdated as unknown as string | Date).getTime() : NaN
+    const perCtx: PlaceholderContext = Number.isFinite(ownMs) && ownMs > 0 ? { ...ctx, rpcStartedAt: ownMs } : ctx
+    const activity = await buildCandidateActivity(cfg, perCtx, options)
     if (activity) activities.push(activity)
   }
 
