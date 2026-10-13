@@ -694,8 +694,17 @@ export class RpcDaemon {
 
     const rpcConfigs = (await db.rpcConfig.findMany({
       where: { userId },
-      orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
-    }).catch(() => [])) as Array<RpcCandidate & { enabled: boolean }>
+      // NOTE: createdAt order only — NO `slot` orderBy here. The standalone
+      // Orihost daemon's Prisma client may predate the slot column and an
+      // unknown orderBy argument would throw on EVERY call. Insertion order
+      // == slot order (slots are normalized by createdAt on the website).
+      orderBy: { createdAt: 'asc' },
+    }).catch(async () => {
+      // Legacy-client fallback: findFirst (pre-slot clients know it) keeps
+      // the user's primary slot alive if findMany ever fails.
+      const r = await db.rpcConfig.findFirst({ where: { userId } }).catch(() => null)
+      return r ? [r as RpcCandidate] : []
+    })) as Array<RpcCandidate & { enabled: boolean }>
     const enabledGame = await db.gameConfig.findFirst({ where: { userId, enabled: true } })
     // MULTI-RPC: all enabled slots + the enabled game (no mode exclusivity).
     const selection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGame)
@@ -854,8 +863,12 @@ export class RpcDaemon {
       // FIRST candidate so rotation between slots never flips the badge).
       const rpcConfigs = (await db.rpcConfig.findMany({
         where: { userId },
-        orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
-      }).catch(() => [])) as Array<RpcCandidate & { enabled: boolean }>
+        // createdAt order only — never orderBy `slot` (old daemon clients).
+        orderBy: { createdAt: 'asc' },
+      }).catch(async () => {
+        const r = await db.rpcConfig.findFirst({ where: { userId } }).catch(() => null)
+        return r ? [r as RpcCandidate] : []
+      })) as Array<RpcCandidate & { enabled: boolean }>
       const enabledGame = await db.gameConfig.findFirst({ where: { userId, enabled: true } })
       const selection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGame)
       const isRpcActive = selection.active
@@ -1130,10 +1143,10 @@ export class RpcDaemon {
     let enabledGame: GameCfgRow = null
     try {
       const [rpc, glob, game] = await Promise.all([
-        db.rpcConfig.findMany({
-          where: { userId },
-          orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
-        }).catch(() => [] as Array<RpcCandidate & { enabled: boolean }>),
+        // createdAt order only — never orderBy `slot` (old daemon clients).
+        // A DB failure here must NEVER be read as "no slots" — that would
+        // clear the user's live presence; bail out and retry next tick.
+        db.rpcConfig.findMany({ where: { userId }, orderBy: { createdAt: 'asc' } }),
         db.globalConfig.findUnique({ where: { userId } }),
         db.gameConfig.findFirst({ where: { userId, enabled: true } }),
       ])

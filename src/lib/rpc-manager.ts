@@ -1096,7 +1096,9 @@ export async function applyPresence(
   try {
     const { db } = await import('./db')
     const [rows, game] = await Promise.all([
-      db.rpcConfig.findMany({ where: { userId: session.userId }, orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }] }) as unknown as Promise<Array<RpcConfig & { slot?: number }>>,
+      // createdAt order only — never orderBy `slot` (this file also runs on
+      // the standalone Orihost daemon, whose Prisma client may predate it).
+      db.rpcConfig.findMany({ where: { userId: session.userId }, orderBy: { createdAt: 'asc' } }) as unknown as Promise<Array<RpcConfig & { slot?: number }>>,
       db.gameConfig.findFirst({ where: { userId: session.userId, enabled: true } }),
     ])
     rpcConfigs = rows ?? []
