@@ -1,9 +1,9 @@
-// 10X RPC — Landing page v3
-// Hero (live Discord-style mockup that replicates the REAL 10X RPC presence
-// card + floating feature chips) → game-chip marquee → feature grid → safety
-// strip → how-it-works + stats → DB-driven pricing → FAQ → final CTA →
-// footer. Static fallback pricing mirrors the current DB catalog so an API
-// outage never misleads.
+// 10X RPC — Landing page v4 (premium)
+// Hero (live Discord-style mockup replicating the REAL 10X RPC presence card,
+// floating chips, glow particles, rotating conic ring) → DB-driven PRICING
+// FIRST (top placement) → feature grid → safety strip → how-it-works + stats
+// → FAQ → final CTA → footer. Static fallback pricing mirrors the current DB
+// catalog so an API outage never misleads.
 'use client'
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
@@ -26,10 +26,21 @@ const GAMES = [
 ]
 
 const NAV_LINKS = [
+  { label: 'Pricing', href: '#pricing' },
   { label: 'Features', href: '#features' },
   { label: 'How it works', href: '#how' },
-  { label: 'Pricing', href: '#pricing' },
   { label: 'FAQ', href: '#faq' },
+]
+
+// Deterministic floating glow particles for the hero (SSR-safe: fixed
+// positions/delays, no randomness, so server and client markup agree).
+const HERO_PARTICLES = [
+  { left: '7%', top: '24%', size: 3, delay: '0s', dur: '7s', color: 'rgba(196,181,253,0.8)' },
+  { left: '15%', top: '70%', size: 2, delay: '1.4s', dur: '8.2s', color: 'rgba(168,85,247,0.7)' },
+  { left: '38%', top: '12%', size: 2.5, delay: '2.1s', dur: '6.8s', color: 'rgba(233,213,255,0.75)' },
+  { left: '56%', top: '80%', size: 3, delay: '0.8s', dur: '9s', color: 'rgba(168,85,247,0.6)' },
+  { left: '72%', top: '26%', size: 2, delay: '1.9s', dur: '7.6s', color: 'rgba(196,181,253,0.8)' },
+  { left: '90%', top: '58%', size: 2.5, delay: '2.7s', dur: '8.8s', color: 'rgba(168,85,247,0.7)' },
 ]
 
 export function LandingPage() {
@@ -150,6 +161,25 @@ export function LandingPage() {
           <div className="absolute -top-40 left-1/4 w-[520px] h-[520px] bg-purple-600/20 rounded-full blur-[130px] animate-aurora pointer-events-none" aria-hidden />
           <div className="absolute top-24 -right-40 w-[440px] h-[440px] bg-purple-600/12 rounded-full blur-[120px] animate-aurora-slow pointer-events-none" aria-hidden />
 
+          {/* floating glow particles */}
+          {HERO_PARTICLES.map((p, i) => (
+            <span
+              key={i}
+              className="absolute rounded-full animate-particle pointer-events-none"
+              style={{
+                left: p.left,
+                top: p.top,
+                width: p.size,
+                height: p.size,
+                background: p.color,
+                boxShadow: `0 0 ${p.size * 3}px ${p.color}`,
+                animationDelay: p.delay,
+                animationDuration: p.dur,
+              }}
+              aria-hidden
+            />
+          ))}
+
           <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-14 sm:pt-20 pb-10 sm:pb-14 grid lg:grid-cols-[1.05fr_0.95fr] gap-12 lg:gap-10 items-center">
             {/* Copy */}
             <div className="text-center lg:text-left">
@@ -189,7 +219,7 @@ export function LandingPage() {
                 <button
                   onClick={onStart}
                   disabled={loading}
-                  className="purple-gradient text-white font-bold rounded-xl px-8 py-3.5 text-base shadow-xl shadow-purple-900/40 hover:opacity-90 active:scale-[0.98] transition-all min-w-[200px]"
+                  className="purple-gradient text-white font-bold rounded-xl px-8 py-3.5 text-base shadow-xl shadow-purple-900/40 hover:opacity-90 active:scale-[0.98] transition-all min-w-[200px] btn-shine btn-shine-auto"
                 >
                   {startLabel}
                 </button>
@@ -216,6 +246,12 @@ export function LandingPage() {
               initial={{ opacity: 0, y: 28 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.2 }}
               className="relative mx-auto w-full max-w-md mt-8 mb-8"
             >
+              {/* rotating conic glow ring behind the mockup */}
+              <div
+                className="absolute -inset-3 sm:-inset-4 rounded-[36px] blur-lg animate-spin-slower pointer-events-none"
+                style={{ background: 'conic-gradient(from 0deg, rgba(168,85,247,0.4), transparent 25%, rgba(168,85,247,0.25) 50%, transparent 75%, rgba(168,85,247,0.4))' }}
+                aria-hidden
+              />
               <HeroMockup />
 
               <motion.div
@@ -253,6 +289,60 @@ export function LandingPage() {
           </div>
         </section>
 
+        {/* ============ PRICING (top placement) ============ */}
+        <section id="pricing" className="relative px-4 sm:px-6 py-20 sm:py-24 scroll-mt-20 overflow-hidden">
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 w-[640px] h-[320px] bg-purple-600/10 rounded-full blur-[130px] pointer-events-none" aria-hidden />
+          <div className="relative max-w-5xl mx-auto">
+            <SectionHeading
+              eyebrow="Pricing"
+              title="Simple, honest pricing"
+              sub="Every account starts with a free trial — no card needed. Pay with UPI, cards or netbanking via Razorpay."
+            />
+            <Reveal delay={0.08}>
+              <DynamicPricing onStart={onStart}>
+                {/* Static fallback — mirrors the current DB catalog, shown only
+                    while /api/plans is loading or unreachable */}
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 md:items-stretch">
+                  <PricingCard
+                    name="Free Trial"
+                    price="₹0"
+                    period="/ 3 Days"
+                    features={['Full feature access', '3 days validity', 'No card needed']}
+                    cta="Try Now"
+                    ctaStyle="ghost"
+                    onCta={onStart}
+                  />
+                  <PricingCard
+                    name="Pro (3 Months)"
+                    price="₹129"
+                    originalPrice="₹499"
+                    period="/ 3 Mo"
+                    badge="20% OFF"
+                    features={['Full feature Access', 'Priority Support', 'Game RPC Requests', 'Custom discord role']}
+                    cta="Buy Now"
+                    ctaStyle="primary"
+                    highlighted
+                    onCta={onStart}
+                  />
+                  <PricingCard
+                    name="Plus (1 Month)"
+                    price="₹49"
+                    originalPrice="₹249"
+                    period="/ 1 Mo"
+                    features={['Full feature access', 'Standard Support', 'Basic discord role']}
+                    cta="Buy Now"
+                    ctaStyle="ghost"
+                    onCta={onStart}
+                  />
+                </div>
+              </DynamicPricing>
+            </Reveal>
+            <p className="text-center text-xs text-white/40 mt-8">
+              Prices are managed live by the 10X RPC team — what you see here is always current.
+            </p>
+          </div>
+        </section>
+
         {/* ============ FEATURES ============ */}
         <section id="features" className="relative px-4 sm:px-6 py-20 sm:py-28 scroll-mt-20">
           <span id="seamless" aria-hidden className="absolute" /> {/* legacy bookmark anchor */}
@@ -272,7 +362,7 @@ export function LandingPage() {
             <div className="mt-4 grid sm:grid-cols-3 gap-4">
               {SAFETY.map((s, i) => (
                 <Reveal key={s.title} delay={i * 0.06}>
-                  <div className="glass-card p-5 flex items-start gap-3.5 h-full">
+                  <div className="glass-card p-5 flex items-start gap-3.5 h-full premium-hover">
                     <div className="shrink-0 w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center">
                       <s.icon className="w-5 h-5 text-purple-300" />
                     </div>
@@ -298,7 +388,7 @@ export function LandingPage() {
             <div className="grid md:grid-cols-3 gap-4">
               {STEPS.map((s, i) => (
                 <Reveal key={s.title} delay={i * 0.08}>
-                  <div className="glass-card-inner p-6 relative h-full">
+                  <div className="glass-card-inner p-6 relative h-full premium-hover">
                     <div className="absolute -top-3 left-6 w-7 h-7 rounded-full purple-gradient text-xs font-black text-white flex items-center justify-center shadow-lg shadow-purple-900/40">
                       {i + 1}
                     </div>
@@ -322,57 +412,6 @@ export function LandingPage() {
                 ))}
               </div>
             </Reveal>
-          </div>
-        </section>
-
-        {/* ============ PRICING ============ */}
-        <section id="pricing" className="px-4 sm:px-6 py-20 sm:py-28 scroll-mt-20">
-          <div className="max-w-5xl mx-auto">
-            <SectionHeading
-              eyebrow="Pricing"
-              title="Simple, honest pricing"
-              sub="Every account starts with a free trial — no card needed. Pay with UPI, cards or netbanking via Razorpay."
-            />
-            <DynamicPricing onStart={onStart}>
-              {/* Static fallback — mirrors the current DB catalog, shown only
-                  while /api/plans is loading or unreachable */}
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 md:items-stretch">
-                <PricingCard
-                  name="Free Trial"
-                  price="₹0"
-                  period="/ 3 Days"
-                  features={['Full feature access', '3 days validity', 'No card needed']}
-                  cta="Try Now"
-                  ctaStyle="ghost"
-                  onCta={onStart}
-                />
-                <PricingCard
-                  name="Pro (3 Months)"
-                  price="₹129"
-                  originalPrice="₹499"
-                  period="/ 3 Mo"
-                  badge="20% OFF"
-                  features={['Full feature Access', 'Priority Support', 'Game RPC Requests', 'Custom discord role']}
-                  cta="Buy Now"
-                  ctaStyle="primary"
-                  highlighted
-                  onCta={onStart}
-                />
-                <PricingCard
-                  name="Plus (1 Month)"
-                  price="₹49"
-                  originalPrice="₹249"
-                  period="/ 1 Mo"
-                  features={['Full feature access', 'Standard Support', 'Basic discord role']}
-                  cta="Buy Now"
-                  ctaStyle="ghost"
-                  onCta={onStart}
-                />
-              </div>
-            </DynamicPricing>
-            <p className="text-center text-xs text-white/40 mt-8">
-              Prices are managed live by the 10X RPC team — what you see here is always current.
-            </p>
           </div>
         </section>
 
@@ -405,7 +444,7 @@ export function LandingPage() {
                   <button
                     onClick={onStart}
                     disabled={loading}
-                    className="purple-gradient text-white font-bold rounded-xl px-8 py-3.5 text-base shadow-xl shadow-purple-900/40 hover:opacity-90 active:scale-[0.98] transition-all min-w-[200px]"
+                    className="purple-gradient text-white font-bold rounded-xl px-8 py-3.5 text-base shadow-xl shadow-purple-900/40 hover:opacity-90 active:scale-[0.98] transition-all min-w-[200px] btn-shine"
                   >
                     {me?.authenticated ? 'Open Dashboard' : startLabel}
                   </button>
@@ -501,8 +540,14 @@ function Reveal({ children, delay = 0, className }: { children: React.ReactNode;
 function SectionHeading({ eyebrow, title, sub }: { eyebrow: string; title: string; sub?: string }) {
   return (
     <Reveal className="text-center max-w-2xl mx-auto mb-12 sm:mb-14">
-      <p className="text-xs font-bold uppercase tracking-[0.25em] text-purple-300">{eyebrow}</p>
-      <h2 className="mt-3 text-3xl sm:text-5xl font-black text-white tracking-tight">{title}</h2>
+      <p className="flex items-center justify-center gap-2.5 text-xs font-bold uppercase tracking-[0.25em] text-purple-300">
+        <span className="h-px w-8 bg-gradient-to-r from-transparent to-purple-400/70" aria-hidden />
+        {eyebrow}
+        <span className="h-px w-8 bg-gradient-to-l from-transparent to-purple-400/70" aria-hidden />
+      </p>
+      <h2 className="mt-3 text-3xl sm:text-5xl font-black text-white tracking-tight">
+        <span className="text-gradient-animated">{title}</span>
+      </h2>
       {sub && <p className="mt-4 text-base text-white/60 leading-relaxed">{sub}</p>}
     </Reveal>
   )
@@ -773,9 +818,9 @@ function FeatureCard({ icon: Icon, title, desc, delay }: {
 }) {
   return (
     <Reveal delay={delay} className="h-full">
-      <div className="glass-card-inner p-6 h-full hover:border-purple-500/30 hover:-translate-y-1 transition-all duration-300">
-        <div className="w-11 h-11 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-4">
-          <Icon className="w-5 h-5 text-purple-300" />
+      <div className="glass-card-inner p-6 h-full premium-hover group">
+        <div className="w-11 h-11 rounded-xl bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-4 transition-all duration-300 group-hover:scale-110 group-hover:border-purple-400/50 group-hover:shadow-[0_0_18px_rgba(168,85,247,0.35)]">
+          <Icon className="w-5 h-5 text-purple-300 transition-transform duration-300 group-hover:scale-110" />
         </div>
         <h3 className="text-lg font-bold text-white">{title}</h3>
         <p className="text-sm text-white/60 mt-2 leading-relaxed">{desc}</p>

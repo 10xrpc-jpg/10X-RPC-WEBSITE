@@ -102,9 +102,9 @@ export function PricingCard({ name, price, originalPrice, period, badge, feature
   onCta: () => void
 }) {
   return (
-    <div className={`glass-card-inner p-6 relative h-full flex flex-col hover:-translate-y-1 transition-all duration-300 ${highlighted ? 'border-purple-500/40 shadow-[0_0_28px_rgba(168,85,247,0.16)]' : 'hover:border-white/12'}`}>
+    <div className={`glass-card-inner p-6 relative h-full flex flex-col premium-hover ${highlighted ? 'border-purple-500/40 shadow-[0_0_28px_rgba(168,85,247,0.16)]' : 'hover:border-white/12'}`}>
       {badge && (
-        <span className="absolute -top-2.5 right-4 text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-gradient-to-r from-purple-500 to-purple-700 text-white shadow-lg">
+        <span className="absolute -top-2.5 right-4 text-[10px] font-bold uppercase tracking-wide px-2.5 py-1 rounded-full bg-gradient-to-r from-purple-500 to-purple-700 text-white shadow-lg animate-glow-pulse">
           {badge}
         </span>
       )}
@@ -125,7 +125,7 @@ export function PricingCard({ name, price, originalPrice, period, badge, feature
       {ctaStyle === 'primary' ? (
         <button
           onClick={onCta}
-          className="mt-auto w-full purple-gradient text-white font-bold rounded-xl py-3 hover:opacity-90 active:scale-[0.98] transition-all shadow-lg shadow-purple-900/30"
+          className="mt-auto w-full purple-gradient text-white font-bold rounded-xl py-3 hover:opacity-90 active:scale-[0.98] transition-all shadow-lg shadow-purple-900/30 btn-shine"
         >
           {cta}
         </button>

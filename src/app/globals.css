@@ -218,3 +218,82 @@ html { scroll-behavior: smooth; }
   background: linear-gradient(90deg, transparent, rgba(168, 85, 247, 0.14), transparent);
   animation: shimmer-sweep 1.6s ease-in-out infinite;
 }
+
+/* ===== Landing v4 premium animations ===== */
+
+/* Animated gradient text (panning sheen) */
+@keyframes gradient-pan {
+  0%, 100% { background-position: 0% 50%; }
+  50% { background-position: 100% 50%; }
+}
+.text-gradient-animated {
+  background: linear-gradient(90deg, #ffffff 0%, #d8b4fe 25%, #a855f7 50%, #d8b4fe 75%, #ffffff 100%);
+  background-size: 200% auto;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: gradient-pan 7s ease-in-out infinite;
+}
+
+/* CTA shine sweep (hover) + auto loop variant for hero CTA */
+.btn-shine { position: relative; overflow: hidden; }
+.btn-shine::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -80%;
+  width: 55%;
+  height: 100%;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: skewX(-20deg);
+  transition: left 0.65s ease;
+  pointer-events: none;
+}
+.btn-shine:hover::after { left: 135%; }
+@keyframes shine-loop {
+  0% { left: -80%; }
+  55%, 100% { left: 135%; }
+}
+.btn-shine-auto::after { animation: shine-loop 3.4s ease-in-out infinite; }
+
+/* Floating glow particles (hero) */
+@keyframes float-particle {
+  0%, 100% { transform: translateY(0) scale(1); opacity: 0.35; }
+  50% { transform: translateY(-24px) scale(1.3); opacity: 0.95; }
+}
+.animate-particle { animation: float-particle 7s ease-in-out infinite; }
+
+/* Pulsing purple glow (badges / highlighted card accents) */
+@keyframes glow-pulse {
+  0%, 100% { box-shadow: 0 0 10px rgba(168, 85, 247, 0.5); }
+  50% { box-shadow: 0 0 24px rgba(168, 85, 247, 0.95); }
+}
+.animate-glow-pulse { animation: glow-pulse 2.6s ease-in-out infinite; }
+
+/* Slow rotation (conic glow ring behind hero mockup) */
+@keyframes spin-slower { to { transform: rotate(360deg); } }
+.animate-spin-slower { animation: spin-slower 16s linear infinite; }
+
+/* Premium card hover: lift + purple spotlight */
+.premium-hover {
+  transition: transform 0.35s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.35s ease, border-color 0.35s ease;
+}
+.premium-hover:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 18px 44px -14px rgba(168, 85, 247, 0.35), 0 0 0 1px rgba(168, 85, 247, 0.28);
+  border-color: rgba(168, 85, 247, 0.45);
+}
+
+/* Respect reduced-motion preferences */
+@media (prefers-reduced-motion: reduce) {
+  .animate-particle,
+  .animate-spin-slower,
+  .animate-aurora,
+  .animate-aurora-slow,
+  .animate-marquee,
+  .animate-glow-pulse,
+  .text-gradient-animated,
+  .btn-shine-auto::after {
+    animation: none;
+  }
+}
