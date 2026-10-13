@@ -9,7 +9,7 @@ import { useRouter } from './useRouter'
 import { ProfileSection } from './ProfileSection'
 import { BrandMark, BrandName } from './BrandMark'
 import { SmartSleepTimerCard } from './SmartSleepTimerCard'
-import { RichPresenceForm } from './RichPresenceForm'
+import { RpcSlotsManager } from './RpcSlotsManager'
 import { ReconnectBanner } from './ReconnectBanner'
 import { startPlanCheckout } from './subscriptionCheckout'
 import { TriangleAlert, Zap, Check, Ban, Star, ArrowLeft, Hourglass } from 'lucide-react'
@@ -17,7 +17,7 @@ import { TriangleAlert, Zap, Check, Ban, Star, ArrowLeft, Hourglass } from 'luci
 export function DashboardPage() {
   const { navigate } = useRouter()
   const [me, setMe] = useState<Me | null>(null)
-  const [liveRpcConfig, setLiveRpcConfig] = useState<RpcConfig | null>(null)
+  const [liveSlots, setLiveSlots] = useState<RpcConfig[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
@@ -182,7 +182,7 @@ export function DashboardPage() {
 
         {/* Profile section */}
         <ProfileSection
-          me={liveRpcConfig ? { ...me, rpcConfig: { ...me.rpcConfig, ...liveRpcConfig } } : me}
+          me={me}
           onRefresh={refresh}
         />
 
@@ -192,18 +192,20 @@ export function DashboardPage() {
           onSaved={refresh}
         />
 
-        {/* Rich presence form (Normal RPC — its own independent config) */}
-        <RichPresenceForm
-          initial={me.rpcConfig}
-          rpcMode={me.session?.rpcMode ?? null}
-          activeGameName={me.activeGame?.name ?? null}
-          onChange={setLiveRpcConfig}
-          onSaved={() => {
-            setLiveRpcConfig(null)
+        {/* Multi-RPC slots (max 3 independent RPCs) + Auto Rotate + Game RPC CTA */}
+        <RpcSlotsManager
+          me={liveSlots ? { ...me, rpcSlots: liveSlots } : me}
+          onRefresh={() => {
+            setLiveSlots(null)
             refresh()
           }}
-          onToggle={() => refresh()}
           onGameRpcClick={() => navigate({ name: 'games' })}
+          onDraftChange={cfg => {
+            setLiveSlots(prev => {
+              const base = prev ?? (me.rpcSlots ?? (me.rpcConfig ? [me.rpcConfig] : []))
+              return base.map(s => (s.id && s.id === cfg.id ? { ...s, ...cfg } : s))
+            })
+          }}
         />
 
         {/* Footer */}

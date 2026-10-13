@@ -154,13 +154,12 @@ export function GameConfigPage({ slug }: { slug: string }) {
             <PurpleSwitch checked={enabled} onCheckedChange={setEnabled} />
           </div>
 
-          {/* Mutual-exclusivity note: Normal RPC & Game RPC are separate configs */}
+          {/* Multi-RPC note: Game RPC runs ALONGSIDE the user's RPC slots */}
           <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-white/45 px-1">
             <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span>
-              Game RPC and Normal RPC are separate configurations — enabling one automatically
-              disables the other. Both configurations are remembered, so switching never resets
-              your saved settings.
+              Game RPC is fully independent — it runs alongside your Normal RPC slots and enabling
+              or disabling it never modifies their saved configurations.
             </span>
           </p>
 

@@ -136,12 +136,9 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   // merged, overwritten or reset between the two modes.
   // ════════════════════════════════════════════════════════════════════
   if (enabled) {
-    // GAMER RPC ON → NORMAL RPC OFF (auto-disable Normal's own enabled flag;
-    // its saved fields stay untouched for when the user switches back).
-    await db.rpcConfig.updateMany({
-      where: { userId: session.userId },
-      data: { enabled: false },
-    })
+    // MULTI-RPC — Game RPC stays ISOLATED: enabling the game never touches
+    // any RpcConfig slot (fields OR enabled flags). Normal RPC slots and the
+    // game can now run TOGETHER as separate activities.
     // Single-active-game invariant: only this game may stay enabled.
     await db.gameConfig.updateMany({
       where: { userId: session.userId, gameSlug: { not: slug } },
@@ -166,12 +163,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       syncPresenceDetached(session.userId)
     }
   } else if (existing?.enabled) {
-    // Disabling the currently-enabled game turns Gamer RPC off. By mutual
-    // exclusivity Normal RPC was already disabled, so the master RPC flag
-    // goes OFF too (daemon clears the presence; neither config is touched).
+    // Disabling the currently-enabled game turns Gamer RPC off. Enabled
+    // Normal RPC slots keep running untouched (multi-RPC coexistence) — the
+    // master RPC flag only goes OFF when NO candidate remains.
+    const slotsLeft = await db.rpcConfig.count({ where: { userId: session.userId, enabled: true } })
     await db.session.updateMany({
       where: { userId: session.userId },
-      data: { rpcEnabled: false, lastPresenceUpdate: new Date() },
+      data: { rpcEnabled: slotsLeft > 0, lastPresenceUpdate: new Date() },
     })
     if (session.discordAccessToken) {
       syncPresenceDetached(session.userId)
@@ -202,10 +200,11 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ slug: strin
 
   if (existing.enabled) {
     // Deleting the currently-enabled game turns Gamer RPC off completely.
-    // Normal RPC stays exactly as it was (disabled — mutual exclusivity).
+    // Enabled Normal RPC slots keep running untouched (multi-RPC coexistence).
+    const slotsLeft = await db.rpcConfig.count({ where: { userId: session.userId, enabled: true } })
     await db.session.updateMany({
       where: { userId: session.userId },
-      data: { rpcEnabled: false, lastPresenceUpdate: new Date() },
+      data: { rpcEnabled: slotsLeft > 0, lastPresenceUpdate: new Date() },
     })
     if (session.discordAccessToken) {
       syncPresenceDetached(session.userId)

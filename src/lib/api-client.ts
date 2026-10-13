@@ -88,6 +88,10 @@ export interface Me {
     rotatorIntervalMins: number
   } | null
   rpcConfig?: RpcConfig | null
+  /** Multi-RPC: every slot (max 3) with its own config + enabled flag. */
+  rpcSlots?: RpcConfig[]
+  /** RPC Auto Rotate settings (optional runtime rotation across enabled RPCs). */
+  autoRotate?: { enabled: boolean; secs: number } | null
   /** The ACTIVE RPC mode's own config (game config in Gamer RPC mode). */
   activeRpcConfig?: RpcConfig | null
   /** The currently enabled game (Gamer RPC config owner), if any. */
@@ -99,6 +103,8 @@ export interface Me {
 
 export interface RpcConfig {
   id?: string
+  /** RPC slot number 1..3 (multi-RPC). */
+  slot?: number
   name?: string
   type?: string
   platform?: string
@@ -502,6 +508,53 @@ export const api = {
     error?: string
   }>('/api/rpc/toggle', {
     method: 'POST', body: JSON.stringify({ enabled }),
+  }),
+
+  // ── Multi-RPC slots (max 3) ──
+  rpcSlotsList: () => fetchJson<{
+    ok: boolean
+    maxSlots: number
+    slots: RpcConfig[]
+    autoRotate: { enabled: boolean; secs: number }
+    game: { slug: string; name: string; enabled: boolean } | null
+  }>('/api/rpc/slots'),
+  rpcSlotCreate: () => fetchJson<{
+    ok: boolean
+    slot?: number
+    rpcConfig?: RpcConfig
+    message?: string
+    error?: string
+  }>('/api/rpc/slots', { method: 'POST' }),
+  rpcSlotSave: (id: string, data: RpcConfig) => fetchJson<{
+    ok: boolean
+    rpcConfig?: RpcConfig
+    enabled?: boolean
+    message?: string
+    error?: string
+  }>(`/api/rpc/slots/${id}`, {
+    method: 'PUT', body: JSON.stringify(data),
+  }),
+  rpcSlotDelete: (id: string) => fetchJson<{
+    ok: boolean
+    message?: string
+    error?: string
+  }>(`/api/rpc/slots/${id}`, { method: 'DELETE' }),
+  rpcSlotToggle: (id: string, enabled: boolean) => fetchJson<{
+    ok: boolean
+    enabled: boolean
+    rpcConfig?: RpcConfig
+    message?: string
+    error?: string
+  }>(`/api/rpc/slots/${id}/toggle`, {
+    method: 'POST', body: JSON.stringify({ enabled }),
+  }),
+  rpcRotateSave: (enabled: boolean, secs: number) => fetchJson<{
+    ok: boolean
+    autoRotate?: { enabled: boolean; secs: number }
+    message?: string
+    error?: string
+  }>('/api/rpc/rotate', {
+    method: 'POST', body: JSON.stringify({ enabled, secs }),
   }),
 
   customStatus: (emoji: string | null, text: string | null) =>

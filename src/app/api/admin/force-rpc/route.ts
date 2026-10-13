@@ -53,12 +53,8 @@ export async function POST(req: Request) {
           where: { id: sess.id },
           data: { rpcEnabled: true, gatewayReady: true, lastPresenceUpdate: new Date() },
         })
-        // Mutual exclusivity — enabling Normal RPC disables any enabled game
-        // and enables the user's Normal config (same semantics as /api/rpc/toggle ON).
-        await db.gameConfig.updateMany({
-          where: { userId: sess.userId, enabled: true },
-          data: { enabled: false },
-        })
+        // Multi-RPC — enable every slot (admin force = everything on). Game
+        // RPC stays isolated and keeps its own state (coexistence supported).
         await db.rpcConfig.updateMany({
           where: { userId: sess.userId },
           data: { enabled: true },

@@ -1,11 +1,14 @@
 // 10X RPC — Rich Presence form
+// Multi-RPC: renders ONE RPC slot's configuration. When `slotId` is provided
+// the form talks to the per-slot endpoints (/api/rpc/slots/[id]) — each slot
+// is saved, toggled and deleted independently; no slot can ever affect another.
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
 import { api, type RpcConfig } from '@/lib/api-client'
 import { PurpleSwitch } from './ui'
 import { ACTIVITY_TYPES } from '@/lib/constants'
-import { Gamepad2, ChevronDown, ChevronsDown, Check, Info } from 'lucide-react'
+import { Gamepad2, ChevronDown, Check, Info, Trash2, ChevronRight } from 'lucide-react'
 import { RpcPlatformSelect } from './RpcPlatformSelect'
 
 const DEFAULT_CONFIG: RpcConfig = {
@@ -43,21 +46,33 @@ type AppLookupState =
   | { status: 'not_found' }
 
 export function RichPresenceForm({
-  initial, onSaved, onToggle, onGameRpcClick, onChange, rpcMode, activeGameName,
+  initial, onSaved, onToggle, onChange, rpcMode, activeGameName,
+  slotId, slotNumber, onDelete, deleting, collapsible, defaultOpen = true,
 }: {
   initial: RpcConfig | null | undefined
   onSaved?: () => void
   onToggle?: (v: boolean) => void
-  onGameRpcClick?: () => void
   onChange?: (cfg: RpcConfig) => void
-  /** Active RPC mode: 'game' while Gamer RPC owns the presence, 'normal' otherwise. */
+  /** Active RPC mode: 'game' while ONLY the Game RPC candidate runs, 'normal' otherwise. */
   rpcMode?: 'normal' | 'game' | null
-  /** Name of the currently enabled game (Gamer RPC config owner), if any. */
+  /** Name of the currently enabled game (isolated Game RPC), if any. */
   activeGameName?: string | null
+  /** Multi-RPC: when set, save/toggle hit the per-slot endpoints. */
+  slotId?: string
+  /** Multi-RPC: which slot this card is ("RPC 1", "RPC 2", "RPC 3"). */
+  slotNumber?: number
+  /** Multi-RPC: delete THIS slot only (others are never touched). */
+  onDelete?: () => void
+  deleting?: boolean
+  /** Collapsible card (RPC slots UI); the header always stays visible. */
+  collapsible?: boolean
+  defaultOpen?: boolean
 }) {
   const [cfg, setCfg] = useState<RpcConfig>(initial || DEFAULT_CONFIG)
   const [saving, setSaving] = useState(false)
   const [enabled, setEnabled] = useState(initial?.enabled ?? false)
+  const [open, setOpen] = useState(defaultOpen)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   const [platformOpen, setPlatformOpen] = useState(false)
   const [typeOpen, setTypeOpen] = useState(false)
@@ -171,7 +186,9 @@ export function RichPresenceForm({
 
     setSaving(true)
     try {
-      const res = await api.rpcSave({ ...cfg, appId: (cfg.appId || '').trim() || undefined, enabled })
+      const res = slotId
+        ? await api.rpcSlotSave(slotId, { ...cfg, appId: (cfg.appId || '').trim() || undefined, enabled })
+        : await api.rpcSave({ ...cfg, appId: (cfg.appId || '').trim() || undefined, enabled })
       if (res.ok) {
         // Server owns the enabled state (config save can never disable the RPC) —
         // surface its authoritative message instead of the local switch value.
@@ -191,9 +208,11 @@ export function RichPresenceForm({
   const handleToggle = async (v: boolean) => {
     setEnabled(v)
     try {
-      const res = await api.rpcToggle(v)
+      const res = slotId
+        ? await api.rpcSlotToggle(slotId, v)
+        : await api.rpcToggle(v)
       if (res.ok) {
-        toast.success(v ? 'RPC enabled & live on Discord' : 'RPC stopped & cleared from Discord', { duration: 2500 })
+        toast.success(res.message || (v ? 'RPC enabled & live on Discord' : 'RPC stopped & cleared from Discord'), { duration: 2500 })
         onToggle?.(v)
         onSaved?.()
       } else {
@@ -209,33 +228,100 @@ export function RichPresenceForm({
 
   return (
     <div className="space-y-8">
-      {/* === RICH PRESENCE CARD === */}
+      {/* === RPC SLOT CARD === */}
       <div className="relative overflow-hidden bg-gradient-to-b from-[#13111d]/95 via-[#0e0d14]/95 to-[#0a0a0f] border border-white/10 rounded-[28px] p-6 sm:p-7 shadow-2xl backdrop-blur-xl">
         {/* Ambient violet glow at top */}
         <div className="absolute -top-16 left-1/4 -translate-x-1/2 w-64 h-48 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" />
         <div className="absolute -top-16 right-0 w-48 h-48 bg-purple-900/10 rounded-full blur-2xl pointer-events-none" />
 
-        {/* Centered Card Title: Rich Presence */}
-        <div className="relative z-10 flex items-center justify-center gap-2.5 mb-7 pt-1">
-          <Gamepad2 className="w-6 h-6 text-white stroke-[2.2]" />
-          <h2 className="text-2xl font-bold text-white tracking-tight">Rich Presence</h2>
+        {/* Card header — RPC slot title + live status + (multi-RPC) collapse & delete */}
+        <div className="relative z-10 flex items-center gap-2.5 mb-7 pt-1">
+          {collapsible ? (
+            <button
+              type="button"
+              onClick={() => setOpen(v => !v)}
+              aria-expanded={open}
+              aria-label={open ? 'Collapse RPC configuration' : 'Expand RPC configuration'}
+              className="flex items-center gap-2.5 flex-1 min-w-0 text-left cursor-pointer group"
+            >
+              {open
+                ? <ChevronDown className="w-5 h-5 shrink-0 text-white/50 group-hover:text-white/80 transition-colors" />
+                : <ChevronRight className="w-5 h-5 shrink-0 text-white/50 group-hover:text-white/80 transition-colors" />}
+              <Gamepad2 className="w-6 h-6 text-white stroke-[2.2] shrink-0" />
+              <h2 className="text-2xl font-bold text-white tracking-tight truncate">
+                {slotNumber ? `RPC ${slotNumber}` : 'Rich Presence'}
+              </h2>
+              <span
+                className={`ml-1 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border shrink-0 ${
+                  enabled
+                    ? 'text-purple-200 border-purple-500/40 bg-purple-500/15'
+                    : 'text-white/40 border-white/10 bg-white/5'
+                }`}
+              >
+                <span className={`w-1.5 h-1.5 rounded-full ${enabled ? 'bg-purple-400 animate-pulse' : 'bg-white/30'}`} />
+                {enabled ? 'ON' : 'OFF'}
+              </span>
+            </button>
+          ) : (
+            <>
+              <Gamepad2 className="w-6 h-6 text-white stroke-[2.2] shrink-0" />
+              <h2 className="text-2xl font-bold text-white tracking-tight flex-1 min-w-0 truncate">
+                {slotNumber ? `RPC ${slotNumber}` : 'Rich Presence'}
+              </h2>
+            </>
+          )}
+          {onDelete && (
+            <div className="shrink-0 flex items-center gap-1.5">
+              {confirmDelete ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { setConfirmDelete(false); onDelete() }}
+                    disabled={deleting}
+                    className="text-[11px] font-bold uppercase tracking-wide text-white bg-red-600/90 hover:bg-red-600 rounded-lg px-2.5 py-1.5 transition-colors disabled:opacity-50"
+                  >
+                    {deleting ? 'Deleting…' : 'Confirm'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmDelete(false)}
+                    disabled={deleting}
+                    className="text-[11px] font-semibold uppercase tracking-wide text-white/60 hover:text-white bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 transition-colors disabled:opacity-50"
+                  >
+                    Cancel
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmDelete(true)}
+                  disabled={deleting}
+                  aria-label={`Delete RPC ${slotNumber ?? ''}`}
+                  title="Delete this RPC"
+                  className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-white/45 hover:text-red-300 bg-white/5 hover:bg-red-500/15 border border-white/10 hover:border-red-500/30 rounded-lg px-2.5 py-1.5 transition-colors disabled:opacity-50"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Delete RPC</span>
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
-        {/* Mutual-exclusivity notice: while Gamer RPC is active, this Normal RPC
-            config is remembered but idle — enabling Normal RPC auto-disables it. */}
+        {/* Multi-RPC notice: the isolated Game RPC runs ALONGSIDE the slots —
+            neither mode ever overwrites the other's saved configuration. */}
         {rpcMode === 'game' && (
           <div className="relative z-10 mb-5 flex items-start gap-2.5 text-xs text-white/80 bg-purple-500/10 border border-purple-500/25 rounded-xl px-3.5 py-2.5">
             <Gamepad2 className="w-4 h-4 shrink-0 mt-0.5" aria-hidden />
             <span>
               <strong>Game RPC is currently active{activeGameName ? ` — ${activeGameName}` : ''}.</strong>{' '}
-              Your Normal RPC configuration is saved separately and will not be overwritten.
-              Enable RPC below to switch to Normal RPC (this automatically turns Game RPC off).
+              It runs alongside your RPCs — enabling RPC below adds this slot back without touching the game.
             </span>
           </div>
         )}
 
         {/* Form Fields */}
-        <div className="relative z-10 space-y-4">
+        <div className={`relative z-10 space-y-4 ${collapsible && !open ? 'hidden' : ''}`}>
           {/* 1. ACTIVITY TYPE */}
           <FormField label="ACTIVITY TYPE">
             <div className="relative" ref={typeRef}>
@@ -560,10 +646,10 @@ export function RichPresenceForm({
 
           {/* Divider line before ENABLE RPC */}
           <div className="border-t border-white/10 pt-6 mt-6">
-            {/* ENABLE RPC Toggle Row */}
+            {/* ENABLE RPC Toggle Row — THIS slot's own independent status */}
             <div className="flex items-center justify-between px-1 mb-5">
               <span className="text-sm sm:text-base font-extrabold tracking-widest text-purple-400 uppercase">
-                ENABLE RPC
+                ENABLE RPC{slotNumber ? ` ${slotNumber}` : ''}
               </span>
               <PurpleSwitch checked={enabled} onCheckedChange={handleToggle} />
             </div>
@@ -582,38 +668,6 @@ export function RichPresenceForm({
           </div>
         </div>
       </div>
-
-      {/* === "want something cool ?" & TRY GAME RPC NOW (Matches Screenshot 2) === */}
-      {onGameRpcClick && (
-        <div className="text-center pt-2 pb-6 space-y-4">
-          <div className="space-y-1 font-['Comic_Sans_MS',_'Chalkboard_SE',_'Comic_Neue',_cursive,_sans-serif]">
-            <p className="text-3xl sm:text-4xl text-white font-normal tracking-wide">
-              want something cool
-            </p>
-            <p className="text-3xl sm:text-4xl text-white font-normal">
-              ?
-            </p>
-          </div>
-
-          <div className="flex justify-center py-1">
-            <ChevronsDown className="w-8 h-8 text-white stroke-[2.5] animate-bounce" />
-          </div>
-
-          {/* Giant Game RPC Button */}
-          <button
-            type="button"
-            onClick={onGameRpcClick}
-            className="w-full py-7 px-4 rounded-[28px] bg-gradient-to-r from-[#221b36] via-[#352554] to-[#221b36] border border-purple-500/35 hover:border-purple-400/60 shadow-2xl shadow-purple-950/50 text-center transition-all cursor-pointer group active:scale-[0.99]"
-          >
-            <div className="text-2xl sm:text-3xl font-black tracking-wider text-white/90 group-hover:text-white transition-colors">
-              TRY GAME RPC
-            </div>
-            <div className="text-2xl sm:text-3xl font-black tracking-wider text-white/90 group-hover:text-white transition-colors mt-0.5">
-              NOW
-            </div>
-          </button>
-        </div>
-      )}
     </div>
   )
 }

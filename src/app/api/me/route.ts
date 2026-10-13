@@ -4,9 +4,10 @@ import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { avatarUrl } from '@/lib/discord-oauth'
 import { CONFIG } from '@/lib/config'
-import { selectActiveRpc, type RpcMode } from '@/lib/rpc-manager'
+import { resolveRuntimeCandidates, type RpcCandidate } from '@/lib/rpc-manager'
 import { sweepSubscription, subscriptionView } from '@/lib/subscription'
 import { getTrialConfig } from '@/lib/trial-config'
+import { serializeSlot } from '@/lib/rpc-slots'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,7 +48,7 @@ export async function GET() {
 
     let trial: any = null
     let globalConfig: any = null
-    let rpcConfig: any = null
+    let rpcSlots: any[] = []
     let enabledGame: any = null
     let rotatorPresets: any[] = []
     // Subscription sweep — flips an expired trial/period to "suspended" and
@@ -57,42 +58,48 @@ export async function GET() {
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        [trial, globalConfig, rpcConfig, enabledGame, rotatorPresets] = await Promise.all([
+        [trial, globalConfig, rpcSlots, enabledGame, rotatorPresets] = await Promise.all([
           db.trial.findUnique({ where: { userId: session.userId } }),
           db.globalConfig.findUnique({ where: { userId: session.userId } }),
-          db.rpcConfig.findFirst({ where: { userId: session.userId } }),
+          db.rpcConfig.findMany({
+            where: { userId: session.userId },
+            orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
+          }),
           db.gameConfig.findFirst({ where: { userId: session.userId, enabled: true } }),
           db.rotatorPreset.findMany({
             where: { userId: session.userId },
             orderBy: { order: 'asc' },
           }),
         ])
-        if (!rpcConfig) {
-          rpcConfig = await db.rpcConfig.create({
-            data: {
-              userId: session.userId,
-              name: '10X RPC',
-              type: 'PLAYING',
-              platform: 'desktop',
-              state: null,
-              details: null,
-              largeImage: null,
-              largeText: null,
-              smallImage: null,
-              smallText: null,
-              button1Label: null,
-              button1Url: null,
-              button2Label: null,
-              button2Url: null,
-              partyCurrent: null,
-              partyMax: null,
-              partyId: null,
-              partySecret: null,
-              startMinsAgo: 0,
-              endTotalMins: null,
-              enabled: false,
-            },
-          })
+        if (rpcSlots.length === 0) {
+          rpcSlots = [
+            await db.rpcConfig.create({
+              data: {
+                userId: session.userId,
+                slot: 1,
+                name: '10X RPC',
+                type: 'PLAYING',
+                platform: 'desktop',
+                state: null,
+                details: null,
+                largeImage: null,
+                largeText: null,
+                smallImage: null,
+                smallText: null,
+                button1Label: null,
+                button1Url: null,
+                button2Label: null,
+                button2Url: null,
+                partyCurrent: null,
+                partyMax: null,
+                partyId: null,
+                partySecret: null,
+                startMinsAgo: 0,
+                endTotalMins: null,
+                enabled: false,
+              },
+            }),
+          ]
         }
         break
       } catch (dbErr) {
@@ -111,14 +118,25 @@ export async function GET() {
   // Check sleep timer
   const sleepTimerActive = session.sleepTimerActive && session.sleepTimerEndsAt && session.sleepTimerEndsAt > now
 
-  // ══ NORMAL RPC vs GAMER RPC — mutual exclusivity (completely separate configs) ══
-  //   • Normal RPC config  = rpcConfig (RpcConfig row)
-  //   • Gamer RPC config   = enabledGame (GameConfig row)
-  // selectActiveRpc returns ONLY the active mode's own config (never a merge).
-  const selection = selectActiveRpc(session.rpcEnabled, rpcConfig, enabledGame)
-  const rpcMode: RpcMode | null = selection.mode
-  // What the daemon is ACTUALLY sending right now (null when nothing is live):
-  const activeRpcConfig = selection.active && selection.config ? serializeRpcConfig(selection.config) : null
+  // ══ MULTI-RPC — up to 3 independent slots + the isolated Game RPC ══
+  // runtime = what the daemon is ACTUALLY publishing right now (Auto Rotate
+  // aware). Saved configs are never modified here.
+  const runtime = resolveRuntimeCandidates({
+    rpcEnabled: session.rpcEnabled,
+    rpcConfigs: rpcSlots as Array<RpcCandidate & { enabled: boolean }>,
+    enabledGame,
+    autoRotate: (globalConfig as { rpcAutoRotate?: boolean } | null)?.rpcAutoRotate ?? false,
+    rotateSecs: (globalConfig as { rpcRotateSecs?: number } | null)?.rpcRotateSecs ?? 30,
+    rotateRefMs: globalConfig?.updatedAt ? new Date(globalConfig.updatedAt).getTime() : null,
+  })
+  const activeRpcConfig = runtime.active && runtime.candidates[0]
+    ? serializeRpcConfig(runtime.candidates[0])
+    : null
+  // UI-compat mode flag: 'game' only when the game is the SOLE candidate.
+  const rpcMode = runtime.active
+    ? (runtime.candidates.length === 1 && runtime.candidates[0].gameSlug ? 'game' as const : 'normal' as const)
+    : null
+  const rpcConfig = rpcSlots[0] ?? null
 
   return NextResponse.json({
     authenticated: true,
@@ -171,12 +189,17 @@ export async function GET() {
       rotatorEnabled: globalConfig.rotatorEnabled,
       rotatorIntervalMins: globalConfig.rotatorIntervalMins,
     } : null,
+    // Multi-RPC: every slot (max 3) + optional Auto Rotate settings.
+    rpcSlots: rpcSlots.map(serializeSlot),
+    autoRotate: {
+      enabled: (globalConfig as { rpcAutoRotate?: boolean } | null)?.rpcAutoRotate ?? false,
+      secs: (globalConfig as { rpcRotateSecs?: number } | null)?.rpcRotateSecs ?? 30,
+    },
     rpcConfig: rpcConfig ? {
       ...serializeRpcConfig(rpcConfig),
       enabled: rpcConfig.enabled,
     } : null,
-    // The ACTIVE mode's own config (Gamer RPC config when a game owns the
-    // presence, Normal RPC config otherwise; null when RPC is not live).
+    // The ACTIVE runtime candidate (rotate-aware; null when RPC is not live).
     activeRpcConfig,
     // Convenience: the currently enabled game (Gamer RPC config owner).
     activeGame: enabledGame ? {

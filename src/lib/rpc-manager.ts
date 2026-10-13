@@ -59,6 +59,30 @@ export async function fetchRpcAppId(userId: string): Promise<string | null> {
   }
 }
 
+/**
+ * Per-row Application IDs for EVERY RpcConfig row of a user (multi-slot).
+ * Multi-RPC: each slot carries its OWN "Application ID" — the daemon reads
+ * the full id→appId map so every candidate activity can run as its own
+ * application. $queryRaw keeps this working on Prisma clients generated
+ * before the RpcConfig.appId column existed (standalone Orihost daemon).
+ */
+export async function fetchRpcAppIds(userId: string): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  try {
+    const { db } = await import('./db')
+    const rows = await db.$queryRaw<Array<{ id: string; appId: string | null }>>`
+      SELECT "id", "appId" FROM "RpcConfig"
+      WHERE "userId" = ${userId}`
+    for (const r of rows ?? []) {
+      if (r.appId && DISCORD_APP_ID_RE.test(r.appId)) map.set(r.id, r.appId)
+    }
+  } catch {
+    // DB error / missing column on a very old client — empty map, per-row
+    // cfg.appId (fresh client) still takes precedence downstream.
+  }
+  return map
+}
+
 // Activity types mapped to Discord's numeric values
 export const ACTIVITY_TYPE_MAP: Record<string, number> = {
   PLAYING: 0,
@@ -220,87 +244,179 @@ export function buildCustomStatusActivity(
 }
 
 // ════════════════════════════════════════════════════════════════════════
-// NORMAL RPC vs GAMER (GAME) RPC — MODE SELECTION
+// MULTI-RPC SELECTION (up to 3 slots) + GAME RPC — CANDIDATE MODEL
 //
-// The two RPC modes are COMPLETELY SEPARATE configurations:
-//   • Normal RPC  → RpcConfig row  (user's custom Rich Presence)
-//   • Gamer RPC   → GameConfig row (enabled game preset, spoofed as real app)
+// The old single-RPC exclusivity model is upgraded to MULTI-RPC:
+//   • Normal RPC  → up to 3 INDEPENDENT RpcConfig rows (slot 1..3), each with
+//     its own fields AND its own enabled flag.
+//   • Gamer RPC   → GameConfig row (enabled game preset, spoofed as real app).
+//     STAYS COMPLETELY ISOLATED — enabling/disabling Game RPC never touches
+//     any slot's data or flags, and vice versa.
 //
-// Neither mode ever reads, copies, merges or overwrites the other's data.
-// Exactly ONE mode may be active at a time — every write path enforces this
-// (enabling one auto-disables the other's enabled flag; field data of both
-// configurations is preserved so switching modes never resets anything).
+// A candidate list is derived from the enabled flags only — rows are never
+// copied, merged or overwritten across slots:
+//   candidates = enabled RpcConfig slots (slot order) + enabled game (last)
 //
-// The active mode is derived transactionally from the enabled flags:
-//   • an enabled GameConfig  → GAME mode wins
-//   • else RpcConfig.enabled → NORMAL mode
-// (game precedence is purely defensive against legacy rows where both were
-// left enabled — new writes can never produce that state).
+// RUNTIME PRESENTATION (what is actually SENT to Discord):
+//   • Simultaneous mode (default): ALL candidates in ONE authorized OP 3
+//     activities array (Gaming SDK gateway, OAuth2 sdk.social_layer_presence
+//     — the same authorized integration the site has always used; no raw
+//     account tokens). Discord receives every activity; how many the client
+//     RENDERS at once is Discord's own choice — which is why Auto Rotate
+//     exists as the guaranteed-visible sequential alternative.
+//   • Auto Rotate (optional, runtime-only): exactly ONE candidate is sent at
+//     a time, advancing every `rotateSecs` deterministically from a stable
+//     reference clock. Rotation NEVER deletes, resets, overwrites or
+//     re-enables anything — saved configs are read-only here.
 // ════════════════════════════════════════════════════════════════════════
 
 export type RpcMode = 'normal' | 'game'
 
-export interface ActiveRpcSelection {
-  /** Master RPC flag ON and the active mode's own config is enabled. */
+/** A candidate activity config — an enabled slot row or the synthesized game. */
+export type RpcCandidate = RpcConfig & {
+  gameSlug?: string
+  gameName?: string
+  slot?: number
+  /** Resolved Discord Application ID for a CUSTOM game ("Add Games"). */
+  gameAppId?: string | null
+}
+
+export interface MultiRpcSelection {
+  /** Master RPC flag ON and at least one candidate is enabled. */
   active: boolean
-  /** Which mode owns the presence right now (null = nothing active). */
-  mode: RpcMode | null
   /**
-   * Config of the ACTIVE mode only — an RpcConfig row in normal mode, or a
-   * synthesized activity config from the enabled GameConfig row in game mode.
-   * Never a merge of the two.
+   * Enabled RpcConfig slots (slot order) + the synthesized enabled game config
+   * appended LAST. Never a merge across slots.
    */
-  config: RpcConfig | null
-  /** Enabled game slug in game mode (drives official-app spoofing); else null. */
-  gameSlug: string | null
+  candidates: RpcCandidate[]
 }
 
 /**
- * Pick the single active RPC mode + its own config.
- * GameConfig rows carry `gameName` (not `name`) and no `type` — the synthesized
- * game-mode config normalizes both so downstream activity building is uniform.
+ * Collect the enabled candidates. Each slot's own `enabled` flag is the ONLY
+ * thing that decides inclusion; the game candidate keeps its own flag too.
+ */
+export function selectActiveRpcConfigs(
+  rpcEnabled: boolean | null | undefined,
+  rpcConfigs: Array<RpcConfig & { slot?: number }> | null | undefined,
+  enabledGame: (RpcConfig & { gameSlug?: string; gameName?: string }) | null | undefined
+): MultiRpcSelection {
+  const candidates: RpcCandidate[] = []
+  const slots = (rpcConfigs ?? [])
+    .filter(c => c.enabled)
+    .slice()
+    .sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99))
+  candidates.push(...slots)
+
+  // GAME RPC — synthesized config appended last (isolated from the slots).
+  // (Defensive: also verifies the row's own enabled flag, so passing an
+  // unfiltered GameConfig row can never activate a disabled game.)
+  if (enabledGame && enabledGame.enabled !== false) {
+    const gameName = (enabledGame as { gameName?: string }).gameName || enabledGame.name || 'Game'
+    candidates.push({
+      ...enabledGame,
+      name: gameName,
+      type: 'PLAYING',
+      enabled: true,
+    })
+  }
+
+  return { active: !!rpcEnabled && candidates.length > 0, candidates }
+}
+
+export interface RuntimeCandidateResult extends MultiRpcSelection {
+  /** How the runtime picked what is being sent. */
+  runtimeMode: 'single' | 'simultaneous' | 'rotate'
+  /** 0-based index into the FULL candidate list while rotating (else null). */
+  rotateIndex: number | null
+}
+
+/**
+ * Resolve which candidates are PUBLISHED right now.
+ *
+ * Auto Rotate (optional): picks exactly one candidate, deterministically, by
+ * elapsed time from a stable reference — index = floor(elapsed / secs) % N.
+ * Stateless across daemon restarts/multi-instance (same inputs → same index).
+ * Auto Rotate is a RUNTIME-ONLY overlay: it never writes configs, never flips
+ * enabled flags, never touches Game RPC settings, app IDs, buttons, images or
+ * timestamps.
+ */
+export function resolveRuntimeCandidates(opts: {
+  rpcEnabled: boolean | null | undefined
+  rpcConfigs: Array<RpcConfig & { slot?: number }> | null | undefined
+  enabledGame: (RpcConfig & { gameSlug?: string; gameName?: string }) | null | undefined
+  autoRotate?: boolean | null
+  rotateSecs?: number | null
+  /** Stable rotation clock anchor (ms epoch) — e.g. rotate settings' updatedAt. */
+  rotateRefMs?: number | null
+  nowMs?: number
+}): RuntimeCandidateResult {
+  const sel = selectActiveRpcConfigs(opts.rpcEnabled, opts.rpcConfigs, opts.enabledGame)
+  if (!sel.active) {
+    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null }
+  }
+  if (sel.candidates.length === 1) {
+    return { ...sel, runtimeMode: 'single', rotateIndex: null }
+  }
+  if (!opts.autoRotate) {
+    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null }
+  }
+  const secs = Math.max(15, Math.min(3600, Math.floor(Number(opts.rotateSecs ?? 30)) || 30))
+  const nowMs = opts.nowMs ?? Date.now()
+  const ref = opts.rotateRefMs && !isNaN(opts.rotateRefMs) && opts.rotateRefMs <= nowMs ? opts.rotateRefMs : nowMs
+  const elapsed = Math.max(0, Math.floor((nowMs - ref) / 1000))
+  const idx = Math.floor(elapsed / secs) % sel.candidates.length
+  return {
+    active: true,
+    candidates: [sel.candidates[idx]],
+    runtimeMode: 'rotate',
+    rotateIndex: idx,
+  }
+}
+
+/**
+ * @deprecated legacy single-mode selection — kept ONLY for callers not yet
+ * migrated (or external scripts). Preserves the exact legacy behavior: an
+ * enabled game wins over a normal config. New code must use
+ * selectActiveRpcConfigs / resolveRuntimeCandidates.
  */
 export function selectActiveRpc(
   rpcEnabled: boolean | null | undefined,
   rpcConfig: RpcConfig | null | undefined,
   enabledGame: (RpcConfig & { gameSlug?: string; gameName?: string }) | null | undefined
-): ActiveRpcSelection {
-  // GAMER RPC — an enabled game owns the presence exclusively.
-  // (Defensive: also verifies the row's own enabled flag, so passing an
-  // unfiltered GameConfig row can never activate a disabled game.)
+): {
+  active: boolean
+  mode: RpcMode | null
+  config: RpcConfig | null
+  gameSlug: string | null
+} {
   if (enabledGame && enabledGame.enabled !== false) {
     const gameName = (enabledGame as { gameName?: string }).gameName || enabledGame.name || 'Game'
     return {
       active: !!rpcEnabled,
       mode: 'game',
-      config: {
-        ...enabledGame,
-        name: gameName,
-        type: 'PLAYING',
-        enabled: true,
-      },
+      config: { ...enabledGame, name: gameName, type: 'PLAYING', enabled: true },
       gameSlug: (enabledGame as { gameSlug?: string }).gameSlug ?? null,
     }
   }
-
-  // NORMAL RPC — user's own Rich Presence config (only when its own enabled flag is set).
   if (rpcConfig && rpcConfig.enabled) {
-    return {
-      active: !!rpcEnabled,
-      mode: 'normal',
-      config: rpcConfig,
-      gameSlug: null,
-    }
+    return { active: !!rpcEnabled, mode: 'normal', config: rpcConfig, gameSlug: null }
   }
-
   return { active: false, mode: null, config: null, gameSlug: null }
 }
 
 /**
  * Build the full activities array for Discord Gateway OP 3.
- * Supports both Custom Status (type 4) AND Rich Presence Game/App Activity (type 0..5) simultaneously.
+ * Supports Custom Status (type 4) AND MULTIPLE Rich Presence activities
+ * (type 0..5) simultaneously — one activity per enabled candidate:
+ * up to 3 normal RPC slots + the enabled game (isolated Game RPC).
+ *
+ * Legacy singular inputs (rpcConfig plus the selectedGame / rpcAppId hints)
+ * are wrapped into the candidate list so pre-multi-RPC callers keep working.
  */
 export async function buildPresenceActivities(options: {
+  /** Multi-RPC candidate list (enabled slots + synthesized game). */
+  rpcConfigs?: Array<RpcCandidate> | null
+  /** Legacy alias — wrapped into the candidate list. */
   rpcConfig?: RpcConfig | null
   customStatus?: string | null
   customStatusEmoji?: string | null
@@ -309,17 +425,17 @@ export async function buildPresenceActivities(options: {
   platform?: string
   /** User OAuth token — enables external-asset resolution (animated GIFs). */
   userAccessToken?: string | null
-  /** The user's ENABLED game slug (GameConfig.enabled) — enables game spoofing. */
+  /** Legacy: ENABLED game slug for the singular config (game spoofing). */
   selectedGameSlug?: string | null
-  /** Discord Application ID for CUSTOM games ("Add Games") — spoofs that application. */
+  /** Legacy: Discord Application ID for CUSTOM games (singular path). */
   selectedGameAppId?: string | null
   /**
-   * Discord Application ID for the NORMAL RPC config ("Application ID" field).
-   * Resolved via fetchRpcAppId (queryRaw) by the daemon — covers Prisma clients
-   * generated before the RpcConfig.appId column existed. cfg.appId (fresh
-   * client) takes precedence; game mode ignores it entirely.
+   * Legacy: Discord Application ID fallback for the singular NORMAL config
+   * (queryRaw read for pre-appId Prisma clients). cfg.appId wins.
    */
   rpcAppId?: string | null
+  /** Per-row appId fallbacks for the multi path (fetchRpcAppIds). */
+  rpcAppIdMap?: Map<string, string> | null
 }): Promise<Array<Record<string, unknown>>> {
   const activities: Array<Record<string, unknown>> = []
 
@@ -332,63 +448,99 @@ export async function buildPresenceActivities(options: {
     activities.push(customActivity)
   }
 
-  // 2. Rich Presence activity (type 0, etc.)
-  const explicitPlatform = options.platform || options.rpcConfig?.platform
-  const isVr = explicitPlatform === 'meta_quest' || (!!options.vrStatusActive && (!explicitPlatform || explicitPlatform === 'meta_quest'))
+  // 2. Candidate list (multi first, then the legacy singular wrapped in)
+  const candidates: RpcCandidate[] = [...(options.rpcConfigs ?? [])]
+  if (options.rpcConfig) {
+    const legacy: RpcCandidate = {
+      ...options.rpcConfig,
+      gameSlug: options.selectedGameSlug ?? undefined,
+      gameAppId: options.selectedGameAppId ?? null,
+    }
+    if (options.rpcAppId && !DISCORD_APP_ID_RE.test(legacy.appId || '')) {
+      legacy.appId = options.rpcAppId
+    }
+    candidates.push(legacy)
+  }
 
-  if (options.rpcConfig && options.rpcConfig.enabled !== false) {
-    const ctx = options.placeholderCtx || {
-      timezone: 'UTC',
-      rpcStartedAt: Date.now(),
-    }
-    // Normal-RPC custom Application ID: prefer the row's own (fresh-client)
-    // value, fall back to the daemon's queryRaw read. Only syntactically valid
-    // snowflakes are honored; game mode never reads this (its own spoof logic
-    // overrides application_id after the payload is built).
-    let rpcCfgForBuild = options.rpcConfig
-    if (options.rpcAppId && !DISCORD_APP_ID_RE.test(rpcCfgForBuild.appId || '')) {
-      const raw = options.rpcAppId
-      if (DISCORD_APP_ID_RE.test(raw)) {
-        rpcCfgForBuild = { ...rpcCfgForBuild, appId: raw }
-      }
-    }
-    const rpcActivity = (await buildActivityPayload(rpcCfgForBuild, ctx, {
-      userAccessToken: options.userAccessToken,
-    })) as Record<string, unknown>
-    if (isVr) {
-      rpcActivity.platform = 'meta_quest'
-      if (!rpcActivity.state) {
-        rpcActivity.state = 'In Virtual Reality'
-      }
-    }
-    // Activity Name is ALWAYS prioritized from custom NAME, falling back to platform name only when NAME is empty.
-    rpcActivity.name = resolveRpcActivityName(options.rpcConfig?.name, isVr ? 'meta_quest' : explicitPlatform)
+  const ctx = options.placeholderCtx || {
+    timezone: 'UTC',
+    rpcStartedAt: Date.now(),
+  }
 
-    // Game spoof — when the user's ENABLED game has a known real Discord
-    // application identity AND the active RPC is that game (name matches the
-    // preset), present the activity as the game's OFFICIAL application:
-    // real application_id + official display name + official app icon —
-    // exactly like the real game's own Rich Presence.
-    const activeGame = options.selectedGameSlug ? findGame(options.selectedGameSlug) : undefined
+  for (const cfg of candidates) {
+    if (cfg.enabled === false && !cfg.gameSlug) continue
+    const activity = await buildCandidateActivity(cfg, ctx, options)
+    if (activity) activities.push(activity)
+  }
+
+  return activities
+}
+
+/**
+ * Build ONE Discord activity payload from a candidate config.
+ * Per-candidate: its own platform/VR handling, its own Application ID
+ * (slot appId → per-row queryRaw fallback), and its own game spoofing
+ * (official GAME_SPOOF entry or the custom game's application identity).
+ */
+async function buildCandidateActivity(
+  cfg: RpcCandidate,
+  placeholderCtx: PlaceholderContext,
+  options: {
+    vrStatusActive?: boolean
+    platform?: string
+    userAccessToken?: string | null
+    rpcAppIdMap?: Map<string, string> | null
+  }
+): Promise<Record<string, unknown> | null> {
+  const ctx = placeholderCtx
+
+  // VR resolution per candidate: the slot's OWN platform decides; the global
+  // VR status flag only applies when the candidate doesn't carry a platform.
+  const explicitPlatform = cfg.platform || (options.platform ?? undefined)
+  const isVr = explicitPlatform === 'meta_quest'
+    || (!!options.vrStatusActive && (!explicitPlatform || explicitPlatform === 'meta_quest'))
+
+  // Per-slot Application ID: the row's own value first, then the daemon's
+  // queryRaw per-row map (pre-appId Prisma clients). Game candidates ignore
+  // this — their spoof logic overrides application_id below.
+  let cfgForBuild: RpcConfig = cfg
+  const fallbackAppId = cfg.id && options.rpcAppIdMap ? options.rpcAppIdMap.get(cfg.id) : null
+  if (!cfg.gameSlug && fallbackAppId && !DISCORD_APP_ID_RE.test(cfgForBuild.appId || '')) {
+    cfgForBuild = { ...cfgForBuild, appId: fallbackAppId }
+  }
+
+  const activity = (await buildActivityPayload(cfgForBuild, ctx, {
+    userAccessToken: options.userAccessToken,
+  })) as Record<string, unknown>
+
+  if (isVr) {
+    activity.platform = 'meta_quest'
+    if (!activity.state) {
+      activity.state = 'In Virtual Reality'
+    }
+  }
+  // Activity Name is ALWAYS prioritized from custom NAME, falling back to platform name only when NAME is empty.
+  activity.name = resolveRpcActivityName(cfg.name, isVr ? 'meta_quest' : explicitPlatform)
+
+  // Game spoof — the candidate is the isolated GAME RPC when it carries a
+  // gameSlug: present the activity as the game's OFFICIAL application (real
+  // application_id + official display name + official app icon), or as the
+  // custom game's own application when the user supplied an ID.
+  if (cfg.gameSlug) {
+    const activeGame = findGame(cfg.gameSlug)
     let spoof: GameSpoofEntry | undefined
-      = activeGame && options.rpcConfig?.name === activeGame.name ? GAME_SPOOF[activeGame.slug] : undefined
-    if (!spoof && options.selectedGameAppId && options.rpcConfig?.name) {
-      // CUSTOM game ("Add Games") with a user-supplied Discord Application ID:
-      // present the presence as that application. The stored config name is the
-      // application's official name (validated & auto-filled from Discord at
-      // save time); the icon rides the config's own image URL, resolved to an
-      // app-independent mp:external reference below.
-      const cfgIcon = options.rpcConfig.largeImage
+      = activeGame && cfg.name === activeGame.name ? GAME_SPOOF[activeGame.slug] : undefined
+    if (!spoof && cfg.gameAppId && cfg.name) {
       spoof = {
-        appId: options.selectedGameAppId,
-        name: options.rpcConfig.name,
-        icon: cfgIcon && /^https?:\/\//i.test(cfgIcon) ? cfgIcon : '',
+        appId: cfg.gameAppId,
+        name: cfg.name,
+        icon: cfg.largeImage && /^https?:\/\//i.test(cfg.largeImage) ? cfg.largeImage : '',
       }
     }
     if (spoof) {
-      rpcActivity.application_id = spoof.appId
-      rpcActivity.name = spoof.name
-      const assets = (rpcActivity.assets as Record<string, string> | undefined) ?? {}
+      activity.application_id = spoof.appId
+      activity.name = spoof.name
+      const assets = (activity.assets as Record<string, string> | undefined) ?? {}
       // Spoof icons must ONLY ride app-independent external media references
       // (mp:external/...): uploaded asset IDs are scoped to the 10X application
       // and can NOT render once application_id is spoofed to the game's own
@@ -414,16 +566,15 @@ export async function buildPresenceActivities(options: {
         delete assets.small_text
       }
       if (Object.keys(assets).length > 0) {
-        rpcActivity.assets = assets
+        activity.assets = assets
       } else {
-        delete rpcActivity.assets
+        delete activity.assets
       }
       console.log(`[10X RPC] Game spoof: ${activeGame?.slug ?? 'custom'} → application ${spoof.appId} "${spoof.name}"${iconRef ? ' (official icon attached)' : ' (no icon)'}`)
     }
-    activities.push(rpcActivity)
   }
 
-  return activities
+  return activity
 }
 
 // Active gateway connections managed in-memory to persist presence and heartbeats
@@ -937,43 +1088,54 @@ export async function applyPresence(
     }
   }
 
-  // MUTUAL EXCLUSIVITY — pick the ONE active mode and use ONLY its config:
-  // game mode (enabled GameConfig) and normal mode (RpcConfig.enabled) never
-  // combine. selectActiveRpc returns the active mode's own config, or null.
+  // MULTI-RPC — collect ALL enabled candidates (up to 3 slots + isolated game)
+  // and build one activity per candidate. Auto Rotate settings are applied by
+  // the daemon; this path (used by direct callers) sends the simultaneous set.
+  let rpcConfigs: Array<RpcConfig & { slot?: number }> = []
   let enabledGame: (RpcConfig & { gameSlug?: string; gameName?: string }) | null = null
   try {
     const { db } = await import('./db')
-    enabledGame = await db.gameConfig.findFirst({ where: { userId: session.userId, enabled: true } })
+    const [rows, game] = await Promise.all([
+      db.rpcConfig.findMany({ where: { userId: session.userId }, orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }] }) as unknown as Promise<Array<RpcConfig & { slot?: number }>>,
+      db.gameConfig.findFirst({ where: { userId: session.userId, enabled: true } }),
+    ])
+    rpcConfigs = rows ?? []
+    enabledGame = game
   } catch {
-    enabledGame = null
+    // DB hiccup: fall back to the passed-in single config (legacy behavior).
+    if (rpcConfig) rpcConfigs = [rpcConfig]
   }
-  const selection = selectActiveRpc((session as any).rpcEnabled, rpcConfig, enabledGame)
+  const selection = selectActiveRpcConfigs((session as any).rpcEnabled, rpcConfigs, enabledGame)
   const isRpcActive = selection.active
   const isStatusActive = !!(session as any).statusEnabled
+  const firstCandidate = selection.candidates[0] ?? null
   const statusPlatform = (session as any).statusPlatform || 'mobile'
-  const explicitPlatform = isRpcActive ? (selection.config?.platform || 'desktop') : statusPlatform
+  const explicitPlatform = isRpcActive ? (firstCandidate?.platform || 'desktop') : statusPlatform
   // VR unification — honor vrStatusActive even if statusPlatform drifted
   // (mirrors the daemon's connectUserSocket/pushPresenceForUser logic so the
   // IDENTIFY properties and the OP 3 payload always agree).
-  const isVr = (isStatusActive && (statusPlatform === 'meta_quest' || !!(session as any).vrStatusActive)) || (isRpcActive && selection.config?.platform === 'meta_quest')
+  const isVr = (isStatusActive && (statusPlatform === 'meta_quest' || !!(session as any).vrStatusActive)) || (isRpcActive && firstCandidate?.platform === 'meta_quest')
 
-  // Custom games may carry a Discord Application ID — spoof that application.
-  const selectedGameAppId = isRpcActive && selection.mode === 'game'
-    ? await fetchGameAppId(session.userId, selection.gameSlug)
-    : null
+  // The GAME candidate carries its slug; resolve its custom Application ID
+  // ("Add Games") so the activity can present as that application.
+  const gameCandidate = selection.candidates.find(c => c.gameSlug)
+  if (gameCandidate) {
+    gameCandidate.gameAppId = await fetchGameAppId(session.userId, gameCandidate.gameSlug)
+  }
 
-  // Build combined activities (custom status + rich presence)
+  // Per-row Application ID fallbacks (pre-appId Prisma clients).
+  const rpcAppIdMap = await fetchRpcAppIds(session.userId)
+
+  // Build combined activities (custom status + one per candidate)
   const activities = await buildPresenceActivities({
-    rpcConfig: isRpcActive ? selection.config : null,
+    rpcConfigs: isRpcActive ? selection.candidates : [],
     customStatus: isStatusActive ? session.customStatus : null,
     customStatusEmoji: isStatusActive ? session.customStatusEmoji : null,
     placeholderCtx,
     vrStatusActive: isVr,
     platform: isVr ? 'meta_quest' : explicitPlatform,
     userAccessToken: accessToken,
-    // Only the GAME mode's own game drives official-app spoofing.
-    selectedGameSlug: isRpcActive && selection.mode === 'game' ? selection.gameSlug : null,
-    selectedGameAppId,
+    rpcAppIdMap,
   })
 
   // Send presence via Gaming SDK gateway

@@ -81,6 +81,9 @@ model RpcConfig {
   name         String   @default("10X RPC")
   type         String   @default("PLAYING") // PLAYING / STREAMING / LISTENING / WATCHING / COMPETING
   platform     String   @default("desktop") // desktop / xbox / ps4 / ps5 / samsung / ios / android / embedded / meta_quest
+  /** RPC slot 1..3 — up to three independent, simultaneously-manageable RPC
+   *  configurations per user. Existing single-RPC rows default to slot 1. */
+  slot         Int      @default(1)
   state        String?
   details      String?
   largeImage   String?
@@ -161,6 +164,10 @@ model GlobalConfig {
   tempUnit            String   @default("C")
   rotatorEnabled      Boolean  @default(false)
   rotatorIntervalMins Int      @default(5)
+  /** RPC Auto Rotate — optional runtime-only rotation across the user's
+   *  ENABLED RPC slots (+ enabled game). Never modifies saved configs. */
+  rpcAutoRotate       Boolean  @default(false)
+  rpcRotateSecs       Int      @default(30)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }

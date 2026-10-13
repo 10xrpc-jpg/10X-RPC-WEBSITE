@@ -123,11 +123,9 @@ export async function POST(req: Request) {
     })
   }
 
-  // ── Mutual exclusivity (identical semantics to POST /api/games/[slug]) ──
-  await db.rpcConfig.updateMany({
-    where: { userId: session.userId },
-    data: { enabled: false },
-  })
+  // ── Multi-RPC: the game runs alongside the user's Normal RPC slots ──────
+  // Game RPC stays isolated — enabling a favorite never touches any
+  // RpcConfig slot. Only other games yield (single-active-game invariant).
   await db.gameConfig.updateMany({
     where: { userId: session.userId, gameSlug: { not: targetSlug } },
     data: { enabled: false },

@@ -11,10 +11,12 @@ import {
   buildPresenceActivities,
   buildCustomStatusActivity,
   fetchGameAppId,
-  fetchRpcAppId,
+  fetchRpcAppIds,
   refreshDiscordToken,
-  selectActiveRpc,
+  resolveRuntimeCandidates,
+  selectActiveRpcConfigs,
   type PresenceResult,
+  type RpcCandidate,
 } from './rpc-manager'
 import { resolvePlaceholders, type PlaceholderContext } from './placeholders'
 import { sanitizeActivities } from './discord-assets'
@@ -114,6 +116,36 @@ async function loadDaemonSubStates(userIds: string[]): Promise<Map<string, Daemo
     }
   }
   return map
+}
+
+// ─── RPC Auto Rotate settings (raw SQL — Orihost-safe) ──────────────────────
+// Optional runtime-only rotation across the user's ENABLED RPC candidates.
+// Read via $queryRaw because the standalone Orihost daemon's Prisma client may
+// predate the rpcAutoRotate/rpcRotateSecs columns — raw SQL only needs the
+// COLUMNS to exist (pushed by the website's db:push). Missing columns / table
+// → rotation OFF (safe default, nothing else affected).
+interface RpcRotateSettings {
+  enabled: boolean
+  secs: number
+  /** Rotation clock anchor (GlobalConfig.updatedAt) — stable across restarts. */
+  refMs: number | null
+}
+
+async function fetchRpcRotateSettings(userId: string): Promise<RpcRotateSettings> {
+  try {
+    const rows = await db.$queryRaw<Array<{ rpcAutoRotate: boolean | number; rpcRotateSecs: number | null; updatedAt: Date | string }>>`
+      SELECT "rpcAutoRotate", "rpcRotateSecs", "updatedAt"
+      FROM "GlobalConfig" WHERE "userId" = ${userId} LIMIT 1`
+    const r = rows?.[0]
+    if (!r) return { enabled: false, secs: 30, refMs: null }
+    return {
+      enabled: r.rpcAutoRotate === true || (r.rpcAutoRotate as unknown) === 1,
+      secs: Math.max(15, Math.min(3600, Number(r.rpcRotateSecs ?? 30) || 30)),
+      refMs: r.updatedAt ? new Date(r.updatedAt).getTime() : null,
+    }
+  } catch {
+    return { enabled: false, secs: 30, refMs: null }
+  }
 }
 
 interface ActiveUserSocket {
@@ -500,11 +532,11 @@ export class RpcDaemon {
         continue
       }
 
-      const rpcConfig = session.user.rpcConfigs?.[0]
+      const rpcConfigs = (session.user.rpcConfigs ?? []) as Array<RpcCandidate & { enabled: boolean }>
       const enabledGame = session.user.gameConfigs?.find(g => g.enabled) ?? null
-      // MUTUAL EXCLUSIVITY: only ONE mode can be active — the daemon uses
-      // exclusively the active mode's own config (never a merge of both).
-      const selection = selectActiveRpc(session.rpcEnabled, rpcConfig, enabledGame)
+      // MULTI-RPC: every enabled slot (each with its own flag) + the enabled
+      // game are candidates. No mode exclusivity — combinations are supported.
+      const selection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGame)
       const hasRpc = selection.active
       const hasStatus = !!session.statusEnabled
       const hasRotator = !!(session.statusEnabled && session.user.globalConfig?.rotatorEnabled && session.user.rotatorPresets?.some(p => p.enabled))
@@ -524,7 +556,7 @@ export class RpcDaemon {
           ws: null,
           heartbeatAck: true,
           retryCount: 0,
-          platform: selection.config?.platform || 'desktop',
+          platform: selection.candidates[0]?.platform || 'desktop',
           lastStatus: session.userStatus || 'online',
           lastActivitiesHash: '',
           connected: false,
@@ -660,10 +692,13 @@ export class RpcDaemon {
       }
     }
 
-    const rpcConfig = await db.rpcConfig.findFirst({ where: { userId } })
+    const rpcConfigs = (await db.rpcConfig.findMany({
+      where: { userId },
+      orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
+    }).catch(() => [])) as Array<RpcCandidate & { enabled: boolean }>
     const enabledGame = await db.gameConfig.findFirst({ where: { userId, enabled: true } })
-    // MUTUAL EXCLUSIVITY: one mode at a time, active config only.
-    const selection = selectActiveRpc(session.rpcEnabled, rpcConfig, enabledGame)
+    // MULTI-RPC: all enabled slots + the enabled game (no mode exclusivity).
+    const selection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGame)
     const hasRpc = selection.active
     const hasStatus = !!session.statusEnabled
     const hasRotator = !!(session.statusEnabled && session.user.globalConfig?.rotatorEnabled && session.user.rotatorPresets?.some(p => p.enabled))
@@ -686,7 +721,7 @@ export class RpcDaemon {
         ws: null,
         heartbeatAck: true,
         retryCount: 0,
-        platform: selection.config?.platform || 'desktop',
+        platform: selection.candidates[0]?.platform || 'desktop',
         lastStatus: session.userStatus || 'online',
         lastActivitiesHash: '',
         connected: false,
@@ -814,17 +849,21 @@ export class RpcDaemon {
       userSock.identifiedWith = accessToken
       userSock.failedAuthToken = null // proceeding with this token — clear any stale block
 
-      // Check target platform based on active mode (Normal vs Gamer RPC are
-      // exclusive — the socket platform follows the ACTIVE mode's own config).
-      const rpcConfig = await db.rpcConfig.findFirst({ where: { userId } })
+      // Check target platform based on the active candidates (Normal slots vs
+      // Gamer RPC are no longer exclusive — the socket platform follows the
+      // FIRST candidate so rotation between slots never flips the badge).
+      const rpcConfigs = (await db.rpcConfig.findMany({
+        where: { userId },
+        orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
+      }).catch(() => [])) as Array<RpcCandidate & { enabled: boolean }>
       const enabledGame = await db.gameConfig.findFirst({ where: { userId, enabled: true } })
-      const selection = selectActiveRpc(session.rpcEnabled, rpcConfig, enabledGame)
+      const selection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGame)
       const isRpcActive = selection.active
       const isStatusActive = !!session.statusEnabled
 
       const activePlatform = isStatusActive
         ? (session.statusPlatform || 'mobile')
-        : (isRpcActive ? (selection.config?.platform || 'desktop') : (session.statusPlatform || 'mobile'))
+        : (isRpcActive ? (selection.candidates[0]?.platform || 'desktop') : (session.statusPlatform || 'mobile'))
 
       const isQuest = activePlatform === 'meta_quest' || (isStatusActive && session.vrStatusActive)
       const targetPlatform = isQuest ? 'meta_quest' : activePlatform
@@ -1084,19 +1123,21 @@ export class RpcDaemon {
       return
     }
 
-    type RpcCfgRow = Awaited<ReturnType<typeof db.rpcConfig.findFirst>>
     type GlobalCfgRow = Awaited<ReturnType<typeof db.globalConfig.findUnique>>
     type GameCfgRow = Awaited<ReturnType<typeof db.gameConfig.findFirst>>
-    let rpcConfig: RpcCfgRow = null
+    let rpcConfigs: Array<RpcCandidate & { enabled: boolean; updatedAt?: Date }> = []
     let globalConfig: GlobalCfgRow = null
     let enabledGame: GameCfgRow = null
     try {
       const [rpc, glob, game] = await Promise.all([
-        db.rpcConfig.findFirst({ where: { userId } }),
+        db.rpcConfig.findMany({
+          where: { userId },
+          orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
+        }).catch(() => [] as Array<RpcCandidate & { enabled: boolean }>),
         db.globalConfig.findUnique({ where: { userId } }),
         db.gameConfig.findFirst({ where: { userId, enabled: true } }),
       ])
-      rpcConfig = rpc
+      rpcConfigs = rpc as Array<RpcCandidate & { enabled: boolean }>
       globalConfig = glob
       enabledGame = game
     } catch (dbErr) {
@@ -1104,25 +1145,41 @@ export class RpcDaemon {
       return
     }
 
+    // AUTO ROTATE settings (raw SQL — Orihost-safe, missing columns → OFF).
+    const rotate = await fetchRpcRotateSettings(userId)
+
     const placeholderCtx: PlaceholderContext = {
       timezone: globalConfig?.timezone || 'UTC',
       city: globalConfig?.city || undefined,
       tempUnit: globalConfig?.tempUnit === 'F' ? 'F' : 'C',
-      rpcStartedAt: (rpcConfig?.updatedAt || enabledGame?.updatedAt)
-        ? new Date((rpcConfig?.updatedAt || enabledGame?.updatedAt) as Date).getTime()
+      rpcStartedAt: (rpcConfigs[0]?.updatedAt || enabledGame?.updatedAt)
+        ? new Date((rpcConfigs[0]?.updatedAt || enabledGame?.updatedAt) as Date).getTime()
         : (session.lastPresenceUpdate ? new Date(session.lastPresenceUpdate).getTime() : Date.now()),
     }
 
-    // MUTUAL EXCLUSIVITY — Normal RPC (RpcConfig) and Gamer RPC (GameConfig)
-    // are completely separate configurations. Pick the ONE active mode and use
-    // ONLY that mode's own config; never merge or cross-read the other's data.
-    const selection = selectActiveRpc(session.rpcEnabled, rpcConfig, enabledGame)
-    const isRpcActive = selection.active
+    // MULTI-RPC — all enabled slots (each with its own flag) + the enabled
+    // game (isolated). resolveRuntimeCandidates applies the OPTIONAL Auto
+    // Rotate overlay: simultaneous (default) sends every candidate in one
+    // authorized OP 3; rotate sends exactly one, advancing every interval.
+    // Rotation is runtime-only — no config is ever read-write here.
+    const fullSelection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGame)
+    const runtime = resolveRuntimeCandidates({
+      rpcEnabled: session.rpcEnabled,
+      rpcConfigs,
+      enabledGame,
+      autoRotate: rotate.enabled,
+      rotateSecs: rotate.secs,
+      rotateRefMs: rotate.refMs,
+    })
+    const isRpcActive = runtime.active
     const isStatusActive = !!session.statusEnabled
 
+    // Socket platform follows the FIRST full-list candidate (rotate-invariant:
+    // rotating between slots must never flip the IDENTIFY badge or churn the
+    // socket). Status-active keeps its existing precedence.
     const activePlatform = isStatusActive
       ? (session.statusPlatform || 'mobile')
-      : (isRpcActive ? (selection.config?.platform || 'desktop') : (session.statusPlatform || 'mobile'))
+      : (isRpcActive ? (fullSelection.candidates[0]?.platform || 'desktop') : (session.statusPlatform || 'mobile'))
     // Same VR/platform unification as connectUserSocket — the IDENTIFY
     // properties and the OP 3 payload must always agree.
     const isQuest = activePlatform === 'meta_quest' || (isStatusActive && session.vrStatusActive)
@@ -1153,35 +1210,35 @@ export class RpcDaemon {
     }
     userSock.platform = targetPlatform
 
-    // Custom games may carry a Discord Application ID — spoof that application.
-    const selectedGameAppId = isRpcActive && selection.mode === 'game'
-      ? await fetchGameAppId(userId, selection.gameSlug)
-      : null
+    // The GAME candidate (isolated Game RPC) may carry a custom Application ID
+    // ("Add Games") — spoof that application.
+    const gameCandidate = runtime.candidates.find(c => c.gameSlug)
+    if (gameCandidate && !gameCandidate.gameAppId) {
+      gameCandidate.gameAppId = await fetchGameAppId(userId, gameCandidate.gameSlug)
+    }
 
-    // Normal RPC may carry a user-supplied Application ID (their own Discord
-    // app) — queryRaw read keeps this working even when this process runs a
-    // Prisma client generated before the RpcConfig.appId column existed.
-    const rpcAppId = isRpcActive && selection.mode === 'normal'
-      ? await fetchRpcAppId(userId)
-      : null
+    // Per-slot Application ID fallbacks (their own Discord apps) — queryRaw
+    // per-row map keeps this working even when this process runs a Prisma
+    // client generated before the RpcConfig.appId/slot columns existed.
+    const rpcAppIdMap = await fetchRpcAppIds(userId)
 
     const activities = await buildPresenceActivities({
-      rpcConfig: isRpcActive ? selection.config : null,
+      rpcConfigs: isRpcActive ? runtime.candidates : [],
       customStatus: isStatusActive ? session.customStatus : null,
       customStatusEmoji: isStatusActive ? session.customStatusEmoji : null,
       placeholderCtx,
-      vrStatusActive: (isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive)) || (isRpcActive && selection.config?.platform === 'meta_quest'),
-      platform: isRpcActive ? (selection.config?.platform || 'desktop') : targetPlatform,
+      vrStatusActive: (isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive)) || (isRpcActive && fullSelection.candidates[0]?.platform === 'meta_quest'),
+      platform: isRpcActive ? (fullSelection.candidates[0]?.platform || 'desktop') : targetPlatform,
       // User OAuth token — required to resolve image URLs into animated-capable
       // mp:external asset references via Discord's external-assets endpoint.
       userAccessToken: session.discordAccessToken,
-      // Only the GAME mode's own enabled game drives official-app spoofing
-      // (real app_id/name/icon). Normal mode never spoofs.
-      selectedGameSlug: isRpcActive && selection.mode === 'game' ? selection.gameSlug : null,
-      selectedGameAppId,
-      // Normal mode's user-supplied Application ID (presence runs as THEIR app)
-      rpcAppId,
+      // Per-slot app IDs + per-candidate game spoofing (inside the builder).
+      rpcAppIdMap,
     })
+
+    if (isRpcActive && runtime.runtimeMode === 'rotate' && runtime.rotateIndex != null) {
+      console.log(`[10X RPC Daemon] Auto Rotate for user ${userId}: candidate ${runtime.rotateIndex + 1}/${fullSelection.candidates.length} (${runtime.candidates[0]?.name ?? '?'}) every ${rotate.secs}s`)
+    }
 
     // Defense-in-depth: raw http(s) URLs inside assets are silently dropped by
     // Discord. Strip them so a failed asset resolution can never make the RPC
