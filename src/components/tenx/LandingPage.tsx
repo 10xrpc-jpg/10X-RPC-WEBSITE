@@ -180,7 +180,7 @@ export function LandingPage() {
             />
           ))}
 
-          <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-14 sm:pt-20 pb-10 sm:pb-14 grid lg:grid-cols-[1.05fr_0.95fr] gap-12 lg:gap-10 items-center">
+          <div className="relative max-w-6xl mx-auto px-4 sm:px-6 pt-14 sm:pt-20 pb-10 sm:pb-14 grid lg:grid-cols-[1fr_1.12fr] gap-12 lg:gap-10 items-center">
             {/* Copy */}
             <div className="text-center lg:text-left">
               <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
@@ -244,25 +244,25 @@ export function LandingPage() {
             {/* Product mockup */}
             <motion.div
               initial={{ opacity: 0, y: 28 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.2 }}
-              className="relative mx-auto w-full max-w-md mt-8 mb-8"
+              className="relative mx-auto w-full max-w-xl mt-8 mb-8"
             >
               {/* rotating conic glow ring behind the mockup */}
               <div
-                className="absolute -inset-3 sm:-inset-4 rounded-[36px] blur-lg animate-spin-slower pointer-events-none"
+                className="absolute -inset-4 sm:-inset-6 rounded-[40px] blur-lg animate-spin-slower pointer-events-none"
                 style={{ background: 'conic-gradient(from 0deg, rgba(168,85,247,0.4), transparent 25%, rgba(168,85,247,0.25) 50%, transparent 75%, rgba(168,85,247,0.4))' }}
                 aria-hidden
               />
               <HeroMockup />
 
               <motion.div
-                className="absolute -top-11 -right-2 sm:-right-6 z-10"
+                className="absolute -top-12 sm:-top-14 -right-2 sm:-right-8 z-10"
                 animate={{ y: [0, -8, 0] }}
                 transition={{ duration: 4.5, repeat: Infinity, ease: 'easeInOut' }}
               >
                 <FloatChip icon={<Glasses className="w-4 h-4 text-purple-300" />} title="VR Status" sub="Meta Quest · live" />
               </motion.div>
               <motion.div
-                className="absolute -bottom-11 -left-2 sm:-left-4 z-10"
+                className="absolute -bottom-12 sm:-bottom-14 -left-2 sm:-left-8 z-10"
                 animate={{ y: [0, 9, 0] }}
                 transition={{ duration: 5.5, repeat: Infinity, ease: 'easeInOut', delay: 0.8 }}
               >
@@ -572,49 +572,49 @@ function HeroMockup() {
   const elapsed = formatClock(Math.max(0, now - start))
 
   return (
-    <div className="relative overflow-hidden bg-gradient-to-b from-[#13111d]/95 via-[#0e0d14]/95 to-[#0a0a0f] border border-white/10 rounded-[28px] p-5 sm:p-6 shadow-2xl shadow-purple-950/30">
-      <div className="absolute -top-16 -left-12 w-56 h-56 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" aria-hidden />
+    <div className="relative overflow-hidden bg-gradient-to-b from-[#13111d]/95 via-[#0e0d14]/95 to-[#0a0a0f] border border-white/10 rounded-[28px] p-5 sm:p-7 shadow-2xl shadow-purple-950/30">
+      <div className="absolute -top-16 -left-12 w-72 h-72 bg-purple-600/15 rounded-full blur-3xl pointer-events-none" aria-hidden />
 
       <div className="relative z-10">
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-xs font-bold tracking-widest text-purple-400 uppercase">Live Preview</span>
-          <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-white">
-            <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
+        <div className="flex items-center justify-between mb-5">
+          <span className="text-sm font-bold tracking-widest text-purple-400 uppercase">Live Preview</span>
+          <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-white">
+            <span className="w-2.5 h-2.5 rounded-full bg-purple-400 animate-pulse" />
             LIVE
           </span>
         </div>
 
         {/* Discord profile → "Current activity" card (authentic 10X RPC presence) */}
-        <div className="bg-[#1a1b22]/90 border border-white/10 rounded-2xl p-4 shadow-inner">
-          <p className="text-xs text-white/45 mb-2">Current activity</p>
+        <div className="bg-[#1a1b22]/90 border border-white/10 rounded-2xl p-5 sm:p-6 shadow-inner">
+          <p className="text-sm text-white/45 mb-3">Current activity</p>
 
-          <div className="flex items-center gap-1.5 text-sm font-semibold text-white/90">
+          <div className="flex items-center gap-2 text-lg font-semibold text-white/90">
             <span>Watching on Meta Quest</span>
-            <span className="text-white/60 text-base leading-none" aria-hidden>∞</span>
+            <span className="text-white/60 text-xl sm:text-2xl leading-none" aria-hidden>∞</span>
           </div>
 
-          <div className="mt-3 flex items-start gap-3.5">
-            <BrandMark className="w-[88px] h-[88px] sm:w-24 sm:h-24 shrink-0" rounded="rounded-xl" />
+          <div className="mt-4 flex items-start gap-4 sm:gap-5">
+            <BrandMark className="w-24 h-24 sm:w-32 sm:h-32 shrink-0" rounded="rounded-xl" />
 
             <div className="flex-1 min-w-0">
-              <p className="text-sm font-bold text-white leading-snug break-words">
+              <p className="text-base sm:text-lg font-bold text-white leading-snug break-words">
                 🚀 10X RPC | ⚙️ RPC Control | 🎁 Free Access
               </p>
-              <p className="mt-1 text-[13px] text-white/65 leading-snug break-words">
+              <p className="mt-1.5 text-sm sm:text-base text-white/65 leading-snug break-words">
                 🚀 Custom Discord RPC | No Token Required
               </p>
-              <p className="mt-1.5 flex items-center gap-1.5 text-sm font-mono font-semibold text-[#23A559]">
-                <Monitor className="w-4 h-4 shrink-0" aria-hidden />
+              <p className="mt-2 flex items-center gap-2 text-base sm:text-lg font-mono font-semibold text-[#23A559]">
+                <Monitor className="w-5 h-5 shrink-0" aria-hidden />
                 <span>{elapsed}</span>
               </p>
 
               {/* presence buttons — stacked, Discord-style */}
-              <div className="mt-3 flex flex-col gap-2">
+              <div className="mt-4 flex flex-col gap-2.5">
                 <a
                   href="https://discord.gg/FZvJfZx2V5"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="bg-[#4e5058] hover:bg-[#5f6168] active:bg-[#6a6c73] text-white text-xs font-semibold rounded-lg px-3 py-2 text-center transition-colors"
+                  className="bg-[#4e5058] hover:bg-[#5f6168] active:bg-[#6a6c73] text-white text-[13px] sm:text-sm font-semibold rounded-xl px-3 sm:px-4 py-2.5 sm:py-3 text-center whitespace-nowrap transition-colors"
                 >
                   ⚙️ .gg/10X RPC
                 </a>
@@ -622,7 +622,7 @@ function HeroMockup() {
                   href="https://10x-rpc.vercel.app"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="bg-[#4e5058] hover:bg-[#5f6168] active:bg-[#6a6c73] text-white text-xs font-semibold rounded-lg px-3 py-2 text-center transition-colors"
+                  className="bg-[#4e5058] hover:bg-[#5f6168] active:bg-[#6a6c73] text-white text-[13px] sm:text-sm font-semibold rounded-xl px-3 sm:px-4 py-2.5 sm:py-3 text-center whitespace-nowrap transition-colors"
                 >
                   📅 10X RPC WEBSITE
                 </a>
@@ -632,10 +632,10 @@ function HeroMockup() {
         </div>
 
         {/* dynamic placeholders row */}
-        <div className="mt-3.5 bg-[#121319]/60 border border-white/5 rounded-xl px-3.5 py-2.5 flex items-center gap-2.5">
-          <Globe2 className="w-4 h-4 text-white shrink-0" />
-          <span className="text-[11px] text-white/50">Dynamic placeholders:</span>
-          <span className="text-[11px] text-white/80 font-medium truncate">Bengaluru · 27°C · 9:41 PM</span>
+        <div className="mt-4 sm:mt-5 bg-[#121319]/60 border border-white/5 rounded-xl px-4 py-3 flex items-center gap-2.5 sm:gap-3">
+          <Globe2 className="w-5 h-5 text-white shrink-0" />
+          <span className="text-[11px] sm:text-sm text-white/50 whitespace-nowrap shrink-0">Dynamic placeholders:</span>
+          <span className="text-xs sm:text-sm text-white/80 font-medium truncate">Bengaluru · 27°C · 9:41 PM</span>
         </div>
       </div>
     </div>
@@ -644,13 +644,13 @@ function HeroMockup() {
 
 function FloatChip({ icon, title, sub }: { icon: React.ReactNode; title: string; sub: string }) {
   return (
-    <div className="bg-[#12131a]/85 backdrop-blur-xl border border-white/8 rounded-2xl px-3.5 py-2.5 flex items-center gap-2.5 shadow-xl shadow-black/40">
-      <div className="w-9 h-9 rounded-xl bg-purple-500/15 border border-purple-500/25 flex items-center justify-center shrink-0">
+    <div className="bg-[#12131a]/85 backdrop-blur-xl border border-white/8 rounded-2xl px-4 py-2.5 flex items-center gap-2.5 shadow-xl shadow-black/40">
+      <div className="w-10 h-10 rounded-xl bg-purple-500/15 border border-purple-500/25 flex items-center justify-center shrink-0">
         {icon}
       </div>
       <div className="leading-tight">
-        <div className="text-xs font-bold text-white whitespace-nowrap">{title}</div>
-        <div className="text-[10px] text-white/50 whitespace-nowrap">{sub}</div>
+        <div className="text-[13px] font-bold text-white whitespace-nowrap">{title}</div>
+        <div className="text-[11px] text-white/50 whitespace-nowrap">{sub}</div>
       </div>
     </div>
   )
