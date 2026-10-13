@@ -474,6 +474,92 @@ export function assignCandidateApplicationIds(
 }
 
 /**
+ * ════════════════════════════════════════════════════════════════════════
+ * Task 84c — PLATFORM-CLASS DE-DUPLICATION for simultaneous Multi-Session.
+ *
+ * ROOT CAUSE (live-verified via daemon boot logs + user screenshots): Discord
+ * classifies every gateway session into one of FIVE platform classes from the
+ * IDENTIFY properties (desktop / mobile / console / VR / web — see
+ * gateway-platform.ts), merges concurrent sessions PER CLASS with last-write-
+ * wins, and the client renders ONE activity card per class. Two extra sessions
+ * that both identify `desktop` (e.g. RPC slot 2 + the Game RPC) collapse into
+ * a single card — the later push wins — which is exactly why only 2 of 3 RPCs
+ * ever rendered. Application-ID de-collision (Task 84b) could not fix this:
+ * the merge key is the session's platform class, not the application id.
+ *
+ * THE FIX: every simultaneous session gets a DISTINCT platform class. The
+ * main session keeps its own platform (badge fidelity); each extra session
+ * re-uses its candidate's platform when that class is free, otherwise takes
+ * the first free class from a deterministic fallback pool. Up to 5 sessions
+ * (5 classes) can therefore render 5 cards side by side.
+ * ════════════════════════════════════════════════════════════════════════
+ */
+
+/** Discord's session classes derived from IDENTIFY properties (must mirror
+ *  gateway-platform.ts buildIdentify classification). */
+export type DiscordPlatformClass = 'desktop' | 'mobile' | 'console' | 'vr' | 'web'
+
+export function discordPlatformClass(
+  platform: string | null | undefined
+): DiscordPlatformClass {
+  const p = platform || 'desktop'
+  if (p === 'meta_quest') return 'vr'
+  if (p === 'android' || p === 'ios' || p === 'samsung' || p === 'mobile') return 'mobile'
+  if (p === 'console' || p === 'xbox' || p === 'ps4' || p === 'ps5' || p === 'embedded') {
+    return 'console'
+  }
+  if (p === 'web') return 'web'
+  return 'desktop'
+}
+
+/** Fallback pool for extra sessions whose own platform class is taken.
+ *  Order = preference: desktop first (most natural for RPC cards), then a
+ *  phone, a browser and a console identity. Classes covered: desktop, mobile,
+ *  web, console — together with the main session's (any) class that is 5. */
+const EXTRA_PLATFORM_FALLBACK_POOL = ['desktop', 'android', 'web', 'ps4'] as const
+
+/**
+ * Assign each extra (beyond-main) session a platform whose CLASS is unique
+ * across all concurrent sessions. Deterministic → assignments never churn
+ * between ticks (sessions reopen only when the assignment actually changes).
+ *
+ * @param mainPlatform the platform the MAIN session identifies as
+ * @param candidatePlatforms own platform of each EXTRA candidate, in order
+ * @returns assigned platform per candidate (same order); `null` = no free
+ *          class remained (candidate still rides the main session's array).
+ */
+export function assignSessionPlatforms(
+  mainPlatform: string | null | undefined,
+  candidatePlatforms: Array<string | null | undefined>
+): Array<string | null> {
+  const taken = new Set<DiscordPlatformClass>([discordPlatformClass(mainPlatform)])
+  return candidatePlatforms.map((own) => {
+    const preferred = own || 'desktop'
+    if (!taken.has(discordPlatformClass(preferred))) {
+      taken.add(discordPlatformClass(preferred))
+      return preferred
+    }
+    const fallback = EXTRA_PLATFORM_FALLBACK_POOL.find(
+      (p) => !taken.has(discordPlatformClass(p))
+    )
+    if (!fallback) return null
+    taken.add(discordPlatformClass(fallback))
+    return fallback
+  })
+}
+
+/**
+ * Coherent ACTIVITY-level `platform` field for a session platform: values
+ * Discord's clients actually emit ('android'/'ios'/'samsung' sessions push
+ * activities labelled 'mobile'; consoles keep their specific label).
+ */
+export function activityPlatformField(platform: string | null | undefined): string {
+  const p = platform || 'desktop'
+  if (p === 'android' || p === 'ios' || p === 'samsung') return 'mobile'
+  return p
+}
+
+/**
  * @deprecated legacy single-mode selection — kept ONLY for callers not yet
  * migrated (or external scripts). Preserves the exact legacy behavior: an
  * enabled game wins over a normal config. New code must use

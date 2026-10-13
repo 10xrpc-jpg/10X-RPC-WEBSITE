@@ -16,6 +16,9 @@ import {
   resolveRuntimeCandidates,
   selectActiveRpcConfigs,
   assignCandidateApplicationIds,
+  assignSessionPlatforms,
+  activityPlatformField,
+  discordPlatformClass,
   type PresenceResult,
   type RpcCandidate,
 } from './rpc-manager'
@@ -1036,7 +1039,7 @@ export class RpcDaemon {
             // so multi-RPC truncation (3 sent → N kept) is visible in the
             // console instead of being a silent client-side mystery.
             try {
-              const acts = (d as { activities?: Array<{ name?: string; type?: number }> })?.activities
+              const acts = (payload.d as { activities?: Array<{ name?: string; type?: number }> } | undefined)?.activities
               if (Array.isArray(acts)) {
                 const sig = acts.map(a => `${a.name ?? '?'}:${a.type ?? '?'}`).join('|')
                 if (sig !== userSock.lastEchoSig) {
@@ -1335,8 +1338,17 @@ export class RpcDaemon {
     if (multiSessionActive) {
       const globalVr = (isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive)) || (isRpcActive && fullSelection.candidates[0]?.platform === 'meta_quest')
       const globalPlatform = isRpcActive ? (fullSelection.candidates[0]?.platform || 'desktop') : targetPlatform
+      // Task 84c — every extra session gets a DISTINCT platform class (the
+      // merge key Discord uses for concurrent sessions; two sessions of the
+      // same class overwrite each other and only one card renders).
+      const platformAssignments = assignSessionPlatforms(
+        targetPlatform,
+        runtime.candidates.slice(1, 4).map(c => c.platform)
+      )
       for (let i = 1; i < runtime.candidates.length && extras.length < 3; i++) {
         const cand = runtime.candidates[i]
+        const assignedPlatform = platformAssignments[i - 1]
+        if (!assignedPlatform) continue // no free platform class — rides the main array
         try {
           const built = await buildPresenceActivities({
             rpcConfigs: [cand],
@@ -1350,8 +1362,12 @@ export class RpcDaemon {
           })
           const safe = sanitizeActivities(built as Array<Record<string, unknown>>)
           if (safe.length > 0) {
+            // Session/activity platform coherence: the card carries the same
+            // platform label as the session identity it is pushed from.
+            ;(safe[0] as { platform?: string }).platform = activityPlatformField(assignedPlatform)
             // STABLE config hash — the session reopen guard. Resolved activities
             // churn every tick (dynamic placeholders), the row's fields don't.
+            // Includes the ASSIGNED platform: a class reassignment reopens.
             const configHash = JSON.stringify({
               n: cand.name, t: cand.type, p: cand.platform,
               s: cand.state ?? null, d: cand.details ?? null,
@@ -1365,12 +1381,13 @@ export class RpcDaemon {
               ap: cand.appId ?? null, gid: cand.gameSlug ?? null,
               gap: cand.gameAppId ?? null,
               u: (cand as { updatedAt?: unknown }).updatedAt ?? null,
+              pl: assignedPlatform,
             })
             extras.push({
               idx: i,
               key: cand.id ?? `game:${cand.gameSlug ?? cand.name ?? `slot${i + 1}`}`,
               label: String((safe[0] as { name?: string }).name ?? cand.name ?? `RPC ${i + 1}`),
-              platform: cand.platform || targetPlatform,
+              platform: assignedPlatform,
               activity: safe[0],
               configHash,
             })
@@ -1669,7 +1686,7 @@ export class RpcDaemon {
                 op: 3,
                 d: { status, activities: [activity], afk: false, since: null },
               }))
-              console.log(`[10X RPC Daemon] Multi-Session: extra session live for user ${userId} — "${label}" (platform=${platform}, app=${String((activity as { application_id?: string }).application_id ?? '?')})`)
+              console.log(`[10X RPC Daemon] Multi-Session: extra session live for user ${userId} — "${label}" (platform=${platform}, class=${discordPlatformClass(platform)}, app=${String((activity as { application_id?: string }).application_id ?? '?')})`)
             } catch {}
           } else if (op === 0 && t === 'PRESENCE_UPDATE') {
             // Echo — the authoritative "what Discord accepted" for THIS slot.
@@ -1793,6 +1810,22 @@ export class RpcDaemon {
       }
       // Status changed (dnd/idle/online) → re-push status + same activity.
       if (sess.connected && sess.lastPushedStatus !== status && sess.ws && sess.ws.readyState === WebSocket.OPEN && sess.lastActivity) {
+        try {
+          sess.ws.send(JSON.stringify({
+            op: 3,
+            d: { status, activities: [sess.lastActivity], afk: false, since: null },
+          }))
+          sess.lastPushedStatus = status
+        } catch {}
+        continue
+      }
+      // Task 84c — BUCKET RE-ASSERT: Discord merges concurrent sessions per
+      // platform class with LAST-WRITE-WINS, so any other push into this
+      // session's class (another integration, a stale client) silently hides
+      // this card until the payload changes. Re-assert the exact same OP 3
+      // every tick — idempotent, cheap (no identify), and the daemon always
+      // ends up the last writer within 10s.
+      if (sess.connected && sess.ws && sess.ws.readyState === WebSocket.OPEN && sess.lastActivity) {
         try {
           sess.ws.send(JSON.stringify({
             op: 3,

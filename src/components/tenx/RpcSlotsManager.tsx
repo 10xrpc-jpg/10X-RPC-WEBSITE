@@ -182,8 +182,9 @@ export function RpcSlotsManager({
                     Multi-Session is ON — all {rotationChain.length} RPCs are running at the same time ({rotationChain.join(', ')}).
                   </p>
                   <p className="mt-1 text-[11px] text-white/55 leading-relaxed">
-                    Each RPC runs as its own Discord session with its own Application ID, so Discord
-                    shows every RPC side by side. Auto Rotate stays off — nothing cycles.
+                    Each RPC runs as its own Discord session with its own Application ID and its own
+                    device identity (desktop, phone, console…), so Discord shows every RPC side by
+                    side. Auto Rotate stays off — nothing cycles.
                   </p>
                 </div>
               </div>

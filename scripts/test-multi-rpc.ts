@@ -6,6 +6,10 @@ import {
   resolveRuntimeCandidates,
   buildPresenceActivities,
   fetchRpcAppIds,
+  assignCandidateApplicationIds,
+  assignSessionPlatforms,
+  discordPlatformClass,
+  activityPlatformField,
 } from '../src/lib/rpc-manager'
 
 function assert(cond: boolean, label: string) {
@@ -123,7 +127,7 @@ async function main() {
   // 8c. Slot pinned to the GAME's id → the slot yields, the game keeps its id
   const pinned = [slot(1, 'X', true, { appId: '1402418714716143646' }), gtaGame]
   const ovC = assignCandidateApplicationIds(pinned)
-  assert(ovC.get('slot1') && ovC.get('slot1') !== '1402418714716143646', 'slot pinned to game id gets a shell')
+  assert(!!ovC.get('slot1') && ovC.get('slot1') !== '1402418714716143646', 'slot pinned to game id gets a shell')
   assert(!ovC.has('g1'), 'game keeps its official id when a slot collides with it')
 
   // 8d. End-to-end: buildPresenceActivities applies the overrides
@@ -144,6 +148,46 @@ async function main() {
   assert(assignCandidateApplicationIds([slot(1, 'A', true)]).size === 0, 'single candidate → no overrides (rotate/brand intact)')
   const a8g = await buildPresenceActivities({ rpcConfigs: [slot(1, '10X RPC', true)], placeholderCtx: ctx })
   assert((a8g[0] as any).application_id === DEFAULT_APP, 'single push keeps the default 10X application id')
+
+  // ── 9. Task 84c — PLATFORM-CLASS DE-DUPLICATION (the "only 2 of 3 RPCs
+  //     show" root cause): Discord merges concurrent sessions PER platform
+  //     class (desktop/mobile/console/vr/web, last-write-wins) → every
+  //     simultaneous session needs a DISTINCT class. ──
+  assert(discordPlatformClass('desktop') === 'desktop', 'class: desktop')
+  assert(discordPlatformClass('android') === 'mobile' && discordPlatformClass('ios') === 'mobile' && discordPlatformClass('samsung') === 'mobile' && discordPlatformClass('mobile') === 'mobile', 'class: android/ios/samsung/mobile → mobile')
+  assert(discordPlatformClass('ps4') === 'console' && discordPlatformClass('xbox') === 'console' && discordPlatformClass('ps5') === 'console', 'class: ps4/ps5/xbox → console')
+  assert(discordPlatformClass('meta_quest') === 'vr', 'class: meta_quest → vr')
+  assert(discordPlatformClass('web') === 'web' && discordPlatformClass(null) === 'desktop', 'class: web + null→desktop')
+
+  // 9a. The user's exact live shape: main=meta_quest (Quest status), slot2=desktop, game=desktop
+  const a9 = assignSessionPlatforms('meta_quest', ['desktop', 'desktop'])
+  assert(a9[0] === 'desktop', 'extra 1 keeps its own desktop class (free)')
+  assert(discordPlatformClass(a9[1] ?? '') !== 'desktop' && a9[1] !== null, `extra 2 reassigned off the taken desktop class (got ${a9[1]})`)
+  const classes9 = new Set(['vr', ...a9.map(p => discordPlatformClass(p ?? ''))])
+  assert(classes9.size === 3, `3 simultaneous sessions → 3 DISTINCT classes (got ${[...classes9].join('/')})`)
+
+  // 9b. All-desktop user (typical): main=desktop + 2 desktop extras + desktop game
+  const a9b = assignSessionPlatforms('desktop', ['desktop', 'desktop', 'desktop'])
+  const classes9b = new Set(a9b.map(p => discordPlatformClass(p ?? '')))
+  assert(classes9b.size === 3 && !classes9b.has('desktop'), `all-desktop candidates spread across 3 non-desktop classes (got ${[...classes9b].join('/')})`)
+  assert(a9b.every(p => p !== null), '4 candidates fit in the 5-class space (no null)')
+
+  // 9c. Determinism — same inputs → same assignment (sessions never churn)
+  assert(JSON.stringify(assignSessionPlatforms('meta_quest', ['desktop', 'desktop'])) === JSON.stringify(a9), 'platform assignment deterministic (restart-safe)')
+
+  // 9d. Mixed VR slot keeps its own class when free
+  const a9d = assignSessionPlatforms('desktop', ['meta_quest', 'desktop'])
+  assert(a9d[0] === 'meta_quest' && discordPlatformClass(a9d[1] ?? '') === 'mobile', 'VR slot keeps meta_quest; next desktop candidate falls back to mobile')
+
+  // 9e. Saturation — 5 extras (more than any real config) → overflow is null, never a duplicate class
+  const a9e = assignSessionPlatforms('desktop', ['desktop', 'desktop', 'desktop', 'meta_quest', 'ps4'])
+  const classes9e = a9e.map(p => (p ? discordPlatformClass(p) : 'NULL'))
+  assert(classes9e.filter(c => c !== 'NULL').length === new Set(classes9e.filter(c => c !== 'NULL')).size, 'no class assigned twice')
+  assert(classes9e.includes('NULL'), 'classes exhausted → overflow candidate returns null (rides main array)')
+
+  // 9f. Activity platform field coherence (android/ios sessions label activities 'mobile')
+  assert(activityPlatformField('android') === 'mobile' && activityPlatformField('ios') === 'mobile', 'mobile-family sessions label activities mobile')
+  assert(activityPlatformField('desktop') === 'desktop' && activityPlatformField('ps4') === 'ps4' && activityPlatformField('meta_quest') === 'meta_quest' && activityPlatformField('web') === 'web', 'other platforms pass through unchanged')
 
   console.log('\nALL MULTI-RPC CHECKS PASSED ✅')
 }
