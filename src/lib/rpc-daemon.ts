@@ -15,6 +15,7 @@ import {
   refreshDiscordToken,
   resolveRuntimeCandidates,
   selectActiveRpcConfigs,
+  assignCandidateApplicationIds,
   type PresenceResult,
   type RpcCandidate,
 } from './rpc-manager'
@@ -1318,6 +1319,18 @@ export class RpcDaemon {
     const multiSessionActive = isRpcActive
       && runtime.runtimeMode === 'simultaneous'
       && runtime.candidates.length >= 2
+
+    // Task 84b — Application-ID de-collision: Discord renders ONE activity card
+    // per unique Application ID, so simultaneous candidates sharing an id
+    // (every slot without a custom Application ID defaults to the 10X app)
+    // collapse into a single card. Assign every duplicate a distinct shell id
+    // (runtime-only, deterministic — Game RPC ids are always reserved first)
+    // and push the SAME ids from the main array AND every extra session so all
+    // sessions agree. Auto Rotate / single-candidate pushes are untouched.
+    const appIdOverrides = multiSessionActive
+      ? assignCandidateApplicationIds(runtime.candidates, { rpcAppIdMap })
+      : null
+
     const extras: Array<{ idx: number; key: string; label: string; platform: string; activity: Record<string, unknown>; configHash: string }> = []
     if (multiSessionActive) {
       const globalVr = (isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive)) || (isRpcActive && fullSelection.candidates[0]?.platform === 'meta_quest')
@@ -1333,6 +1346,7 @@ export class RpcDaemon {
             platform: globalPlatform,
             userAccessToken: session.discordAccessToken,
             rpcAppIdMap,
+            appIdOverrides,
           })
           const safe = sanitizeActivities(built as Array<Record<string, unknown>>)
           if (safe.length > 0) {
@@ -1388,6 +1402,8 @@ export class RpcDaemon {
       userAccessToken: session.discordAccessToken,
       // Per-slot app IDs + per-candidate game spoofing (inside the builder).
       rpcAppIdMap,
+      // Task 84b — same de-collided identities as the extra sessions.
+      appIdOverrides,
     })
 
     // Defense-in-depth: raw http(s) URLs inside assets are silently dropped by
@@ -1653,7 +1669,7 @@ export class RpcDaemon {
                 op: 3,
                 d: { status, activities: [activity], afk: false, since: null },
               }))
-              console.log(`[10X RPC Daemon] Multi-Session: extra session live for user ${userId} — "${label}" (platform=${platform})`)
+              console.log(`[10X RPC Daemon] Multi-Session: extra session live for user ${userId} — "${label}" (platform=${platform}, app=${String((activity as { application_id?: string }).application_id ?? '?')})`)
             } catch {}
           } else if (op === 0 && t === 'PRESENCE_UPDATE') {
             // Echo — the authoritative "what Discord accepted" for THIS slot.
@@ -1756,10 +1772,11 @@ export class RpcDaemon {
     }
 
     const now = Date.now()
-    // Identify-burst guard: every actual (re)connect this pass gets a
-    // 1.5s × ordinal delay so a mass open never trips Discord's OP 9.
+    // Identify-burst guard: every actual (re)connect this pass gets a base
+    // offset + 3.5s × ordinal delay — live-verified spacing that never trips
+    // Discord's OP 9 invalid-session burst limit (1.5s did, on the 3rd+).
     let openOrdinal = 0
-    const stagger = () => (openOrdinal++ * 1500)
+    const stagger = () => 1000 + (openOrdinal++ * 3500)
     for (const e of extras) {
       const sess = map.get(e.key)
       // NOTE: the reopen guard compares the STABLE CONFIG hash — the resolved

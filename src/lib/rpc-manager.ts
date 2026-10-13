@@ -373,6 +373,106 @@ export function resolveRuntimeCandidates(opts: {
   }
 }
 
+// ════════════════════════════════════════════════════════════════════════════
+// APPLICATION-ID DE-COLLISION (Task 84 — "show 3 RPCs at the same time")
+// Discord renders ONE activity card per unique Application ID: simultaneous
+// candidates that resolve to the same application (every slot with no custom
+// Application ID defaults to the 10X app) are collapsed by the client into a
+// single card — live-verified (3 same-app sessions → 1 card, while the
+// distinct-app Game RPC rendered its own card next to it).
+// In simultaneous mode every duplicate candidate therefore receives a
+// DISTINCT "shell" Application ID: a real, public Discord application
+// identity (from the GAME_SPOOF catalog). RUNTIME-ONLY overlay — saved
+// configs are never modified, card content (name/details/state/buttons/
+// timestamps) is untouched, and externally mirrored images (mp:external/…)
+// render identically under ANY application id, so cards keep their branding.
+// The assignment is deterministic (candidate order + pool order) so daemon
+// restarts and multi-instance runs always compute the same identities, and
+// enabling/disabling the Game RPC can never reshuffle slot identities
+// (game ids are reserved first).
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Deterministic shell pool — real public application IDs (GAME_SPOOF order). */
+export const RPC_SHELL_APPLICATION_IDS: string[] = Array.from(
+  new Set(Object.values(GAME_SPOOF).map(e => e.appId))
+)
+
+/** Candidate map key — stable, mirrors the daemon's slot-session key. */
+function rpcCandidateKey(cfg: RpcCandidate): string {
+  return cfg.id || (cfg.gameSlug ? `game:${cfg.gameSlug}` : '')
+}
+
+/**
+ * A candidate's effective Application ID exactly as the activity builder
+ * resolves it (slot appId → per-row daemon fallback map → 10X default;
+ * game candidates present as their spoofed official application).
+ */
+function resolveCandidateEffectiveAppId(
+  cfg: RpcCandidate,
+  rpcAppIdMap: Map<string, string> | null | undefined
+): string {
+  if (cfg.gameSlug) {
+    const activeGame = findGame(cfg.gameSlug)
+    const spoof: GameSpoofEntry | undefined
+      = activeGame && cfg.name === activeGame.name ? GAME_SPOOF[activeGame.slug] : undefined
+    if (spoof) return spoof.appId
+    if (cfg.gameAppId && DISCORD_APP_ID_RE.test(cfg.gameAppId)) return cfg.gameAppId
+  }
+  if (cfg.appId && DISCORD_APP_ID_RE.test(cfg.appId)) return cfg.appId
+  const fallback = cfg.id && rpcAppIdMap ? rpcAppIdMap.get(cfg.id) : null
+  if (fallback && DISCORD_APP_ID_RE.test(fallback)) return fallback
+  return CONFIG.discord.clientId
+}
+
+/**
+ * Compute runtime Application-ID overrides for a SIMULTANEOUS candidate list.
+ * Returns a map keyed by rpcCandidateKey(cfg) → replacement application id
+ * for every candidate whose effective id is already taken by an earlier
+ * candidate (or by the Game RPC, whose official id is always reserved).
+ * Empty map = nothing collides = identities pass through untouched.
+ */
+export function assignCandidateApplicationIds(
+  candidates: RpcCandidate[],
+  opts?: { rpcAppIdMap?: Map<string, string> | null }
+): Map<string, string> {
+  const overrides = new Map<string, string>()
+  if (!candidates || candidates.length < 2) return overrides
+  const used = new Set<string>()
+
+  // Pass 1 — Game RPC candidates NEVER yield their official application id.
+  for (const cfg of candidates) {
+    if (!cfg.gameSlug) continue
+    used.add(resolveCandidateEffectiveAppId(cfg, opts?.rpcAppIdMap))
+  }
+
+  // Pass 2 — slots in order: the first occurrence of an id keeps it; every
+  // further duplicate gets the next free shell id (deterministic → stable).
+  let shellIdx = 0
+  for (const cfg of candidates) {
+    if (cfg.gameSlug) continue
+    const id = resolveCandidateEffectiveAppId(cfg, opts?.rpcAppIdMap)
+    if (!used.has(id)) {
+      used.add(id)
+      continue
+    }
+    let shell: string | null = null
+    while (shellIdx < RPC_SHELL_APPLICATION_IDS.length) {
+      const candidate = RPC_SHELL_APPLICATION_IDS[shellIdx++]
+      if (!used.has(candidate)) {
+        shell = candidate
+        break
+      }
+    }
+    if (shell) {
+      used.add(shell)
+      overrides.set(rpcCandidateKey(cfg), shell)
+    }
+    // Shell pool exhausted → leave the duplicate as-is (best effort; with
+    // ≤3 slots + 1 game at most 3 shells are ever needed).
+  }
+  return overrides
+}
+
 /**
  * @deprecated legacy single-mode selection — kept ONLY for callers not yet
  * migrated (or external scripts). Preserves the exact legacy behavior: an
@@ -436,6 +536,12 @@ export async function buildPresenceActivities(options: {
   rpcAppId?: string | null
   /** Per-row appId fallbacks for the multi path (fetchRpcAppIds). */
   rpcAppIdMap?: Map<string, string> | null
+  /**
+   * Runtime Application-ID de-collision (assignCandidateApplicationIds) —
+   * simultaneous mode assigns every duplicate application a distinct shell
+   * id so Discord renders one card PER RPC. Keyed by rpcCandidateKey(cfg).
+   */
+  appIdOverrides?: Map<string, string> | null
 }): Promise<Array<Record<string, unknown>>> {
   const activities: Array<Record<string, unknown>> = []
 
@@ -496,6 +602,7 @@ async function buildCandidateActivity(
     platform?: string
     userAccessToken?: string | null
     rpcAppIdMap?: Map<string, string> | null
+    appIdOverrides?: Map<string, string> | null
   }
 ): Promise<Record<string, unknown> | null> {
   const ctx = placeholderCtx
@@ -578,6 +685,16 @@ async function buildCandidateActivity(
       }
       console.log(`[10X RPC] Game spoof: ${activeGame?.slug ?? 'custom'} → application ${spoof.appId} "${spoof.name}"${iconRef ? ' (official icon attached)' : ' (no icon)'}`)
     }
+  }
+
+  // Application-ID de-collision — the simultaneous-mode override (computed by
+  // assignCandidateApplicationIds) has the FINAL say so every duplicate
+  // application renders as its own card. Game candidates are never overridden
+  // (their official id is reserved first).
+  const overrideKey = cfg.id || (cfg.gameSlug ? `game:${cfg.gameSlug}` : '')
+  const appIdOverride = overrideKey ? options.appIdOverrides?.get(overrideKey) : null
+  if (appIdOverride && DISCORD_APP_ID_RE.test(appIdOverride)) {
+    activity.application_id = appIdOverride
   }
 
   return activity
@@ -1134,6 +1251,12 @@ export async function applyPresence(
   // Per-row Application ID fallbacks (pre-appId Prisma clients).
   const rpcAppIdMap = await fetchRpcAppIds(session.userId)
 
+  // Simultaneous multi-RPC: de-collide Application IDs so Discord renders
+  // one card PER RPC (same deterministic rule as the daemon's Multi-Session).
+  const appIdOverrides = isRpcActive && selection.candidates.length >= 2
+    ? assignCandidateApplicationIds(selection.candidates, { rpcAppIdMap })
+    : null
+
   // Build combined activities (custom status + one per candidate)
   const activities = await buildPresenceActivities({
     rpcConfigs: isRpcActive ? selection.candidates : [],
@@ -1144,6 +1267,7 @@ export async function applyPresence(
     platform: isVr ? 'meta_quest' : explicitPlatform,
     userAccessToken: accessToken,
     rpcAppIdMap,
+    appIdOverrides,
   })
 
   // Send presence via Gaming SDK gateway

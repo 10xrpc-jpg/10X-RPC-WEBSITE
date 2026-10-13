@@ -95,6 +95,56 @@ async function main() {
     enabledGame: game,
   })
   assert(r7.candidates.length === 4, '3 slots + isolated game = 4 activities max')
+
+  // ── 8. Task 84b — Application-ID de-collision ──
+  // Discord renders ONE card per unique Application ID: simultaneous
+  // candidates sharing the default 10X app id must be de-collided so every
+  // RPC renders as its own card (the "only 2 of 3 RPCs showing" bug).
+  const { assignCandidateApplicationIds, RPC_SHELL_APPLICATION_IDS } = await import('../src/lib/rpc-manager')
+  const { CONFIG } = await import('../src/lib/config')
+  const DEFAULT_APP = CONFIG.discord.clientId
+
+  // 8a. The user's exact case: 3 slots (no appId) + GTA V game → 4 DISTINCT ids
+  const gtaGame = { id: 'g1', gameSlug: 'gta-v', gameName: 'Grand Theft Auto V', name: 'Grand Theft Auto V', enabled: true, platform: 'desktop', startMinsAgo: 0 } as any
+  const cands8 = [slot(1, '10X RPC', true), slot(2, '10X RPC', true), slot(3, '10X RPC', true), gtaGame]
+  const ov8 = assignCandidateApplicationIds(cands8)
+  const eff8 = cands8.map(c => ov8.get(c.id) ?? (c.gameSlug === 'gta-v' ? '1402418714716143646' : DEFAULT_APP))
+  assert(ov8.size === 2, `3 colliding slots → exactly 2 shell overrides (got ${ov8.size})`)
+  assert(new Set(eff8).size === 4, `all 4 effective application ids DISTINCT (got ${new Set(eff8).size})`)
+  assert(!ov8.has('slot1'), 'first slot keeps the default 10X application id')
+  assert(!ov8.has('g1'), 'Game RPC never yields its official application id')
+  assert([...ov8.values()].every(id => RPC_SHELL_APPLICATION_IDS.includes(id)), 'shell ids come from the curated GAME_SPOOF pool')
+  assert(![...ov8.values()].includes('1402418714716143646'), 'shells never collide with the enabled game id')
+
+  // 8b. Distinct explicit appIds → zero overrides (nothing to fix)
+  const distinct = [slot(1, 'A', true, { appId: '111111111111111111' }), slot(2, 'B', true, { appId: '222222222222222222' })]
+  assert(assignCandidateApplicationIds(distinct).size === 0, 'distinct explicit appIds → no overrides')
+
+  // 8c. Slot pinned to the GAME's id → the slot yields, the game keeps its id
+  const pinned = [slot(1, 'X', true, { appId: '1402418714716143646' }), gtaGame]
+  const ovC = assignCandidateApplicationIds(pinned)
+  assert(ovC.get('slot1') && ovC.get('slot1') !== '1402418714716143646', 'slot pinned to game id gets a shell')
+  assert(!ovC.has('g1'), 'game keeps its official id when a slot collides with it')
+
+  // 8d. End-to-end: buildPresenceActivities applies the overrides
+  const a8 = await buildPresenceActivities({
+    rpcConfigs: cands8,
+    placeholderCtx: ctx,
+    appIdOverrides: ov8,
+  })
+  const ids8 = a8.map(a => (a as any).application_id)
+  assert(new Set(ids8).size === 4, `built activities carry 4 distinct application ids (got ${new Set(ids8).size}: ${ids8.join(', ')})`)
+  const slot1Act = a8.find(a => (a as any).state === 'state-1')
+  assert((slot1Act as any)?.application_id === DEFAULT_APP, 'slot 1 activity keeps the default (brand anchor) application id')
+
+  // 8e. Determinism — same inputs → same identity map (restart-safe)
+  assert(JSON.stringify([...assignCandidateApplicationIds(cands8)]) === JSON.stringify([...ov8]), 'de-collision deterministic (restart-safe)')
+
+  // 8f. Single candidate / rotate mode → untouched identities
+  assert(assignCandidateApplicationIds([slot(1, 'A', true)]).size === 0, 'single candidate → no overrides (rotate/brand intact)')
+  const a8g = await buildPresenceActivities({ rpcConfigs: [slot(1, '10X RPC', true)], placeholderCtx: ctx })
+  assert((a8g[0] as any).application_id === DEFAULT_APP, 'single push keeps the default 10X application id')
+
   console.log('\nALL MULTI-RPC CHECKS PASSED ✅')
 }
 
