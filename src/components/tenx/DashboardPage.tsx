@@ -10,6 +10,7 @@ import { ProfileSection } from './ProfileSection'
 import { BrandMark, BrandName } from './BrandMark'
 import { SmartSleepTimerCard } from './SmartSleepTimerCard'
 import { RpcSlotsManager } from './RpcSlotsManager'
+import { ConfigBackupCard } from './ConfigBackupCard'
 import { ReconnectBanner } from './ReconnectBanner'
 import { startPlanCheckout } from './subscriptionCheckout'
 import { TriangleAlert, Zap, Check, Ban, Star, ArrowLeft, Hourglass } from 'lucide-react'
@@ -207,6 +208,12 @@ export function DashboardPage() {
             })
           }}
         />
+
+        {/* Backup & Restore — export/import every saved setting as JSON */}
+        <ConfigBackupCard me={me} onRefresh={() => {
+          setLiveSlots(null)
+          refresh()
+        }} />
 
         {/* Footer */}
         <p className="text-xs text-white/30 text-center pt-4">

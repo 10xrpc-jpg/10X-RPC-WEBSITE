@@ -75,6 +75,7 @@ export function RpcSlotsManager({
 
   const [adding, setAdding] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null)
   const [rotateEnabled, setRotateEnabled] = useState(rotate.enabled)
   const [rotateSecs, setRotateSecs] = useState(rotate.secs)
   const [rotateOrder, setRotateOrder] = useState<RotateOrder>(rotate.order)
@@ -223,6 +224,52 @@ export function RpcSlotsManager({
     }
   }
 
+  /** Duplicate a slot: create the next free slot and copy every saved field
+   *  into it. The copy starts DISABLED — nothing goes live on its own. */
+  const handleDuplicate = async (src: RpcConfig) => {
+    if (duplicatingId || !src.id) return
+    if (atCap) {
+      toast.error('Maximum 3 RPCs — delete one first', { duration: 2800 })
+      return
+    }
+    setDuplicatingId(src.id)
+    try {
+      const cr = await api.rpcSlotCreate()
+      const newId = cr.rpcConfig?.id
+      if (!cr.ok || !newId) throw new Error(cr.message || 'create failed')
+      await api.rpcSlotSave(newId, {
+        name: src.name ?? '10X RPC',
+        type: src.type ?? 'PLAYING',
+        platform: src.platform ?? 'desktop',
+        state: src.state ?? null,
+        details: src.details ?? null,
+        largeImage: src.largeImage ?? null,
+        largeText: src.largeText ?? null,
+        smallImage: src.smallImage ?? null,
+        smallText: src.smallText ?? null,
+        button1Label: src.button1Label ?? null,
+        button1Url: src.button1Url ?? null,
+        button2Label: src.button2Label ?? null,
+        button2Url: src.button2Url ?? null,
+        partyCurrent: src.partyCurrent ?? null,
+        partyMax: src.partyMax ?? null,
+        partyId: src.partyId ?? null,
+        partySecret: src.partySecret ?? null,
+        startMinsAgo: src.startMinsAgo ?? 0,
+        endTotalMins: src.endTotalMins ?? null,
+        appId: src.appId ?? '',
+        enabled: false,
+      })
+      toast.success(`RPC ${src.slot ?? ''} duplicated to RPC ${cr.slot ?? ''} — flip its switch when ready`, { duration: 3000 })
+      onRefresh()
+    } catch (e) {
+      console.error(e)
+      toast.error('Could not duplicate RPC')
+    } finally {
+      setDuplicatingId(null)
+    }
+  }
+
   const secsLabel = rotateSecs < 60 ? `${rotateSecs} seconds` : `${Math.round(rotateSecs / 60)} minute${rotateSecs >= 120 ? 's' : ''}`
   const orderHint = ORDER_OPTIONS.find(o => o.value === rotateOrder)?.hint
 
@@ -241,6 +288,8 @@ export function RpcSlotsManager({
           activeGameName={me.activeGame?.name ?? null}
           onDelete={slot.id ? () => handleDelete(slot.id!) : undefined}
           deleting={deletingId === slot.id}
+          onDuplicate={slot.id ? () => handleDuplicate(slot) : undefined}
+          duplicating={duplicatingId === slot.id || (duplicatingId !== null && atCap)}
           onChange={cfg => onDraftChange?.({ ...cfg, id: slot.id, slot: slot.slot })}
           onSaved={onRefresh}
           onToggle={() => onRefresh()}

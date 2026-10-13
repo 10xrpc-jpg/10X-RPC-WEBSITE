@@ -8,7 +8,7 @@ import { toast } from 'sonner'
 import { api, type RpcConfig } from '@/lib/api-client'
 import { PurpleSwitch } from './ui'
 import { ACTIVITY_TYPES } from '@/lib/constants'
-import { Gamepad2, ChevronDown, Check, Info, Trash2, ChevronRight } from 'lucide-react'
+import { Gamepad2, ChevronDown, Check, Info, Trash2, ChevronRight, Copy } from 'lucide-react'
 import { RpcPlatformSelect } from './RpcPlatformSelect'
 
 const DEFAULT_CONFIG: RpcConfig = {
@@ -47,7 +47,7 @@ type AppLookupState =
 
 export function RichPresenceForm({
   initial, onSaved, onToggle, onChange, rpcMode, activeGameName,
-  slotId, slotNumber, onDelete, deleting, collapsible, defaultOpen = true,
+  slotId, slotNumber, onDelete, deleting, onDuplicate, duplicating, collapsible, defaultOpen = true,
 }: {
   initial: RpcConfig | null | undefined
   onSaved?: () => void
@@ -64,6 +64,10 @@ export function RichPresenceForm({
   /** Multi-RPC: delete THIS slot only (others are never touched). */
   onDelete?: () => void
   deleting?: boolean
+  /** Multi-RPC: duplicate THIS slot's saved fields into the next free slot
+   *  (the copy starts disabled). Rendered next to Delete. */
+  onDuplicate?: () => void
+  duplicating?: boolean
   /** Collapsible card (RPC slots UI); the header always stays visible. */
   collapsible?: boolean
   defaultOpen?: boolean
@@ -272,6 +276,21 @@ export function RichPresenceForm({
           )}
           {onDelete && (
             <div className="shrink-0 flex items-center gap-1.5">
+              {onDuplicate && (
+                <button
+                  type="button"
+                  onClick={onDuplicate}
+                  disabled={duplicating || deleting}
+                  aria-label={`Duplicate RPC ${slotNumber ?? ''}`}
+                  title="Copy this RPC into a new slot (stays disabled)"
+                  className="flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wide text-white/45 hover:text-purple-200 bg-white/5 hover:bg-purple-500/15 border border-white/10 hover:border-purple-500/30 rounded-lg px-2.5 py-1.5 transition-colors disabled:opacity-50"
+                >
+                  {duplicating
+                    ? <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-purple-400 rounded-full animate-spin" aria-hidden />
+                    : <Copy className="w-3.5 h-3.5" />}
+                  <span className="hidden sm:inline">{duplicating ? 'Copying…' : 'Duplicate'}</span>
+                </button>
+              )}
               {confirmDelete ? (
                 <>
                   <button

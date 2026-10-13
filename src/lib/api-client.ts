@@ -187,15 +187,7 @@ export interface DiscoveredApp {
   source: 'trending' | 'detectable'
 }
 
-/** Favorite Game entry (starred game shortlist). */
-export interface FavoriteGameItem {
-  id: string
-  name: string
-  appId: string | null
-  slug: string | null
-  iconUrl: string | null
-  createdAt: string
-}
+/** Favorite Game entry — REMOVED (the Favorite Game board was retired). */
 
 export interface GamePreset {
   slug: string
@@ -273,7 +265,6 @@ export interface AdminStats {
     customGames: number
     rotatorPresets: number
     rotatorEnabledUsers: number
-    favorites: number
     mirrorAssets: number
     discordAssets: number
     trialsActive: number
@@ -636,15 +627,6 @@ export const api = {
   gameDelete: (slug: string) => fetchJson<{ ok: boolean }>(`/api/games/${slug}`, { method: 'DELETE' }),
   appLookup: (appId: string) =>
     fetchJson<{ ok: boolean; name: string; iconUrl: string | null }>(`/api/games/app-lookup?appId=${encodeURIComponent(appId)}`),
-
-  favoritesList: () => fetchJson<{ ok: boolean; favorites: FavoriteGameItem[] }>('/api/favorites'),
-  favoriteAdd: (data: { name: string; appId?: string; slug?: string; iconUrl?: string | null }) =>
-    fetchJson<{ ok: boolean; favorite: FavoriteGameItem }>('/api/favorites', { method: 'POST', body: JSON.stringify(data) }),
-  favoriteRemove: (id: string) =>
-    fetchJson<{ ok: boolean }>(`/api/favorites?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
-  /** One click: resolve the favorite to a game (auto-creating it with the official App ID) and enable it as Game RPC. */
-  favoriteUse: (id: string) =>
-    fetchJson<{ ok: boolean; slug: string; name: string }>('/api/favorites/use', { method: 'POST', body: JSON.stringify({ id }) }),
 
   configSave: (city: string | null, timezone: string, tempUnit: 'C' | 'F' = 'C') => fetchJson<{ ok: boolean; globalConfig: { city: string | null; timezone: string; tempUnit: string } }>(
     '/api/config/save', { method: 'POST', body: JSON.stringify({ city, timezone, tempUnit }) }

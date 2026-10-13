@@ -8,7 +8,7 @@
 // (The old "All Results On Discord" App-Directory section was removed on
 // request — search results are real games only.)
 // One click on a result runs the full flow: official Application ID grabbed,
-// game created, starred on the Favorite Game Board and applied live as Game RPC.
+// game created and applied live as Game RPC.
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
@@ -80,8 +80,8 @@ export function GamesPage() {
   }, [query])
 
   // One click on a Discord result = the FULL flow: auto-grab the official
-  // Application ID, create the game, star it as a Favorite Game on the Board
-  // and apply it live as Game RPC, then open its RPC configuration.
+  // Application ID, create the game and apply it live as Game RPC, then open
+  // its RPC configuration.
   const handleAddDiscovered = async (app: DiscoveredApp) => {
     if (addingAppId) return
     const existing = games.find(
@@ -95,15 +95,13 @@ export function GamesPage() {
     try {
       // 1. Create the custom game — the official identity (App ID + name +
       //    icon) is fetched from Discord automatically.
-      await api.gameCustomCreate({ appId: app.appId })
-      // 2. Star it as a favorite to your Favorites (Favorite Game widget).
-      const f = await api.favoriteAdd({ name: app.name, appId: app.appId, iconUrl: app.iconUrl })
-      // 3. Apply it as the live Game RPC (mutual exclusivity + daemon push
-      //    handled server-side).
-      const u = await api.favoriteUse(f.favorite.id)
-      toast.success(`${u.name} added — Application ID auto-filled, set as Game RPC`, { duration: 3000 })
+      const created = await api.gameCustomCreate({ appId: app.appId })
+      // 2. Apply it as the live Game RPC — POST /api/games/[slug] with
+      //    enabled=true handles mutual exclusivity + the daemon push.
+      await api.gameSave(created.config.gameSlug, { enabled: true })
+      toast.success(`${created.config.gameName} added — Application ID auto-filled, set as Game RPC`, { duration: 3000 })
       await refresh()
-      navigate({ name: 'game', slug: u.slug })
+      navigate({ name: 'game', slug: created.config.gameSlug })
     } catch {
       toast.error('Could not add this application — try the Add Games dialog')
     } finally {
@@ -455,8 +453,7 @@ export function GamesPage() {
  * Tab 1 "Search Discord": search across the Trending Games ranking and the
  * full 24,600+ detectable-games catalog (opens instantly with curated
  * Popular Games). One click on any result runs the FULL flow — official
- * Application ID auto-grabbed, game created, starred on the Favorite Game
- * Board and applied live as Game RPC.
+ * Application ID auto-grabbed, game created and applied live as Game RPC.
  *
  * Tab 2 "Application ID": the classic power-user flow — paste any Discord
  * Application ID, the official identity (name + icon) is looked up live,
@@ -562,7 +559,7 @@ function AddGameDialog({
 
   /** "See more" (search results) — re-fetch the same query with a higher
    * limit, revealing a superset of the current results (trending stays, the
-   * catalog expands). Same behavior as the Favorite-Game dialog. */
+   * catalog expands). Same behavior as the Add-Game dialog. */
   const seeMoreResults = async () => {
     const q = query.trim()
     if (loadingMore || q.length < 2) return
@@ -635,7 +632,7 @@ function AddGameDialog({
   const trendingResults = results.filter(r => (r.source ?? 'trending') === 'trending')
   const detectableResults = results.filter(r => r.source === 'detectable')
 
-  /** Result row — one click runs the full add flow (App ID → favorite → live
+  /** Result row — one click runs the full add flow (App ID → create → live
    * Game RPC) via the parent's handler. */
   const resultRow = (app: DiscoveredApp) => {
     const already = games.some(
@@ -862,8 +859,8 @@ function AddGameDialog({
             <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-white/40 px-1">
               <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
               <span>
-                One click grabs the official Application ID, adds the game, stars it
-                on your Favorite Game Board and sets it live as your Game RPC.
+                One click grabs the official Application ID, adds the game
+                and sets it live as your Game RPC.
               </span>
             </p>
           </div>
