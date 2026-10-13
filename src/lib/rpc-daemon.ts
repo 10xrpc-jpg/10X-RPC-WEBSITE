@@ -1364,22 +1364,19 @@ export class RpcDaemon {
         } catch { /* one broken candidate must never break the others */ }
       }
     }
-    // A candidate whose own extra session keeps failing folds back into the
-    // main OP 3 (worst case = the classic all-in-one-array behavior).
-    const unhealthyExtraIdx = new Set(
-      extras
-        .filter(e => {
-          const sess = this.slotSessions.get(userId)?.get(e.key)
-          return !!sess && !sess.connected && sess.failCount >= 2
-        })
-        .map(e => e.idx)
-    )
+    // A candidate whose own extra session keeps failing still rides the main
+    // array below (the main session always carries every candidate), so no
+    // fold-back logic is needed — extras are pure upside.
 
     const activities = await buildPresenceActivities({
       rpcConfigs: isRpcActive
-        // Multi-Session: the main session carries candidate 1 (+ any extras
-        // whose own sessions keep failing); the rest ride their own sessions.
-        ? runtime.candidates.filter((_, i) => i === 0 || unhealthyExtraIdx.has(i))
+        // The MAIN session ALWAYS carries every enabled candidate (Task 82
+        // simultaneous array — proven: Discord renders what it prioritizes
+        // from the array, so nothing can ever disappear). Multi-Session
+        // extras ADDITIONALLY push their own copy from their own session —
+        // identical activities dedupe across sessions, so this is a pure
+        // upside attempt at multi-card rendering.
+        ? runtime.candidates
         : [],
       customStatus: isStatusActive ? session.customStatus : null,
       customStatusEmoji: isStatusActive ? session.customStatusEmoji : null,
