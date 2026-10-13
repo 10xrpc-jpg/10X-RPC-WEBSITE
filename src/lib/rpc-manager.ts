@@ -512,39 +512,58 @@ export function discordPlatformClass(
   return 'desktop'
 }
 
-/** Fallback pool for extra sessions whose own platform class is taken.
- *  Order = preference: desktop first (most natural for RPC cards), then a
- *  phone, a browser and a console identity. Classes covered: desktop, mobile,
- *  web, console — together with the main session's (any) class that is 5. */
-const EXTRA_PLATFORM_FALLBACK_POOL = ['desktop', 'android', 'web', 'ps4'] as const
+/** Deterministic assignment pool for EXTRA (beyond-main) sessions.
+ *  Task 84d — order chosen for COLLISION SAFETY, verified live via the
+ *  SESSIONS_REPLACE observer (13:32Z): the user's REAL clients permanently
+ *  occupy the `mobile` class (phone, always signed in) and often `desktop`
+ *  (desktop app). Same-class sessions merge last-write-wins, so an extra
+ *  session assigned `android` was repeatedly wiped by the phone's presence
+ *  sync and its card silently disappeared. The pool therefore hands out the
+ *  classes real users almost never occupy FIRST: web → console → mobile →
+ *  desktop. Together with the main session's (any) class that is all 5. */
+const EXTRA_PLATFORM_FALLBACK_POOL = ['web', 'ps4', 'android', 'desktop'] as const
 
 /**
  * Assign each extra (beyond-main) session a platform whose CLASS is unique
  * across all concurrent sessions. Deterministic → assignments never churn
  * between ticks (sessions reopen only when the assignment actually changes).
  *
+ * Task 84d — the candidate's OWN platform is deliberately NOT preferred:
+ * slot configs are overwhelmingly `desktop`, and a desktop-class extra
+ * collides with the user's real desktop client (and with sibling slots),
+ * which is exactly the "only 2 of 3 RPCs render" bug. Extras always come
+ * from the collision-safe pool instead; the card content (name/icon/state)
+ * is unaffected by the session class.
+ *
+ * Task 84d — STABLE HINTS: assignments are anchored to each candidate's own
+ * slot number (slot 2 → web, slot 3 → ps4, slot 4 → android, slot 5 →
+ * desktop; game → web). Enabling/disabling a MIDDLE slot therefore never
+ * reshuffles the others (no reopen churn, no zombie sessions, no flicker).
+ * When a hinted class is taken the scan advances deterministically.
+ *
  * @param mainPlatform the platform the MAIN session identifies as
  * @param candidatePlatforms own platform of each EXTRA candidate, in order
+ * @param stableHints desired pool index per candidate (same order), or null
  * @returns assigned platform per candidate (same order); `null` = no free
- *          class remained (candidate still rides the main session's array).
+ *          class remained (candidate is appended to the main push as fallback).
  */
 export function assignSessionPlatforms(
   mainPlatform: string | null | undefined,
-  candidatePlatforms: Array<string | null | undefined>
+  candidatePlatforms: Array<string | null | undefined>,
+  stableHints?: Array<number | null | undefined>
 ): Array<string | null> {
   const taken = new Set<DiscordPlatformClass>([discordPlatformClass(mainPlatform)])
-  return candidatePlatforms.map((own) => {
-    const preferred = own || 'desktop'
-    if (!taken.has(discordPlatformClass(preferred))) {
-      taken.add(discordPlatformClass(preferred))
-      return preferred
+  return candidatePlatforms.map((own, i) => {
+    const hint = stableHints?.[i]
+    const start = typeof hint === 'number' ? ((hint % EXTRA_PLATFORM_FALLBACK_POOL.length) + EXTRA_PLATFORM_FALLBACK_POOL.length) % EXTRA_PLATFORM_FALLBACK_POOL.length : 0
+    for (let k = 0; k < EXTRA_PLATFORM_FALLBACK_POOL.length; k++) {
+      const p = EXTRA_PLATFORM_FALLBACK_POOL[(start + k) % EXTRA_PLATFORM_FALLBACK_POOL.length]
+      if (!taken.has(discordPlatformClass(p))) {
+        taken.add(discordPlatformClass(p))
+        return p
+      }
     }
-    const fallback = EXTRA_PLATFORM_FALLBACK_POOL.find(
-      (p) => !taken.has(discordPlatformClass(p))
-    )
-    if (!fallback) return null
-    taken.add(discordPlatformClass(fallback))
-    return fallback
+    return null
   })
 }
 

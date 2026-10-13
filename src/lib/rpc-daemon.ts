@@ -17,7 +17,6 @@ import {
   selectActiveRpcConfigs,
   assignCandidateApplicationIds,
   assignSessionPlatforms,
-  activityPlatformField,
   discordPlatformClass,
   type PresenceResult,
   type RpcCandidate,
@@ -1034,20 +1033,26 @@ export class RpcDaemon {
               await this.pushPresenceForUser(userId, freshSession, true)
             }
           } else if (op === 0 && t === 'PRESENCE_UPDATE') {
-            // Discord's echo of the presence we pushed — the authoritative
-            // answer to "what did Discord actually ACCEPT?". Logged on change
-            // so multi-RPC truncation (3 sent → N kept) is visible in the
-            // console instead of being a silent client-side mystery.
-            try {
-              const acts = (payload.d as { activities?: Array<{ name?: string; type?: number }> } | undefined)?.activities
-              if (Array.isArray(acts)) {
-                const sig = acts.map(a => `${a.name ?? '?'}:${a.type ?? '?'}`).join('|')
-                if (sig !== userSock.lastEchoSig) {
-                  userSock.lastEchoSig = sig
-                  console.log(`[10X RPC Daemon] Discord accepted ${acts.length} activit${acts.length === 1 ? 'y' : 'ies'} for user ${userId}: [${sig}]`)
+            // Task 84d — filter to the user's OWN presence echo. Unfiltered,
+            // this logged "Discord accepted 0 activities" noise for every
+            // other guild member whose presence changed.
+            const echoUserId = (payload.d as { user?: { id?: string } } | undefined)?.user?.id
+            if (echoUserId === userId) {
+              // Discord's echo of the presence we pushed — the authoritative
+              // answer to "what did Discord actually ACCEPT?". Logged on change
+              // so multi-RPC truncation (3 sent → N kept) is visible in the
+              // console instead of being a silent client-side mystery.
+              try {
+                const acts = (payload.d as { activities?: Array<{ name?: string; type?: number }> } | undefined)?.activities
+                if (Array.isArray(acts)) {
+                  const sig = acts.map(a => `${a.name ?? '?'}:${a.type ?? '?'}`).join('|')
+                  if (sig !== userSock.lastEchoSig) {
+                    userSock.lastEchoSig = sig
+                    console.log(`[10X RPC Daemon] Discord accepted ${acts.length} activit${acts.length === 1 ? 'y' : 'ies'} for user ${userId}: [${sig}]`)
+                  }
                 }
-              }
-            } catch {}
+              } catch {}
+            }
           } else if (op === 7) {
             // Discord requested reconnect
             console.log(`[10X RPC Daemon] Discord Gateway sent OP 7 RECONNECT for user ${userId}. Reconnecting...`)
@@ -1335,20 +1340,50 @@ export class RpcDaemon {
       : null
 
     const extras: Array<{ idx: number; key: string; label: string; platform: string; activity: Record<string, unknown>; configHash: string }> = []
+    // Task 84d — candidates that could NOT get their own extra session (no
+    // free platform class, build failure, empty activity) are appended to the
+    // MAIN push as a fold-back so they never vanish entirely.
+    const mainFallback: typeof runtime.candidates = []
+    // Task 84d — STABLE per-candidate class anchor. The Orihost daemon's
+    // Prisma client may predate the `slot` column (candidate.slot undefined
+    // there — live-verified: every hint collapsed to pool[0] and toggling a
+    // middle slot reshuffled the others into reopen churn + zombie sessions).
+    // The FULL rpcConfigs list (all rows, createdAt == slot order) gives the
+    // same stable position using ids only: slot2 → pool[0], slot3 → pool[1],
+    // slot4 → pool[2], slot5 → pool[3]; game/unknown → pool[0].
+    const allConfigIndex = new Map<string, number>()
+    ;(rpcConfigs as Array<{ id?: string }>).forEach((row, idx) => {
+      if (row?.id) allConfigIndex.set(row.id, idx)
+    })
+    const stableHintOf = (c: RpcCandidate): number => {
+      if (typeof c.slot === 'number' && c.slot >= 2) return c.slot - 2
+      const idx = c.id ? allConfigIndex.get(c.id) : undefined
+      return typeof idx === 'number' && idx >= 1 ? idx - 1 : 4
+    }
     if (multiSessionActive) {
       const globalVr = (isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive)) || (isRpcActive && fullSelection.candidates[0]?.platform === 'meta_quest')
       const globalPlatform = isRpcActive ? (fullSelection.candidates[0]?.platform || 'desktop') : targetPlatform
-      // Task 84c — every extra session gets a DISTINCT platform class (the
+      // Task 84c/84d — every extra session gets a DISTINCT platform class (the
       // merge key Discord uses for concurrent sessions; two sessions of the
-      // same class overwrite each other and only one card renders).
+      // same class overwrite each other and only one card renders). The pool
+      // (web → ps4 → android → desktop) avoids classes the user's REAL clients
+      // occupy (phone = mobile, desktop app = desktop).
+      // 5 classes total = main + 4 extras max.
       const platformAssignments = assignSessionPlatforms(
         targetPlatform,
-        runtime.candidates.slice(1, 4).map(c => c.platform)
+        runtime.candidates.slice(1, 5).map(c => c.platform),
+        // Task 84d — STABLE per-candidate hints (see allConfigIndex above):
+        // toggling a middle slot never reshuffles the others (no reopen
+        // churn / zombie sessions / card flicker).
+        runtime.candidates.slice(1, 5).map(stableHintOf)
       )
-      for (let i = 1; i < runtime.candidates.length && extras.length < 3; i++) {
+      for (let i = 1; i < runtime.candidates.length && extras.length < 4; i++) {
         const cand = runtime.candidates[i]
         const assignedPlatform = platformAssignments[i - 1]
-        if (!assignedPlatform) continue // no free platform class — rides the main array
+        if (!assignedPlatform) {
+          mainFallback.push(cand) // no free platform class — fold back into the main push
+          continue
+        }
         try {
           const built = await buildPresenceActivities({
             rpcConfigs: [cand],
@@ -1361,10 +1396,18 @@ export class RpcDaemon {
             appIdOverrides,
           })
           const safe = sanitizeActivities(built as Array<Record<string, unknown>>)
+          if (safe.length === 0) mainFallback.push(cand)
           if (safe.length > 0) {
-            // Session/activity platform coherence: the card carries the same
-            // platform label as the session identity it is pushed from.
-            ;(safe[0] as { platform?: string }).platform = activityPlatformField(assignedPlatform)
+            // Task 84d — CRITICAL: do NOT set a `platform` field inside the
+            // activity payload. Isolated via probe10 (SESSIONS_REPLACE live
+            // readout): a web-class session's activity WITH platform:'web'
+            // was silently REJECTED by Discord (never stored in the user's
+            // presence), while the IDENTICAL activity WITHOUT the field was
+            // accepted instantly. The session's IDENTIFY properties already
+            // carry the platform — the activity-level field only gets the
+            // card dropped ('web'/'mobile' rejected; inconsistent with the
+            // gateway-classified session). Cards inherit the session's
+            // platform label from the identify, which is what we want.
             // STABLE config hash — the session reopen guard. Resolved activities
             // churn every tick (dynamic placeholders), the row's fields don't.
             // Includes the ASSIGNED platform: a class reassignment reopens.
@@ -1392,23 +1435,29 @@ export class RpcDaemon {
               configHash,
             })
           }
-        } catch { /* one broken candidate must never break the others */ }
+        } catch {
+          // One broken candidate must never break the others — fold it back
+          // into the main push (best effort) and keep going.
+          mainFallback.push(cand)
+        }
       }
     }
-    // A candidate whose own extra session keeps failing still rides the main
-    // array below (the main session always carries every candidate), so no
-    // fold-back logic is needed — extras are pure upside.
+    // Task 84d — MAIN-SESSION PAYLOAD RESTRUCTURE (the decisive 3-card fix):
+    // Discord renders ONE activity card per gateway session (the session's
+    // top activity), and merges concurrent sessions PER PLATFORM CLASS with
+    // last-write-wins. Verified live via the SESSIONS_REPLACE observer:
+    // the main session's 3-activity array was fully ACCEPTED server-side
+    // (aggregate showed 4 activities) yet only the top one ever rendered —
+    // while duplicates of the same slot (main array + its extra session)
+    // collapsed into one card and a dead extra left its slot invisible.
+    // Therefore the main session now pushes EXACTLY candidate #1; every
+    // further candidate renders exclusively through its own extra session.
 
+    const mainPushCandidates = isRpcActive
+      ? (multiSessionActive ? [runtime.candidates[0], ...mainFallback] : runtime.candidates)
+      : []
     const activities = await buildPresenceActivities({
-      rpcConfigs: isRpcActive
-        // The MAIN session ALWAYS carries every enabled candidate (Task 82
-        // simultaneous array — proven: Discord renders what it prioritizes
-        // from the array, so nothing can ever disappear). Multi-Session
-        // extras ADDITIONALLY push their own copy from their own session —
-        // identical activities dedupe across sessions, so this is a pure
-        // upside attempt at multi-card rendering.
-        ? runtime.candidates
-        : [],
+      rpcConfigs: mainPushCandidates,
       customStatus: isStatusActive ? session.customStatus : null,
       customStatusEmoji: isStatusActive ? session.customStatusEmoji : null,
       placeholderCtx,
@@ -1689,14 +1738,21 @@ export class RpcDaemon {
               console.log(`[10X RPC Daemon] Multi-Session: extra session live for user ${userId} — "${label}" (platform=${platform}, class=${discordPlatformClass(platform)}, app=${String((activity as { application_id?: string }).application_id ?? '?')})`)
             } catch {}
           } else if (op === 0 && t === 'PRESENCE_UPDATE') {
-            // Echo — the authoritative "what Discord accepted" for THIS slot.
-            try {
-              const acts = payload.d?.activities
-              if (Array.isArray(acts)) {
-                const sig = acts.map((a: { name?: string; type?: number }) => `${a.name ?? '?'}:${a.type ?? '?'}`).join('|')
-                console.log(`[10X RPC Daemon] Multi-Session echo for user ${userId} ("${label}"): [${sig}]`)
-              }
-            } catch {}
+            // Task 84d — these sessions receive PRESENCE_UPDATE events for
+            // OTHER guild members too (verified: the old unfiltered log showed
+            // empty [] noise from random users). Only the user's own echo
+            // says anything about what Discord accepted for THIS slot.
+            const echoUserId = (payload.d as { user?: { id?: string } } | undefined)?.user?.id
+            if (echoUserId === userId) {
+              // Echo — the authoritative "what Discord accepted" for THIS slot.
+              try {
+                const acts = payload.d?.activities
+                if (Array.isArray(acts)) {
+                  const sig = acts.map((a: { name?: string; type?: number }) => `${a.name ?? '?'}:${a.type ?? '?'}`).join('|')
+                  console.log(`[10X RPC Daemon] Multi-Session echo for user ${userId} ("${label}"): [${sig}]`)
+                }
+              } catch {}
+            }
           } else if (op === 9) {
             if (!settled) {
               settled = true
@@ -1722,10 +1778,16 @@ export class RpcDaemon {
         this.closeSlotSession(sess)
       })
 
-      ws.on('close', () => {
+      ws.on('close', (code, reason) => {
         if (!settled) {
           settled = true
           clearTimeout(connectTimeout)
+        }
+        // Task 84d — extras were dying SILENTLY (a slot's card vanished with
+        // no trace in the console). Always log the close code/reason so any
+        // Discord-side invalidation is immediately visible and diagnosable.
+        if (sess.connected || code !== 1000) {
+          console.warn(`[10X RPC Daemon] Slot session closed for user ${userId} ("${label}") — code=${code} reason=${reason?.toString?.() || 'none'} wasConnected=${sess.connected}`)
         }
         if (sess.connected) {
           sess.failCount++
