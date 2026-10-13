@@ -161,6 +161,9 @@ interface ActiveUserSocket {
   platform: string
   lastStatus: string
   lastActivitiesHash: string
+  /** Signature of the last Discord presence echo (name:type list) — dedupes
+   *  the PRESENCE_UPDATE diagnostic log. */
+  lastEchoSig?: string
   connected: boolean
   lastConnectedAt?: Date
   isConnecting: boolean
@@ -204,14 +207,16 @@ export class RpcDaemon {
       console.error('[10X RPC Daemon] Initial sync error:', err)
     })
 
-    // Tick every 30 seconds
+    // Tick every 10 seconds — Auto Rotate buckets start at 30s, so a 30s tick
+    // raced the rotation clock (bucket jitter skipped slots or double-showed
+    // one). 10s gives ≤10s rotation accuracy and propagates saves faster.
     this.tickTimer = setInterval(async () => {
       try {
         await this.tick()
       } catch (err) {
         console.error('[10X RPC Daemon] Tick error:', err)
       }
-    }, 30000)
+    }, 10000)
 
     // Watchdog every 60 seconds — 24/7 self-healing:
     // recovers stalled tick loops, stuck/lost connections and silently-dead presence.
@@ -973,6 +978,21 @@ export class RpcDaemon {
             if (freshSession) {
               await this.pushPresenceForUser(userId, freshSession, true)
             }
+          } else if (op === 0 && t === 'PRESENCE_UPDATE') {
+            // Discord's echo of the presence we pushed — the authoritative
+            // answer to "what did Discord actually ACCEPT?". Logged on change
+            // so multi-RPC truncation (3 sent → N kept) is visible in the
+            // console instead of being a silent client-side mystery.
+            try {
+              const acts = (d as { activities?: Array<{ name?: string; type?: number }> })?.activities
+              if (Array.isArray(acts)) {
+                const sig = acts.map(a => `${a.name ?? '?'}:${a.type ?? '?'}`).join('|')
+                if (sig !== userSock.lastEchoSig) {
+                  userSock.lastEchoSig = sig
+                  console.log(`[10X RPC Daemon] Discord accepted ${acts.length} activit${acts.length === 1 ? 'y' : 'ies'} for user ${userId}: [${sig}]`)
+                }
+              }
+            } catch {}
           } else if (op === 7) {
             // Discord requested reconnect
             console.log(`[10X RPC Daemon] Discord Gateway sent OP 7 RECONNECT for user ${userId}. Reconnecting...`)
@@ -1249,10 +1269,6 @@ export class RpcDaemon {
       rpcAppIdMap,
     })
 
-    if (isRpcActive && runtime.runtimeMode === 'rotate' && runtime.rotateIndex != null) {
-      console.log(`[10X RPC Daemon] Auto Rotate for user ${userId}: candidate ${runtime.rotateIndex + 1}/${fullSelection.candidates.length} (${runtime.candidates[0]?.name ?? '?'}) every ${rotate.secs}s`)
-    }
-
     // Defense-in-depth: raw http(s) URLs inside assets are silently dropped by
     // Discord. Strip them so a failed asset resolution can never make the RPC
     // image disappear (the "image not showing" bug).
@@ -1264,6 +1280,10 @@ export class RpcDaemon {
     // Avoid spamming identical OP 3 payloads unless forced (prevents rate limits)
     if (!force && userSock.lastActivitiesHash === activitiesHash && userSock.lastStatus === status) {
       return
+    }
+
+    if (isRpcActive && runtime.runtimeMode === 'rotate' && runtime.rotateIndex != null) {
+      console.log(`[10X RPC Daemon] Auto Rotate for user ${userId}: candidate ${runtime.rotateIndex + 1}/${fullSelection.candidates.length} (${runtime.candidates[0]?.name ?? '?'}) every ${rotate.secs}s`)
     }
 
     // If socket is open and payload is ready, send OP 3
