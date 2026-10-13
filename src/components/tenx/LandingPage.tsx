@@ -1,15 +1,16 @@
-// 10X RPC — Landing page v2
-// Hero (with live Discord-style product mockup + floating feature chips) →
-// game-chip marquee → feature grid → safety strip → how-it-works + stats →
-// DB-driven pricing → FAQ → final CTA → footer. Static fallback pricing
-// mirrors the current DB catalog so an API outage never misleads.
+// 10X RPC — Landing page v3
+// Hero (live Discord-style mockup that replicates the REAL 10X RPC presence
+// card + floating feature chips) → game-chip marquee → feature grid → safety
+// strip → how-it-works + stats → DB-driven pricing → FAQ → final CTA →
+// footer. Static fallback pricing mirrors the current DB catalog so an API
+// outage never misleads.
 'use client'
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
   Sparkles, Gamepad2, Glasses, MoonStar, Globe2, RefreshCcw,
   ShieldCheck, Lock, Cloud, Zap, ChevronRight, Menu, X,
-  LogIn, CreditCard, Radio, Check, Target, Star, Users,
+  LogIn, CreditCard, Radio, Check, Monitor,
 } from 'lucide-react'
 import { GhostButton } from './ui'
 import { BrandMark, BrandName } from './BrandMark'
@@ -509,17 +510,21 @@ function SectionHeading({ eyebrow, title, sub }: { eyebrow: string; title: strin
 
 /* ---------- hero mockup (static, self-contained) ---------- */
 
+// Replicates the REAL 10X RPC presence exactly as Discord renders it on a
+// profile ("Current activity" card): "Watching on Meta Quest" header, the 10X
+// logo tile, the daemon's name/details lines, a live elapsed timer and the two
+// presence buttons (.gg/10X RPC + 10X RPC WEBSITE).
 function HeroMockup() {
-  const start = useState(() => Date.now() - 47 * 60 * 1000)[0] // session started 47 min ago
+  const start = useState(() => Date.now() - 193_000)[0] // timer reads 3:13 on first paint
   // Seed `now` with `start` (not Date.now()) so SSR and hydration agree on the
-  // first render; the interval takes over right after mount. Prevents the
-  // "46m 59s vs 47m 0s" hydration mismatch.
+  // first render; the interval takes over right after mount. Prevents a
+  // hydration mismatch on the ticking timer.
   const [now, setNow] = useState(start)
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000)
     return () => clearInterval(t)
   }, [])
-  const elapsed = formatElapsed(Math.max(0, now - start))
+  const elapsed = formatClock(Math.max(0, now - start))
 
   return (
     <div className="relative overflow-hidden bg-gradient-to-b from-[#13111d]/95 via-[#0e0d14]/95 to-[#0a0a0f] border border-white/10 rounded-[28px] p-5 sm:p-6 shadow-2xl shadow-purple-950/30">
@@ -534,59 +539,50 @@ function HeroMockup() {
           </span>
         </div>
 
-        <div className="bg-[#1a1b22]/90 border border-white/10 rounded-2xl p-4 space-y-3.5 shadow-inner">
-          {/* user row */}
-          <div className="flex items-start gap-3">
-            <div className="relative shrink-0">
-              <div className="w-11 h-11 rounded-full bg-gradient-to-br from-purple-500 to-purple-700 flex items-center justify-center text-sm font-bold text-white ring-1 ring-white/10">
-                A
-              </div>
-              <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full bg-[#23A559] border-2 border-[#1a1b22]" title="Online" />
-            </div>
+        {/* Discord profile → "Current activity" card (authentic 10X RPC presence) */}
+        <div className="bg-[#1a1b22]/90 border border-white/10 rounded-2xl p-4 shadow-inner">
+          <p className="text-xs text-white/45 mb-2">Current activity</p>
+
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-white/90">
+            <span>Watching on Meta Quest</span>
+            <span className="text-white/60 text-base leading-none" aria-hidden>∞</span>
+          </div>
+
+          <div className="mt-3 flex items-start gap-3.5">
+            <BrandMark className="w-[88px] h-[88px] sm:w-24 sm:h-24 shrink-0" rounded="rounded-xl" />
+
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-bold text-white">Aarav</span>
-                <span className="text-[11px] bg-[#2a2b36] border border-white/10 text-white/90 px-2.5 py-0.5 rounded-full inline-flex items-center gap-1.5 font-medium">
-                  <Gamepad2 className="w-3 h-3" />
-                  <span>Desktop</span>
-                </span>
-              </div>
-              <div className="text-xs text-white/60 flex items-center gap-1.5 mt-0.5">
-                <span className="text-white font-bold">PLAYING</span>
-                <span className="truncate text-white/90 font-medium">Valorant</span>
-                <span className="text-white/40 whitespace-nowrap">• {elapsed} elapsed</span>
-              </div>
-            </div>
-          </div>
+              <p className="text-sm font-bold text-white leading-snug break-words">
+                🚀 10X RPC | ⚙️ RPC Control | 🎁 Free Access
+              </p>
+              <p className="mt-1 text-[13px] text-white/65 leading-snug break-words">
+                🚀 Custom Discord RPC | No Token Required
+              </p>
+              <p className="mt-1.5 flex items-center gap-1.5 text-sm font-mono font-semibold text-[#23A559]">
+                <Monitor className="w-4 h-4 shrink-0" aria-hidden />
+                <span>{elapsed}</span>
+              </p>
 
-          {/* activity card */}
-          <div className="bg-[#121319] border border-white/5 rounded-xl p-3 flex items-center gap-3.5">
-            <div className="relative shrink-0">
-              <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-purple-600/80 to-purple-900/80 border border-white/10 flex items-center justify-center select-none">
-                <Target className="w-6 h-6 text-rose-400/90" />
-              </div>
-              <div className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-[#121319] bg-[#1c1d25] flex items-center justify-center">
-                <Star className="w-3 h-3 text-purple-300" />
+              {/* presence buttons — stacked, Discord-style */}
+              <div className="mt-3 flex flex-col gap-2">
+                <a
+                  href="https://discord.gg/FZvJfZx2V5"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-[#4e5058] hover:bg-[#5f6168] active:bg-[#6a6c73] text-white text-xs font-semibold rounded-lg px-3 py-2 text-center transition-colors"
+                >
+                  ⚙️ .gg/10X RPC
+                </a>
+                <a
+                  href="https://10x-rpc.vercel.app"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="bg-[#4e5058] hover:bg-[#5f6168] active:bg-[#6a6c73] text-white text-xs font-semibold rounded-lg px-3 py-2 text-center transition-colors"
+                >
+                  📅 10X RPC WEBSITE
+                </a>
               </div>
             </div>
-            <div className="flex-1 min-w-0 space-y-0.5">
-              <div className="text-sm font-bold text-white">VALORANT</div>
-              <div className="text-xs text-white/80 font-medium truncate">Ranked Grind — Immortal 2</div>
-              <div className="text-xs text-white/60 truncate">Ascent · Brimstone</div>
-              <div className="text-xs text-white/50 flex items-center gap-1 pt-0.5">
-                <Users className="w-3.5 h-3.5" /> <span>4 of 5</span>
-              </div>
-            </div>
-          </div>
-
-          {/* presence buttons */}
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <span className="text-xs font-semibold text-white/90 bg-[#20212b] border border-white/10 rounded-xl py-2 px-3 truncate text-center shadow-sm">
-              Join my lobby
-            </span>
-            <span className="text-xs font-semibold text-white/90 bg-[#20212b] border border-white/10 rounded-xl py-2 px-3 truncate text-center shadow-sm">
-              Watch Party
-            </span>
           </div>
         </div>
 
@@ -788,12 +784,13 @@ function FeatureCard({ icon: Icon, title, desc, delay }: {
   )
 }
 
-function formatElapsed(ms: number): string {
+// Discord-style elapsed clock: "3:13" under an hour, "1:02:03" beyond.
+function formatClock(ms: number): string {
   const totalSec = Math.floor(ms / 1000)
   const h = Math.floor(totalSec / 3600)
   const m = Math.floor((totalSec % 3600) / 60)
   const s = totalSec % 60
-  if (h > 0) return `${h}h ${m}m`
-  if (m > 0) return `${m}m ${s}s`
-  return `${s}s`
+  const pad = (n: number) => String(n).padStart(2, '0')
+  if (h > 0) return `${h}:${pad(m)}:${pad(s)}`
+  return `${m}:${pad(s)}`
 }
