@@ -1,11 +1,11 @@
-// 10X RPC — Landing page v5 (Cobalt-style template)
+// 10X RPC — Landing page v6 (Cobalt-style template)
 // Minimal centered nav → centered hero with starfield, gradient headline and a
-// single dark pill CTA (+ "Learn more ↓" cue) → full-width DASHBOARD APP MOCKUP
-// (sidebar · topbar · stat cards · filter row · glowing violet area chart) →
-// two-column statement → bento features grid with live mini-UI mockups →
-// "Meet the engine" two-card section → how-it-works + stats → DB-driven
-// pricing (static fallback mirrors the live DB catalog) → FAQ → final CTA →
-// minimal footer. Presence card (Task 78/80) now lives inside bento card #1.
+// single dark pill CTA → "Simple, honest pricing" (DB-driven; static fallback
+// mirrors the live DB catalog) → full-width DASHBOARD APP MOCKUP (sidebar ·
+// topbar · stat cards · filter row · glowing violet area chart) → two-column
+// statement → bento features grid with live mini-UI mockups → "Meet the engine"
+// two-card section → how-it-works + stats → FAQ → final CTA → minimal footer.
+// Presence card (Task 78/80) lives inside bento card #1.
 'use client'
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
@@ -13,7 +13,7 @@ import {
   Gamepad2, Glasses, Globe2, RefreshCcw, ShieldCheck, Lock, Cloud,
   Menu, X, LogIn, CreditCard, Radio, Check, Monitor,
   LayoutDashboard, Settings, Search, Bell, HelpCircle, Calendar,
-  ChevronDown, Filter, ArrowDown, ArrowUpRight, MoonStar, Sparkles,
+  ChevronDown, Filter, ArrowUpRight, MoonStar, Sparkles,
   ChevronsLeft,
 } from 'lucide-react'
 import { BrandMark, BrandName } from './BrandMark'
@@ -28,8 +28,8 @@ const PILL =
   'inline-flex items-center justify-center rounded-full border border-white/10 bg-white/[0.07] font-semibold text-white hover:bg-white/[0.13] hover:border-white/25 active:scale-[0.98] transition-all'
 
 const NAV_LINKS = [
-  { label: 'Features', href: '#features' },
   { label: 'Pricing', href: '#pricing' },
+  { label: 'Features', href: '#features' },
   { label: 'FAQ', href: '#faq' },
 ]
 
@@ -189,11 +189,6 @@ export function LandingPage() {
     else window.location.href = '/auth/discord'
   }
 
-  const scrollTo = (id: string) => {
-    setMenuOpen(false)
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' })
-  }
-
   const trialDays = me?.trialDays ?? 3
   const startLabel = loading ? 'Loading...' : `Start ${trialDays} Days Free`
 
@@ -316,16 +311,60 @@ export function LandingPage() {
               </button>
             </motion.div>
 
-            <motion.button
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.6, delay: 0.45 }}
-              onClick={() => scrollTo('product')}
-              className="mt-12 inline-flex flex-col items-center gap-1.5 text-xs text-white/45 hover:text-white/85 transition-colors"
-            >
-              Learn more
-              <ArrowDown className="w-3.5 h-3.5 animate-bounce" aria-hidden />
-            </motion.button>
+          </div>
+        </section>
+
+        {/* ============ PRICING (top — right after hero, DB-driven) ============ */}
+        <section id="pricing" className="relative px-4 sm:px-6 pt-4 sm:pt-8 pb-20 sm:pb-28 scroll-mt-20 overflow-hidden">
+          <div className="absolute top-16 left-1/2 -translate-x-1/2 w-[640px] h-[320px] bg-violet-600/10 rounded-full blur-[130px] pointer-events-none" aria-hidden />
+          <div className="relative max-w-5xl mx-auto">
+            <SectionHeading
+              eyebrow="Pricing"
+              title="Simple, honest pricing"
+              sub="Every account starts with a free trial — no card needed. Pay with UPI, cards or netbanking via Razorpay."
+            />
+            <Reveal delay={0.08}>
+              <DynamicPricing onStart={onStart}>
+                {/* Static fallback — mirrors the current DB catalog, shown only
+                    while /api/plans is loading or unreachable */}
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 md:items-stretch">
+                  <PricingCard
+                    name="Free Trial"
+                    price="₹0"
+                    period="/ 3 Days"
+                    features={['Full feature access', '3 days validity', 'No card needed']}
+                    cta="Try Now"
+                    ctaStyle="ghost"
+                    onCta={onStart}
+                  />
+                  <PricingCard
+                    name="Pro (3 Months)"
+                    price="₹129"
+                    originalPrice="₹499"
+                    period="/ 3 Mo"
+                    badge="20% OFF"
+                    features={['Full feature Access', 'Priority Support', 'Game RPC Requests', 'Custom discord role']}
+                    cta="Buy Now"
+                    ctaStyle="primary"
+                    highlighted
+                    onCta={onStart}
+                  />
+                  <PricingCard
+                    name="Plus (1 Month)"
+                    price="₹49"
+                    originalPrice="₹249"
+                    period="/ 1 Mo"
+                    features={['Full feature access', 'Standard Support', 'Basic discord role']}
+                    cta="Buy Now"
+                    ctaStyle="ghost"
+                    onCta={onStart}
+                  />
+                </div>
+              </DynamicPricing>
+            </Reveal>
+            <p className="text-center text-xs text-white/40 mt-8">
+              Prices are managed live by the 10X RPC team — what you see here is always current.
+            </p>
           </div>
         </section>
 
@@ -410,7 +449,6 @@ export function LandingPage() {
                           24/7 always on
                         </p>
                       </div>
-                      <p className="mt-3 text-right text-[10px] text-white/35">View all</p>
                     </div>
 
                     <div className="bg-white/[0.02] border border-white/5 rounded-xl p-4">
@@ -654,60 +692,6 @@ export function LandingPage() {
                 ))}
               </div>
             </Reveal>
-          </div>
-        </section>
-
-        {/* ============ PRICING ============ */}
-        <section id="pricing" className="relative px-4 sm:px-6 py-16 sm:py-24 scroll-mt-20 overflow-hidden">
-          <div className="absolute top-16 left-1/2 -translate-x-1/2 w-[640px] h-[320px] bg-violet-600/10 rounded-full blur-[130px] pointer-events-none" aria-hidden />
-          <div className="relative max-w-5xl mx-auto">
-            <SectionHeading
-              eyebrow="Pricing"
-              title="Simple, honest pricing"
-              sub="Every account starts with a free trial — no card needed. Pay with UPI, cards or netbanking via Razorpay."
-            />
-            <Reveal delay={0.08}>
-              <DynamicPricing onStart={onStart}>
-                {/* Static fallback — mirrors the current DB catalog, shown only
-                    while /api/plans is loading or unreachable */}
-                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 md:items-stretch">
-                  <PricingCard
-                    name="Free Trial"
-                    price="₹0"
-                    period="/ 3 Days"
-                    features={['Full feature access', '3 days validity', 'No card needed']}
-                    cta="Try Now"
-                    ctaStyle="ghost"
-                    onCta={onStart}
-                  />
-                  <PricingCard
-                    name="Pro (3 Months)"
-                    price="₹129"
-                    originalPrice="₹499"
-                    period="/ 3 Mo"
-                    badge="20% OFF"
-                    features={['Full feature Access', 'Priority Support', 'Game RPC Requests', 'Custom discord role']}
-                    cta="Buy Now"
-                    ctaStyle="primary"
-                    highlighted
-                    onCta={onStart}
-                  />
-                  <PricingCard
-                    name="Plus (1 Month)"
-                    price="₹49"
-                    originalPrice="₹249"
-                    period="/ 1 Mo"
-                    features={['Full feature access', 'Standard Support', 'Basic discord role']}
-                    cta="Buy Now"
-                    ctaStyle="ghost"
-                    onCta={onStart}
-                  />
-                </div>
-              </DynamicPricing>
-            </Reveal>
-            <p className="text-center text-xs text-white/40 mt-8">
-              Prices are managed live by the 10X RPC team — what you see here is always current.
-            </p>
           </div>
         </section>
 
