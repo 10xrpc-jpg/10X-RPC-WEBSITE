@@ -10,11 +10,9 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
 import {
-  Gamepad2, Glasses, Globe2, RefreshCcw, ShieldCheck, Lock, Cloud,
+  Globe2, RefreshCcw, ShieldCheck, Lock, Cloud,
   Menu, X, LogIn, CreditCard, Radio, Check, Monitor,
-  LayoutDashboard, Settings, Search, Bell, HelpCircle, Calendar,
-  ChevronDown, Filter, ArrowUpRight, MoonStar, Sparkles,
-  ChevronsLeft,
+  HelpCircle, MoonStar, Sparkles, Settings, ChevronDown,
 } from 'lucide-react'
 import { BrandMark, BrandName } from './BrandMark'
 import { useRouter } from './useRouter'
@@ -368,177 +366,6 @@ export function LandingPage() {
           </div>
         </section>
 
-        {/* ============ DASHBOARD APP MOCKUP ============ */}
-        <section id="product" className="relative px-4 sm:px-6 pb-20 sm:pb-28 scroll-mt-20">
-          <Reveal>
-            <div className="max-w-6xl mx-auto rounded-2xl border border-white/10 bg-[#07080C] shadow-[0_40px_120px_-40px_rgba(0,0,0,0.9)] overflow-hidden">
-              <div className="flex">
-                {/* Sidebar */}
-                <aside className="hidden md:flex w-52 shrink-0 flex-col border-r border-white/5 bg-[#08090E] p-3">
-                  <div className="flex items-center justify-between px-2 py-1.5">
-                    <BrandMark className="w-6 h-6" />
-                    <ChevronsLeft className="w-4 h-4 text-white/25" aria-hidden />
-                  </div>
-                  <nav className="mt-4 flex flex-col gap-0.5" aria-label="Dashboard preview">
-                    <SidebarItem icon={LayoutDashboard} label="Dashboard" active />
-                    <SidebarItem icon={Radio} label="Rich Presence" />
-                    <SidebarItem icon={Gamepad2} label="Gamer RPC" />
-                    <SidebarItem icon={Glasses} label="VR Status" />
-                    <SidebarItem icon={RefreshCcw} label="Status Rotator" />
-                    <SidebarItem icon={Globe2} label="Placeholders" />
-                  </nav>
-                  <div className="mt-auto pt-4 flex flex-col gap-0.5 border-t border-white/5">
-                    <SidebarItem icon={Settings} label="Settings" />
-                    <SidebarItem icon={HelpCircle} label="Support" />
-                  </div>
-                </aside>
-
-                {/* Main panel */}
-                <div className="flex-1 min-w-0 p-3.5 sm:p-5">
-                  {/* topbar */}
-                  <div className="flex items-center gap-3">
-                    <div className="hidden sm:flex flex-1 items-center gap-2 bg-white/[0.03] border border-white/8 rounded-lg px-3 py-2 max-w-xs">
-                      <Search className="w-3.5 h-3.5 text-white/35" aria-hidden />
-                      <span className="text-xs text-white/35">Search anything...</span>
-                      <span className="ml-auto text-[10px] text-white/30 border border-white/10 rounded px-1.5 py-0.5 font-mono">⌘K</span>
-                    </div>
-                    <div className="ml-auto flex items-center gap-3">
-                      <HelpCircle className="w-4 h-4 text-white/40" aria-hidden />
-                      <Bell className="w-4 h-4 text-white/40" aria-hidden />
-                      <Settings className="w-4 h-4 text-white/40" aria-hidden />
-                      <span className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-600 text-[10px] font-bold text-white flex items-center justify-center ring-1 ring-white/20">10</span>
-                    </div>
-                  </div>
-
-                  {/* stat cards */}
-                  <div className="mt-4 grid grid-cols-2 lg:grid-cols-4 gap-3">
-                    <div className="bg-white/[0.02] border border-white/5 rounded-xl p-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[11px] text-white/50">Sessions today</p>
-                        <span className="text-[10px] font-semibold text-[#3BA55C] bg-[#23A559]/10 border border-[#23A559]/25 rounded px-1.5 py-0.5">+28%</span>
-                      </div>
-                      <p className="mt-2 text-xl font-bold text-white">1,038<span className="text-white/40 text-sm">.82</span></p>
-                      <p className="mt-1.5 flex items-center gap-1 text-[10px] text-white/40"><RefreshCcw className="w-3 h-3" aria-hidden /> Live · updated 12s ago</p>
-                      <div className="mt-3 flex gap-1">
-                        {['7d', '30d', '90d'].map(k => (
-                          <span key={k} className="text-[9px] font-mono text-white/40 border border-white/10 rounded px-1.5 py-0.5">{k}</span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="bg-white/[0.02] border border-white/5 rounded-xl p-4">
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="text-[11px] text-white/50">Avg session</p>
-                        <span className="text-[10px] font-semibold text-violet-300 bg-violet-500/10 border border-violet-500/25 rounded px-1.5 py-0.5">+5.7%</span>
-                      </div>
-                      <p className="mt-2 text-xl font-bold text-white">6h 12m<span className="text-white/40 text-sm">.82</span></p>
-                      <div className="mt-8 flex justify-end">
-                        <ArrowUpRight className="w-3.5 h-3.5 text-white/25" aria-hidden />
-                      </div>
-                    </div>
-
-                    <div className="bg-white/[0.02] border border-white/5 rounded-xl p-4">
-                      <p className="text-[11px] text-white/50">Presence uptime</p>
-                      <div className="mt-3 space-y-2">
-                        <p className="flex items-center gap-2 text-xs text-white/80">
-                          <span className="w-4 h-4 rounded-full bg-violet-500/20 ring-1 ring-violet-400/40 flex items-center justify-center text-[8px] font-bold text-violet-300">U</span>
-                          99.98% this month
-                        </p>
-                        <p className="flex items-center gap-2 text-xs text-white/80">
-                          <span className="w-4 h-4 rounded-full bg-[#23A559]/20 ring-1 ring-[#23A559]/40 flex items-center justify-center text-[8px] font-bold text-[#3BA55C]">C</span>
-                          24/7 always on
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="bg-white/[0.02] border border-white/5 rounded-xl p-4">
-                      <p className="text-[11px] text-white/50">Profile engagement</p>
-                      <p className="mt-2 flex items-center gap-1 text-xl font-bold text-white">
-                        <ArrowUpRight className="w-4 h-4 text-violet-300" aria-hidden /> 72%
-                      </p>
-                      <p className="mt-1.5 text-[10px] text-white/40 leading-relaxed">Your presence views grew significantly in the last 30 days.</p>
-                      <div className="mt-2 flex justify-end">
-                        <ArrowUpRight className="w-3.5 h-3.5 text-white/25" aria-hidden />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* filter row */}
-                  <div className="mt-4 flex flex-wrap items-center gap-2">
-                    <FilterPill label="Last 4 weeks" caret />
-                    <FilterPill icon={<Calendar className="w-3 h-3" />} label="May 12 – Jun 9" />
-                    <span className="text-[11px] text-white/30 hidden lg:inline">compared to</span>
-                    <FilterPill label="Previous period" caret className="hidden lg:flex" />
-                    <div className="ml-auto flex items-center gap-2">
-                      <div className="flex rounded-lg border border-white/8 overflow-hidden text-[11px]" role="group" aria-label="Chart granularity">
-                        <span className="px-3 py-1.5 text-white/45">Daily</span>
-                        <span className="px-3 py-1.5 bg-white/[0.07] text-white font-medium">Weekly</span>
-                      </div>
-                      <span className="flex items-center gap-1.5 bg-violet-600 text-white text-[11px] font-semibold rounded-lg px-3 py-1.5 shadow-[0_4px_16px_-4px_rgba(139,92,246,0.6)]">
-                        <Filter className="w-3 h-3" aria-hidden /> Filter
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* chart */}
-                  <div className="mt-4 relative rounded-xl border border-white/5 bg-white/[0.015] p-3 sm:p-4">
-                    <div className="flex gap-6">
-                      <div>
-                        <p className="text-[10px] text-white/40">Presence views</p>
-                        <p className="text-sm font-bold text-white">12,482<span className="text-[10px] text-white/35">.37</span></p>
-                      </div>
-                      <div>
-                        <p className="text-[10px] text-white/40">Active hours</p>
-                        <p className="text-sm font-bold text-white">712<span className="text-[10px] text-white/35">.55</span></p>
-                      </div>
-                    </div>
-                    <div className="relative mt-2 h-44 sm:h-60">
-                      <svg className="absolute inset-0 w-full h-full" viewBox="0 0 1000 300" preserveAspectRatio="none" aria-hidden>
-                        <defs>
-                          <linearGradient id="areaFill" x1="0" y1="0" x2="0" y2="1">
-                            <stop offset="0%" stopColor="#8B5CF6" stopOpacity="0.22" />
-                            <stop offset="100%" stopColor="#8B5CF6" stopOpacity="0" />
-                          </linearGradient>
-                        </defs>
-                        {/* comparison line (previous period) */}
-                        <path d="M0,252 C70,244 130,228 210,234 C290,240 350,210 430,214 C510,218 570,190 650,196 C730,202 790,172 870,180 C930,186 970,176 1000,172" fill="none" stroke="rgba(255,255,255,0.12)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
-                        {/* area fill */}
-                        <path d="M0,232 C55,214 95,184 150,190 C205,196 235,128 292,117 C342,108 372,150 420,158 C468,166 502,94 560,82 C612,72 642,120 692,128 C742,136 772,58 830,48 C882,40 922,92 1000,112 L1000,300 L0,300 Z" fill="url(#areaFill)" />
-                        {/* main glowing line */}
-                        <path d="M0,232 C55,214 95,184 150,190 C205,196 235,128 292,117 C342,108 372,150 420,158 C468,166 502,94 560,82 C612,72 642,120 692,128 C742,136 772,58 830,48 C882,40 922,92 1000,112" fill="none" stroke="#A78BFA" strokeWidth="2.5" vectorEffect="non-scaling-stroke" className="chart-line-glow" />
-                        {/* tooltip guide */}
-                        <line x1="830" y1="48" x2="830" y2="300" stroke="rgba(167,139,250,0.4)" strokeWidth="1.5" strokeDasharray="4 5" vectorEffect="non-scaling-stroke" />
-                        <circle cx="830" cy="48" r="5" fill="#A78BFA" />
-                      </svg>
-
-                      {/* tooltip card */}
-                      <div className="absolute right-[5%] top-0 bg-[#101218]/95 border border-white/10 rounded-lg px-3 py-2 shadow-xl">
-                        <p className="text-[10px] font-semibold text-white/80">Wed, Jun 4</p>
-                        <p className="mt-0.5 text-[10px] text-white/55 flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-violet-400" aria-hidden /> 1,248 sessions
-                        </p>
-                        <p className="text-[10px] text-white/55 flex items-center gap-1.5">
-                          <span className="w-1.5 h-1.5 rounded-full bg-white/30" aria-hidden /> 1,090 previous
-                        </p>
-                      </div>
-
-                      {/* y-axis labels */}
-                      <span className="absolute right-1 top-[8%] text-[10px] text-white/30">2.4K</span>
-                      <span className="absolute right-1 top-[46%] text-[10px] text-white/30">1.0K</span>
-                      <span className="absolute right-1 bottom-[4%] text-[10px] text-white/30">300</span>
-                    </div>
-                    <div className="mt-1.5 flex justify-between text-[10px] text-white/30">
-                      <span>May 12</span>
-                      <span className="hidden sm:inline">May 26</span>
-                      <span>Jun 9</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </Reveal>
-        </section>
-
         {/* ============ STATEMENT ============ */}
         <section className="px-4 sm:px-6 py-16 sm:py-24">
           <div className="max-w-6xl mx-auto grid md:grid-cols-2 gap-10 md:gap-16 items-start">
@@ -808,32 +635,6 @@ function SectionHeading({ eyebrow, title, sub }: { eyebrow: string; title: strin
       <h2 className="mt-3 text-3xl sm:text-5xl font-black text-white tracking-tight">{title}</h2>
       {sub && <p className="mt-4 text-base text-white/55 leading-relaxed">{sub}</p>}
     </Reveal>
-  )
-}
-
-/* ---------- dashboard mockup helpers ---------- */
-
-function SidebarItem({ icon: Icon, label, active }: { icon: React.ComponentType<{ className?: string }>; label: string; active?: boolean }) {
-  return (
-    <span
-      className={cn(
-        'flex items-center gap-2.5 rounded-lg px-3 py-2 text-xs font-medium',
-        active ? 'bg-white/[0.06] text-white' : 'text-white/45'
-      )}
-    >
-      <Icon className="w-3.5 h-3.5" aria-hidden />
-      {label}
-    </span>
-  )
-}
-
-function FilterPill({ icon, label, caret, className }: { icon?: React.ReactNode; label: string; caret?: boolean; className?: string }) {
-  return (
-    <span className={cn('inline-flex items-center gap-1.5 text-[11px] text-white/60 bg-white/[0.03] border border-white/8 rounded-lg px-3 py-1.5', className)}>
-      {icon}
-      {label}
-      {caret && <ChevronDown className="w-3 h-3 text-white/35" aria-hidden />}
-    </span>
   )
 }
 
