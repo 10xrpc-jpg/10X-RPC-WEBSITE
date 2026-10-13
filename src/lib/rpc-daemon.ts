@@ -15,7 +15,6 @@ import {
   refreshDiscordToken,
   resolveRuntimeCandidates,
   selectActiveRpcConfigs,
-  assignCandidateApplicationIds,
   assignSessionPlatforms,
   discordPlatformClass,
   type PresenceResult,
@@ -1328,16 +1327,12 @@ export class RpcDaemon {
       && runtime.runtimeMode === 'simultaneous'
       && runtime.candidates.length >= 2
 
-    // Task 84b — Application-ID de-collision: Discord renders ONE activity card
-    // per unique Application ID, so simultaneous candidates sharing an id
-    // (every slot without a custom Application ID defaults to the 10X app)
-    // collapse into a single card. Assign every duplicate a distinct shell id
-    // (runtime-only, deterministic — Game RPC ids are always reserved first)
-    // and push the SAME ids from the main array AND every extra session so all
-    // sessions agree. Auto Rotate / single-candidate pushes are untouched.
-    const appIdOverrides = multiSessionActive
-      ? assignCandidateApplicationIds(runtime.candidates, { rpcAppIdMap })
-      : null
+    // Task 85 — NO Application-ID shell overlay: normal slots present under
+    // the user's custom Application ID or the 10X RPC application (game ids
+    // are reserved for the isolated Game RPC). Discord renders one card per
+    // (platform class, application id) pair, and every simultaneous session
+    // already gets a DISTINCT platform class (Task 84c/84d) — so same-default
+    // slots still render side by side without any game-id re-identification.
 
     const extras: Array<{ idx: number; key: string; label: string; platform: string; activity: Record<string, unknown>; configHash: string }> = []
     // Task 84d — candidates that could NOT get their own extra session (no
@@ -1393,7 +1388,6 @@ export class RpcDaemon {
             platform: globalPlatform,
             userAccessToken: session.discordAccessToken,
             rpcAppIdMap,
-            appIdOverrides,
           })
           const safe = sanitizeActivities(built as Array<Record<string, unknown>>)
           if (safe.length === 0) mainFallback.push(cand)
@@ -1468,8 +1462,6 @@ export class RpcDaemon {
       userAccessToken: session.discordAccessToken,
       // Per-slot app IDs + per-candidate game spoofing (inside the builder).
       rpcAppIdMap,
-      // Task 84b — same de-collided identities as the extra sessions.
-      appIdOverrides,
     })
 
     // Defense-in-depth: raw http(s) URLs inside assets are silently dropped by

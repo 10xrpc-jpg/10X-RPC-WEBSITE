@@ -210,6 +210,24 @@ export function findGame(slug: string) {
   return GAME_PRESETS.find(g => g.slug === slug)
 }
 
+/** Every game-spoof catalog Application ID (official game identities). */
+export const GAME_APPLICATION_IDS: ReadonlySet<string> = new Set(
+  Object.values(GAME_SPOOF).map(e => e.appId)
+)
+
+/**
+ * True when an Application ID belongs to one of the GAME_SPOOF catalog games
+ * (Minecraft, Genshin, Valorant, CS2, ...). Game application identities are
+ * reserved EXCLUSIVELY for the isolated Game RPC (GameConfig). A NORMAL RPC
+ * slot must never present under a game's application id — defaults to the
+ * 10X RPC application instead. Every layer (save routes, serializers, the
+ * activity builder, the daemon's candidate resolver) treats a game id found
+ * on a normal slot as unset.
+ */
+export function isGameApplicationId(appId: string | null | undefined): boolean {
+  return !!appId && GAME_APPLICATION_IDS.has(appId)
+}
+
 export function searchGames(query: string): GamePreset[] {
   const q = query.toLowerCase().trim()
   if (!q) return GAME_PRESETS

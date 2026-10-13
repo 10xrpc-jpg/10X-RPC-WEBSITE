@@ -4,6 +4,7 @@
 // slot numbers and serialize rows for the client.
 
 import { db } from '@/lib/db'
+import { isGameApplicationId } from '@/lib/games'
 
 export const MAX_RPC_SLOTS = 3
 
@@ -93,7 +94,9 @@ export function serializeSlot(cfg: Record<string, unknown> & { slot: number }) {
     partySecret: cfg.partySecret,
     startMinsAgo: cfg.startMinsAgo,
     endTotalMins: cfg.endTotalMins,
-    appId: cfg.appId,
+    // Game catalog ids on a normal slot are bad legacy rows — present as
+    // unset so the UI and the daemon agree on the 10X default resolution.
+    appId: isGameApplicationId(cfg.appId as string | null | undefined) ? null : (cfg.appId as string | null),
     enabled: cfg.enabled,
   }
 }

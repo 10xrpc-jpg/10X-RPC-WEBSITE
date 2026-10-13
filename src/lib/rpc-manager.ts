@@ -8,7 +8,7 @@ import type { RpcConfig } from './api-client'
 import type { PlaceholderContext } from './placeholders'
 import { resolvePlaceholders } from './placeholders'
 import { resolveRpcActivityName } from './constants'
-import { GAME_SPOOF, findGame, DISCORD_APP_ID_RE, type GameSpoofEntry } from './games'
+import { GAME_SPOOF, findGame, DISCORD_APP_ID_RE, isGameApplicationId, type GameSpoofEntry } from './games'
 import { resolveAssetRef, resolveExternalAsset, sanitizeActivities, type ResolveOpts } from './discord-assets'
 import { discordAuthValue } from './discord-auth'
 import { buildIdentify } from './gateway-platform'
@@ -74,7 +74,9 @@ export async function fetchRpcAppIds(userId: string): Promise<Map<string, string
       SELECT "id", "appId" FROM "RpcConfig"
       WHERE "userId" = ${userId}`
     for (const r of rows ?? []) {
-      if (r.appId && DISCORD_APP_ID_RE.test(r.appId)) map.set(r.id, r.appId)
+      // Normal slots never present under a game's application id — a game id
+      // stored on a slot row is a legacy/bad row → treat as unset.
+      if (r.appId && DISCORD_APP_ID_RE.test(r.appId) && !isGameApplicationId(r.appId)) map.set(r.id, r.appId)
     }
   } catch {
     // DB error / missing column on a very old client — empty map, per-row
@@ -169,7 +171,7 @@ export async function buildActivityPayload(
   // application — 10X-scoped uploaded asset IDs would never render there, so
   // resolution is constrained to application-independent mp:external refs
   // (and pass-through of values the user owns, e.g. their app's asset IDs).
-  const customAppId = cfg.appId && DISCORD_APP_ID_RE.test(cfg.appId) ? cfg.appId : null
+  const customAppId = cfg.appId && DISCORD_APP_ID_RE.test(cfg.appId) && !isGameApplicationId(cfg.appId) ? cfg.appId : null
   const assets: Record<string, string> = {}
   const assetOptsWithApp: ResolveOpts = { ...assetOpts, externalOnly: !!customAppId }
   const largeImageRef = await resolveAssetRef(cfg.largeImage, assetOptsWithApp)
@@ -204,10 +206,11 @@ export async function buildActivityPayload(
   // Platform — send-side field for headless/embedded sessions
   if (cfg.platform) activity.platform = cfg.platform
 
-  // Application ID — required for Discord to accept the activity.
   // A user-supplied Application ID presents the presence as THEIR application
   // (their own Discord app from the Developer Portal); otherwise the 10X app
-  // identity is used.
+  // identity is used. Game catalog ids (Minecraft, Valorant, ...) are NOT
+  // valid custom ids for a normal slot — they are reserved for the isolated
+  // Game RPC and are treated as unset here (→ 10X default).
   activity.application_id = customAppId || CONFIG.discord.clientId
 
   return activity
@@ -374,22 +377,14 @@ export function resolveRuntimeCandidates(opts: {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
-// APPLICATION-ID DE-COLLISION (Task 84 — "show 3 RPCs at the same time")
-// Discord renders ONE activity card per unique Application ID: simultaneous
-// candidates that resolve to the same application (every slot with no custom
-// Application ID defaults to the 10X app) are collapsed by the client into a
-// single card — live-verified (3 same-app sessions → 1 card, while the
-// distinct-app Game RPC rendered its own card next to it).
-// In simultaneous mode every duplicate candidate therefore receives a
-// DISTINCT "shell" Application ID: a real, public Discord application
-// identity (from the GAME_SPOOF catalog). RUNTIME-ONLY overlay — saved
-// configs are never modified, card content (name/details/state/buttons/
-// timestamps) is untouched, and externally mirrored images (mp:external/…)
-// render identically under ANY application id, so cards keep their branding.
-// The assignment is deterministic (candidate order + pool order) so daemon
-// restarts and multi-instance runs always compute the same identities, and
-// enabling/disabling the Game RPC can never reshuffle slot identities
-// (game ids are reserved first).
+// APPLICATION-ID DE-COLLISION — RETIRED (Task 85).
+// The Task 84b "shell id" overlay assigned GAME catalog application ids to
+// duplicate normal slots at runtime. Per the product rule ("normal RPCs run
+// under the 10X RPC application unless the user supplies their own custom
+// Application ID; game ids are Game-RPC-only") the overlay is NO LONGER WIRED
+// anywhere: every normal slot resolves to customAppId || CONFIG.discord.clientId
+// and simultaneous rendering relies on each session's DISTINCT platform class
+// (Task 84c/84d). Kept only as reference for the Task 84b test script.
 // ════════════════════════════════════════════════════════════════════════════
 
 /** Deterministic shell pool — real public application IDs (GAME_SPOOF order). */
@@ -418,9 +413,12 @@ function resolveCandidateEffectiveAppId(
     if (spoof) return spoof.appId
     if (cfg.gameAppId && DISCORD_APP_ID_RE.test(cfg.gameAppId)) return cfg.gameAppId
   }
-  if (cfg.appId && DISCORD_APP_ID_RE.test(cfg.appId)) return cfg.appId
+  // Normal slot: the user's own custom Application ID wins; a game catalog id
+  // stored on the row is treated as unset (game ids are Game-RPC-only);
+  // everything else defaults to the 10X RPC application.
+  if (cfg.appId && DISCORD_APP_ID_RE.test(cfg.appId) && !isGameApplicationId(cfg.appId)) return cfg.appId
   const fallback = cfg.id && rpcAppIdMap ? rpcAppIdMap.get(cfg.id) : null
-  if (fallback && DISCORD_APP_ID_RE.test(fallback)) return fallback
+  if (fallback && DISCORD_APP_ID_RE.test(fallback) && !isGameApplicationId(fallback)) return fallback
   return CONFIG.discord.clientId
 }
 
@@ -641,12 +639,6 @@ export async function buildPresenceActivities(options: {
   rpcAppId?: string | null
   /** Per-row appId fallbacks for the multi path (fetchRpcAppIds). */
   rpcAppIdMap?: Map<string, string> | null
-  /**
-   * Runtime Application-ID de-collision (assignCandidateApplicationIds) —
-   * simultaneous mode assigns every duplicate application a distinct shell
-   * id so Discord renders one card PER RPC. Keyed by rpcCandidateKey(cfg).
-   */
-  appIdOverrides?: Map<string, string> | null
 }): Promise<Array<Record<string, unknown>>> {
   const activities: Array<Record<string, unknown>> = []
 
@@ -707,7 +699,6 @@ async function buildCandidateActivity(
     platform?: string
     userAccessToken?: string | null
     rpcAppIdMap?: Map<string, string> | null
-    appIdOverrides?: Map<string, string> | null
   }
 ): Promise<Record<string, unknown> | null> {
   const ctx = placeholderCtx
@@ -723,7 +714,7 @@ async function buildCandidateActivity(
   // this — their spoof logic overrides application_id below.
   let cfgForBuild: RpcConfig = cfg
   const fallbackAppId = cfg.id && options.rpcAppIdMap ? options.rpcAppIdMap.get(cfg.id) : null
-  if (!cfg.gameSlug && fallbackAppId && !DISCORD_APP_ID_RE.test(cfgForBuild.appId || '')) {
+  if (!cfg.gameSlug && fallbackAppId && !DISCORD_APP_ID_RE.test(cfgForBuild.appId || '') && !isGameApplicationId(fallbackAppId)) {
     cfgForBuild = { ...cfgForBuild, appId: fallbackAppId }
   }
 
@@ -790,16 +781,6 @@ async function buildCandidateActivity(
       }
       console.log(`[10X RPC] Game spoof: ${activeGame?.slug ?? 'custom'} → application ${spoof.appId} "${spoof.name}"${iconRef ? ' (official icon attached)' : ' (no icon)'}`)
     }
-  }
-
-  // Application-ID de-collision — the simultaneous-mode override (computed by
-  // assignCandidateApplicationIds) has the FINAL say so every duplicate
-  // application renders as its own card. Game candidates are never overridden
-  // (their official id is reserved first).
-  const overrideKey = cfg.id || (cfg.gameSlug ? `game:${cfg.gameSlug}` : '')
-  const appIdOverride = overrideKey ? options.appIdOverrides?.get(overrideKey) : null
-  if (appIdOverride && DISCORD_APP_ID_RE.test(appIdOverride)) {
-    activity.application_id = appIdOverride
   }
 
   return activity
@@ -1356,13 +1337,11 @@ export async function applyPresence(
   // Per-row Application ID fallbacks (pre-appId Prisma clients).
   const rpcAppIdMap = await fetchRpcAppIds(session.userId)
 
-  // Simultaneous multi-RPC: de-collide Application IDs so Discord renders
-  // one card PER RPC (same deterministic rule as the daemon's Multi-Session).
-  const appIdOverrides = isRpcActive && selection.candidates.length >= 2
-    ? assignCandidateApplicationIds(selection.candidates, { rpcAppIdMap })
-    : null
-
-  // Build combined activities (custom status + one per candidate)
+  // Build combined activities (custom status + one per candidate).
+  // Normal slots resolve to the user's custom Application ID or the 10X RPC
+  // application (Task 85 — no game-id shell overlay; Discord renders one card
+  // per (platform class, application id) pair and every simultaneous session
+  // already gets a DISTINCT platform class).
   const activities = await buildPresenceActivities({
     rpcConfigs: isRpcActive ? selection.candidates : [],
     customStatus: isStatusActive ? session.customStatus : null,
@@ -1372,7 +1351,6 @@ export async function applyPresence(
     platform: isVr ? 'meta_quest' : explicitPlatform,
     userAccessToken: accessToken,
     rpcAppIdMap,
-    appIdOverrides,
   })
 
   // Send presence via Gaming SDK gateway

@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
 import { resolveRpcActivityName } from '@/lib/constants'
 import { capStr, capNum, LIMIT_TEXT, LIMIT_ASSET_REF, LIMIT_URL, LIMIT_SHORT } from '@/lib/validate'
-import { DISCORD_APP_ID_RE } from '@/lib/games'
+import { DISCORD_APP_ID_RE, isGameApplicationId } from '@/lib/games'
 
 export const dynamic = 'force-dynamic'
 
@@ -44,7 +44,12 @@ function normalizeAppId(v: unknown): string | null {
   if (typeof v !== 'string') return null
   const t = v.trim()
   if (!t) return null
-  return DISCORD_APP_ID_RE.test(t) ? t : null
+  if (!DISCORD_APP_ID_RE.test(t)) return null
+  // Normal RPC slots never present under a game's application identity —
+  // game app ids (Minecraft, Valorant, ...) are reserved for the isolated
+  // Game RPC (GameConfig). Silently coerce to the 10X default (null).
+  if (isGameApplicationId(t)) return null
+  return t
 }
 
 export async function POST(req: Request) {
