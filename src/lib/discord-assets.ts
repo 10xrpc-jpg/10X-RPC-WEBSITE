@@ -54,7 +54,7 @@ const MIRROR_DIR = 'public/asset-mirror'
 //   1. only allows http/https,
 //   2. rejects credentials-in-URL and non-standard ports,
 //   3. DNS-resolves the host and rejects ANY private/loopback/link-local IP.
-const PRIVATE_V4 = [
+const PRIVATE_V4: Array<[string, number]> = [
   ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8],
   ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16],
   ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4],

@@ -72,6 +72,29 @@ export async function setSessionCookie(userId: string) {
   const cookieStore = await cookies()
   const token = createSessionToken(userId)
   const expiresAt = new Date(Date.now() + CONFIG.session.ttlDays * 24 * 60 * 60 * 1000)
+
+  // RE-LOGIN FLAG PRESERVATION (Task 89): a fresh login used to create the
+  // Session row with every feature flag at its default (rpcEnabled/status
+  // Enabled = false). The 24/7 daemon always serves the LATEST valid session,
+  // so a simple re-login (or "Reconnect Discord") silently KILLED the user's
+  // live RPC until they noticed and re-toggled everything. Carry the feature
+  // state over from the user's most recent session instead — the daemon keeps
+  // running seamlessly across re-auth. Field DATA still lives in RpcConfig /
+  // GameConfig / GlobalConfig, so nothing else needs copying.
+  const previous = await db.session.findFirst({
+    where: { userId },
+    orderBy: { createdAt: 'desc' },
+    select: {
+      rpcEnabled: true,
+      statusEnabled: true,
+      userStatus: true,
+      customStatus: true,
+      customStatusEmoji: true,
+      statusPlatform: true,
+      vrStatusActive: true,
+    },
+  }).catch(() => null)
+
   cookieStore.set(COOKIE_NAME, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
@@ -79,8 +102,22 @@ export async function setSessionCookie(userId: string) {
     path: '/',
     expires: expiresAt,
   })
+
   await db.session.create({
-    data: { userId, token, expiresAt },
+    data: {
+      userId,
+      token,
+      expiresAt,
+      ...(previous ? {
+        rpcEnabled: previous.rpcEnabled,
+        statusEnabled: previous.statusEnabled,
+        userStatus: previous.userStatus,
+        customStatus: previous.customStatus,
+        customStatusEmoji: previous.customStatusEmoji,
+        statusPlatform: previous.statusPlatform,
+        vrStatusActive: previous.vrStatusActive,
+      } : {}),
+    },
   })
   return token
 }

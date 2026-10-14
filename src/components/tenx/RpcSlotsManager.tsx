@@ -16,6 +16,11 @@
 //     and stay on its own session while the slots rotate.
 //   • SKIP NOW: advance to the next RPC immediately.
 //   • More intervals: 15s … 30 minutes.
+// Task 89 — MULTI-GAME + ROTATION SELECTION:
+//   • Every enabled game is a first-class RPC in the chain (multi-Gamer-RPC:
+//     all Gamer RPCs + Normal RPCs run at the same time in Multi-Session).
+//   • "ROTATION RPCS" chips: the user picks EXACTLY which RPCs take turns —
+//     only the highlighted ones participate in the Auto Rotator.
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -49,7 +54,7 @@ const ORDER_OPTIONS: Array<{ value: RotateOrder; label: string; icon: LucideIcon
 type AutoRotate = NonNullable<Me['autoRotate']>
 
 const DEFAULT_ROTATE: AutoRotate = {
-  enabled: false, secs: 30, order: 'forward', includeGame: true, skip: 0, refMs: null,
+  enabled: false, secs: 30, order: 'forward', includeGame: true, skip: 0, refMs: null, slots: null,
 }
 
 function mmss(totalSecs: number): string {
@@ -82,22 +87,40 @@ export function RpcSlotsManager({
   const [rotateIncludeGame, setRotateIncludeGame] = useState(rotate.includeGame)
   const [rotateSkip, setRotateSkip] = useState(rotate.skip)
   const [rotateRefMs, setRotateRefMs] = useState<number | null>(rotate.refMs)
+  /** Task 89 — explicit rotation pool (candidate keys). null = every enabled
+   *  RPC rotates (the stored selection is unset). */
+  const [rotateSlots, setRotateSlots] = useState<string[] | null>(rotate.slots ?? null)
   const [savingRotate, setSavingRotate] = useState(false)
   const [skipping, setSkipping] = useState(false)
   const [nowMs, setNowMs] = useState(() => Date.now())
 
   const enabledSlots = slots.filter(s => s.enabled)
-  const enabledGame = me.activeGame?.enabled ? me.activeGame : null
-  // Full chain (slots + game) — used by the Multi-Session status texts.
-  const rotationChain = [
-    ...enabledSlots.map(s => `RPC ${s.slot ?? '?'}`),
-    ...(enabledGame ? ['Game RPC'] : []),
-  ]
-  // Rotation POOL (Task 87) — the game only joins when includeGame is on.
-  const pool = useMemo(() => ([
-    ...enabledSlots.map(s => ({ name: `RPC ${s.slot ?? '?'}`, game: false })),
-    ...(enabledGame && rotateIncludeGame ? [{ name: 'Game RPC', game: true }] : []),
-  ]), [enabledSlots.length, enabledGame?.slug, rotateIncludeGame])
+  // Task 89 — MULTI-GAME: every enabled game is its own RPC in the chain.
+  const enabledGames = (me.activeGames?.length
+    ? me.activeGames
+    : (me.activeGame?.enabled ? [me.activeGame] : []))
+    .filter(g => g.enabled)
+  // Every rotate-able candidate (slots first, then games) with its stable key.
+  const rotateCandidates = useMemo(() => [
+    ...enabledSlots.filter(s => s.id).map(s => ({ key: s.id!, label: `RPC ${s.slot ?? '?'}`, game: false })),
+    ...enabledGames.map(g => ({ key: `game:${g.slug}`, label: g.name, game: true })),
+  ], [enabledSlots.map(s => s.id).join(','), enabledGames.map(g => g.slug).join(',')])
+  const allKeys = rotateCandidates.map(c => c.key)
+  // Effective selection — the explicit pick, or the legacy includeGame rule
+  // when the user never touched the chips (games deselected → they sit out).
+  const effectiveSelection = useMemo(() => {
+    if (rotateSlots !== null) return rotateSlots.filter(k => allKeys.includes(k))
+    return rotateIncludeGame ? allKeys : allKeys.filter(k => !k.startsWith('game:'))
+  }, [rotateSlots, rotateIncludeGame, allKeys.join(',')])
+  // Full chain (slots + games) — used by the Multi-Session status texts.
+  const rotationChain = rotateCandidates.map(c => c.label)
+  // Rotation POOL — matches the daemon EXACTLY (shared rule: explicit
+  // selection, fallback to everything when the selection is empty).
+  const pool = useMemo(() => {
+    const sel = new Set(effectiveSelection)
+    const p = rotateCandidates.filter(c => sel.has(c.key))
+    return p.length > 0 ? p : rotateCandidates
+  }, [effectiveSelection.join(','), rotateCandidates.map(c => c.key).join(',')])
   const poolLen = pool.length
   const masterOn = !!me.session?.rpcEnabled
   const rotating = rotateEnabled && poolLen >= 2 && masterOn
@@ -116,12 +139,12 @@ export function RpcSlotsManager({
     if (!rotating) return null
     const idx = rotateCycleIndex({
       refMs: rotateRefMs, secs: rotateSecs, skip: rotateSkip,
-      order: rotateOrder, length: poolLen, seed: me.user.id, nowMs,
+      order: rotateOrder, length: poolLen, seed: me.user?.id ?? 'me', nowMs,
     })
     const nextIn = rotateNextSwitchInSecs({ refMs: rotateRefMs, secs: rotateSecs, nowMs })
     const nextIdx = rotateCycleIndex({
       refMs: rotateRefMs, secs: rotateSecs, skip: rotateSkip,
-      order: rotateOrder, length: poolLen, seed: me.user.id,
+      order: rotateOrder, length: poolLen, seed: me.user?.id ?? 'me',
       nowMs: nowMs + nextIn * 1000 + 250,
     })
     return {
@@ -130,7 +153,7 @@ export function RpcSlotsManager({
       nextIn,
       progressPct: Math.min(100, Math.max(0, ((rotateSecs - nextIn) / rotateSecs) * 100)),
     }
-  }, [rotating, rotateRefMs, rotateSecs, rotateSkip, rotateOrder, poolLen, me.user.id, nowMs, pool])
+  }, [rotating, rotateRefMs, rotateSecs, rotateSkip, rotateOrder, poolLen, me.user?.id, nowMs, pool])
 
   const applyRotateResponse = (v?: AutoRotate) => {
     if (!v) return
@@ -140,9 +163,10 @@ export function RpcSlotsManager({
     setRotateIncludeGame(v.includeGame)
     setRotateSkip(v.skip)
     setRotateRefMs(v.refMs)
+    setRotateSlots(v.slots ?? null)
   }
 
-  const saveRotate = async (patch: { enabled?: boolean; secs?: number; order?: RotateOrder; includeGame?: boolean }) => {
+  const saveRotate = async (patch: { enabled?: boolean; secs?: number; order?: RotateOrder; includeGame?: boolean; slots?: string[] | null }) => {
     setSavingRotate(true)
     try {
       const res = await api.rpcRotateSave(
@@ -150,6 +174,7 @@ export function RpcSlotsManager({
         patch.secs ?? rotateSecs,
         patch.order ?? rotateOrder,
         patch.includeGame ?? rotateIncludeGame,
+        patch.slots !== undefined ? patch.slots : (rotateSlots ?? undefined),
       )
       if (res.ok) {
         applyRotateResponse(res.autoRotate)
@@ -164,6 +189,25 @@ export function RpcSlotsManager({
     } finally {
       setSavingRotate(false)
     }
+  }
+
+  /** Task 89 — include/remove one candidate in the Auto Rotator pool. */
+  const toggleRotateCandidate = (key: string) => {
+    if (savingRotate) return
+    const current = effectiveSelection
+    const next = current.includes(key) ? current.filter(k => k !== key) : [...current, key]
+    if (next.length === 0) {
+      toast.error('Keep at least one RPC in the rotation', { duration: 2200 })
+      return
+    }
+    if (next.length === allKeys.length) {
+      // Everything selected — store the canonical "every enabled RPC rotates".
+      setRotateSlots(null)
+      saveRotate({ slots: null, includeGame: true })
+      return
+    }
+    setRotateSlots(next)
+    saveRotate({ slots: next })
   }
 
   const handleSkip = async () => {
@@ -348,9 +392,9 @@ export function RpcSlotsManager({
                     Multi-Session is ON — all {rotationChain.length} RPCs are running at the same time ({rotationChain.join(', ')}).
                   </p>
                   <p className="mt-1 text-[11px] text-white/55 leading-relaxed">
-                    Each RPC runs as its own Discord session with its own Application ID and its own
-                    device identity (desktop, phone, console…), so Discord shows every RPC side by
-                    side. Auto Rotate stays off — nothing cycles.
+                    Each RPC — every slot AND every enabled game — runs as its own Discord session
+                    with its own device identity (desktop, phone, console, VR…), so Discord shows all
+                    of them side by side. Auto Rotate stays off — nothing cycles.
                   </p>
                 </div>
               </div>
@@ -389,10 +433,10 @@ export function RpcSlotsManager({
             </div>
             <div className="mt-2 flex items-baseline justify-between gap-3 min-w-0">
               <p className="text-sm font-bold text-white truncate">
-                {live.now?.game ? '🎮 ' : ''}{live.now?.name ?? '—'}
+                {live.now?.game ? '🎮 ' : ''}{live.now?.label ?? '—'}
               </p>
               <p className="text-[11px] text-white/55 shrink-0 tabular-nums">
-                next: <span className="text-white/80 font-semibold">{live.next?.game ? '🎮 ' : ''}{live.next?.name ?? '—'}</span>
+                next: <span className="text-white/80 font-semibold">{live.next?.game ? '🎮 ' : ''}{live.next?.label ?? '—'}</span>
                 {' '}in <span className="text-purple-200 font-bold tabular-nums">{mmss(live.nextIn)}</span>
               </p>
             </div>
@@ -466,27 +510,39 @@ export function RpcSlotsManager({
             )}
           </div>
 
-          {/* ── Keep Game RPC always visible (Task 87) ── */}
-          {enabledGame && (
-            <div className="mt-4 flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3.5">
-              <div className="min-w-0">
-                <p className="text-xs font-semibold text-white flex items-center gap-1.5">
-                  <Gamepad2 className="w-3.5 h-3.5 text-purple-300 shrink-0" aria-hidden />
-                  Keep Game RPC always visible
-                </p>
-                <p className="mt-0.5 text-[11px] text-white/50 leading-relaxed">
-                  {rotateIncludeGame
-                    ? 'Game RPC joins the rotation — it takes turns with your slots.'
-                    : 'Game RPC stays on its own always-on session while your slots rotate.'}
-                </p>
+          {/* ── ROTATION RPCs (Task 89) — pick EXACTLY which RPCs take turns ── */}
+          {rotateCandidates.length > 0 && (
+            <div className="mt-4">
+              <label className="text-xs font-bold tracking-wider text-purple-400 uppercase block mb-1.5">
+                ROTATION RPCS
+              </label>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="RPCs included in the Auto Rotator">
+                {rotateCandidates.map(c => {
+                  const active = effectiveSelection.includes(c.key)
+                  return (
+                    <button
+                      key={c.key}
+                      type="button"
+                      disabled={!rotateEnabled || savingRotate}
+                      onClick={() => toggleRotateCandidate(c.key)}
+                      aria-pressed={active}
+                      title={active ? `${c.label} takes turns in the rotation — tap to remove` : `${c.label} sits out — tap to include`}
+                      className={`flex items-center gap-1.5 h-10 px-3.5 rounded-full border text-xs font-bold tracking-wide transition-all active:scale-[0.96] disabled:opacity-50 cursor-pointer ${
+                        active
+                          ? 'border-purple-400/70 bg-purple-500/25 text-white shadow-lg shadow-purple-950/40'
+                          : 'border-white/10 bg-[#12131a] text-white/45 hover:border-white/25 hover:text-white/80'
+                      }`}
+                    >
+                      {c.game && <Gamepad2 className="w-3.5 h-3.5 shrink-0" aria-hidden />}
+                      {c.label}
+                    </button>
+                  )
+                })}
               </div>
-              <div className="shrink-0">
-                <PurpleSwitch
-                  checked={rotateIncludeGame}
-                  onCheckedChange={v => { setRotateIncludeGame(v); saveRotate({ includeGame: v }) }}
-                  ariaLabel="Include Game RPC in the rotation"
-                />
-              </div>
+              <p className="mt-1.5 text-[11px] text-white/45 px-0.5">
+                Only the highlighted RPCs take turns in the Auto Rotator — tap to include or remove
+                them. RPCs left out simply wait; nothing is ever deleted or reset.
+              </p>
             </div>
           )}
 
@@ -511,7 +567,7 @@ export function RpcSlotsManager({
               )}
             </p>
           )}
-          {rotateEnabled && enabledSlots.length === 0 && !enabledGame && (
+          {rotateEnabled && enabledSlots.length === 0 && enabledGames.length === 0 && (
             <p className="mt-3 text-[11px] text-white/50 px-0.5">
               Enable at least two RPCs to see rotation.
             </p>

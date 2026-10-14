@@ -4,7 +4,7 @@ import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { avatarUrl } from '@/lib/discord-oauth'
 import { CONFIG } from '@/lib/config'
-import { resolveRuntimeCandidates, type RpcCandidate } from '@/lib/rpc-manager'
+import { resolveRuntimeCandidates, rotationPoolCandidates, rpcCandidateKey, type RpcCandidate } from '@/lib/rpc-manager'
 import { rotateCycleIndex, rotateNextSwitchInSecs } from '@/lib/rotation'
 import { rotateSettingsView } from '@/lib/rpc-rotate-settings'
 import { sweepSubscription, subscriptionView } from '@/lib/subscription'
@@ -51,7 +51,7 @@ export async function GET() {
     let trial: any = null
     let globalConfig: any = null
     let rpcSlots: any[] = []
-    let enabledGame: any = null
+    let enabledGames: any[] = []
     let rotatorPresets: any[] = []
     // Subscription sweep — flips an expired trial/period to "suspended" and
     // kills the session RPC flags in the same request that notices it.
@@ -60,14 +60,18 @@ export async function GET() {
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        [trial, globalConfig, rpcSlots, enabledGame, rotatorPresets] = await Promise.all([
+        [trial, globalConfig, rpcSlots, enabledGames, rotatorPresets] = await Promise.all([
           db.trial.findUnique({ where: { userId: session.userId } }),
           db.globalConfig.findUnique({ where: { userId: session.userId } }),
           db.rpcConfig.findMany({
             where: { userId: session.userId },
             orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
           }),
-          db.gameConfig.findFirst({ where: { userId: session.userId, enabled: true } }),
+          // Task 89 — MULTI-GAME: every enabled game runs at the same time.
+          db.gameConfig.findMany({
+            where: { userId: session.userId, enabled: true },
+            orderBy: { createdAt: 'asc' },
+          }),
           db.rotatorPreset.findMany({
             where: { userId: session.userId },
             orderBy: { order: 'asc' },
@@ -120,25 +124,27 @@ export async function GET() {
   // Check sleep timer
   const sleepTimerActive = session.sleepTimerActive && session.sleepTimerEndsAt && session.sleepTimerEndsAt > now
 
-  // ══ MULTI-RPC — up to 3 independent slots + the isolated Game RPC ══
+  // ══ MULTI-RPC — up to 3 independent slots + ALL enabled Gamer RPCs (Task
+  // 89 multi-game) ══
   // runtime = what the daemon is ACTUALLY publishing right now (Auto Rotate
   // aware). Saved configs are never modified here.
   const rotateView = rotateSettingsView(globalConfig)
   const fullSelection = resolveRuntimeCandidates({
     rpcEnabled: session.rpcEnabled,
     rpcConfigs: rpcSlots as Array<RpcCandidate & { enabled: boolean }>,
-    enabledGame,
+    enabledGame: enabledGames,
   })
   const runtime = resolveRuntimeCandidates({
     rpcEnabled: session.rpcEnabled,
     rpcConfigs: rpcSlots as Array<RpcCandidate & { enabled: boolean }>,
-    enabledGame,
+    enabledGame: enabledGames,
     autoRotate: rotateView.enabled,
     rotateSecs: rotateView.secs,
     rotateRefMs: rotateView.refMs,
     rotateOrder: rotateView.order,
     rotateSkip: rotateView.skip,
     rotateIncludeGame: rotateView.includeGame,
+    rotateSlotKeys: rotateView.slots,
     rotateSeed: session.userId,
   })
 
@@ -146,7 +152,7 @@ export async function GET() {
   // Computed with the SAME deterministic formula the daemon uses, so the
   // "now showing" name + countdown always match what Discord displays.
   let rotationPreview: {
-    pool: Array<{ name: string; type: string; game: boolean }>
+    pool: Array<{ key: string; name: string; type: string; game: boolean }>
     nowIndex: number
     nowName: string
     nextIndex: number
@@ -154,10 +160,19 @@ export async function GET() {
     nextSwitchInSecs: number
   } | null = null
   if (runtime.active && runtime.runtimeMode === 'rotate' && runtime.rotateIndex != null && runtime.rotatePoolLength) {
-    const poolCandidates = rotateView.includeGame
-      ? fullSelection.candidates
-      : fullSelection.candidates.filter(c => !c.gameSlug)
-    const pool = poolCandidates.map(c => ({ name: c.name, type: c.type, game: !!c.gameSlug }))
+    // Task 89 — the preview pool comes from the SAME shared helper the daemon
+    // uses (explicit selection → includeGame legacy rule), so the strip,
+    // the selection chips and Discord can never disagree.
+    const poolCandidates = rotationPoolCandidates(fullSelection, {
+      rotateSlotKeys: rotateView.slots,
+      includeGame: rotateView.includeGame,
+    })
+    const pool = poolCandidates.map(c => ({
+      key: rpcCandidateKey(c),
+      name: c.name ?? 'RPC',
+      type: c.type ?? 'PLAYING',
+      game: !!c.gameSlug,
+    }))
     const nowMs = Date.now()
     const nextIn = rotateNextSwitchInSecs({ refMs: rotateView.refMs, secs: rotateView.secs, nowMs })
     const nextIdx = rotateCycleIndex({
@@ -171,7 +186,7 @@ export async function GET() {
     })
     rotationPreview = {
       pool,
-      nowIndex: runtime.rotateIndex,
+      nowIndex: Math.min(runtime.rotateIndex, pool.length - 1),
       nowName: pool[runtime.rotateIndex]?.name ?? runtime.candidates[0]?.name ?? '',
       nextIndex: nextIdx,
       nextName: pool[nextIdx]?.name ?? '',
@@ -251,11 +266,18 @@ export async function GET() {
     } : null,
     // The ACTIVE runtime candidate (rotate-aware; null when RPC is not live).
     activeRpcConfig,
-    // Convenience: the currently enabled game (Gamer RPC config owner).
-    activeGame: enabledGame ? {
-      slug: enabledGame.gameSlug,
-      name: enabledGame.gameName,
-      enabled: enabledGame.enabled,
+    // Convenience: the enabled games (Gamer RPC configs, Task 89 multi-game).
+    // `activeGame` (singular) = the first enabled game — kept for backward
+    // compatibility with older dashboard builds.
+    activeGames: enabledGames.map(g => ({
+      slug: g.gameSlug,
+      name: g.gameName,
+      enabled: g.enabled,
+    })),
+    activeGame: enabledGames[0] ? {
+      slug: enabledGames[0].gameSlug,
+      name: enabledGames[0].gameName,
+      enabled: enabledGames[0].enabled,
     } : null,
     rotatorPresets: rotatorPresets.map(p => ({
       id: p.id,

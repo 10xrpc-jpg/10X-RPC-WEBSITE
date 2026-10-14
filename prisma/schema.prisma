@@ -175,6 +175,10 @@ model GlobalConfig {
   /** Task 87 — manual advance counter ("Skip to next RPC"). Incremented via
    *  raw SQL WITHOUT touching updatedAt (the rotation anchor). */
   rpcRotateSkip       Int      @default(0)
+  /** Task 89 — explicit rotation pool: JSON string[] of candidate keys
+   *  (RpcConfig ids or "game:<slug>"). null = not set → every enabled RPC
+   *  joins per rpcRotateIncludeGame; an array = ONLY those candidates rotate. */
+  rpcRotateSlots      String?
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }

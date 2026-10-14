@@ -97,7 +97,8 @@ export function GamesPage() {
       //    icon) is fetched from Discord automatically.
       const created = await api.gameCustomCreate({ appId: app.appId })
       // 2. Apply it as the live Game RPC — POST /api/games/[slug] with
-      //    enabled=true handles mutual exclusivity + the daemon push.
+      //    enabled=true flips the master flag + pushes the daemon. Multiple
+      //    games can be live at once (Task 89 multi-game).
       await api.gameSave(created.config.gameSlug, { enabled: true })
       toast.success(`${created.config.gameName} added — Application ID auto-filled, set as Game RPC`, { duration: 3000 })
       await refresh()
@@ -243,6 +244,15 @@ export function GamesPage() {
               className="w-full h-12 bg-[#12131a] border border-white/10 hover:border-white/20 focus:border-purple-500/50 rounded-2xl pl-11 pr-4 text-sm text-white placeholder:text-white/40 outline-none transition-colors"
             />
           </div>
+
+          {/* Multi-game hint (Task 89) — every enabled game runs at once */}
+          <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-white/45 px-1">
+            <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>
+              Run as many Game RPCs as you like — every enabled game gets its own Discord card at
+              the same time, alongside your Normal RPC slots.
+            </span>
+          </p>
 
           {/* Games List */}
           <div className="space-y-2">

@@ -130,7 +130,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
       ? 'text-red-300'
       : sub?.status === 'trialing'
         ? 'text-sky-300'
-        : sub.neverExpires || sub.plan === 'lifetime'
+        : sub?.neverExpires || sub?.plan === 'lifetime'
           ? 'text-emerald-300'
           : 'text-purple-300'
 

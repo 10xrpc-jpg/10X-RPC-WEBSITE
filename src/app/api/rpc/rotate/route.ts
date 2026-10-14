@@ -5,7 +5,9 @@
 // touches Game RPC settings. Saved configs are 100% read-only to this route.
 //
 // Task 87 — the route also carries the rotation ORDER (forward | reverse |
-// shuffle) and the "include Game RPC in the pool" flag. Every field is
+// shuffle) and the "include Game RPC in the pool" flag. Task 89 — it also
+// carries the EXPLICIT rotation pool (`slots`: candidate keys — RpcConfig ids
+// or "game:<slug>"): ONLY the selected RPCs take turns. Every field is
 // OPTIONAL: missing fields keep their current value (partial updates are
 // safe — the dashboard may send only the field the user just changed).
 import { NextResponse } from 'next/server'
@@ -18,6 +20,20 @@ import { rotateSettingsView } from '@/lib/rpc-rotate-settings'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
+/** Task 89 — sanitize an explicit rotation pool: candidate keys only
+ *  (cuid-ish slot ids or "game:<slug>"), deduped, capped at 12. */
+function sanitizeRotateSlots(raw: unknown): string[] | null {
+  if (!Array.isArray(raw)) return null
+  const out: string[] = []
+  for (const v of raw) {
+    if (typeof v !== 'string') continue
+    const k = v.trim().slice(0, 64)
+    if (/^[a-z0-9_:-]{1,64}$/i.test(k) && !out.includes(k)) out.push(k)
+    if (out.length >= 12) break
+  }
+  return out
+}
+
 export async function POST(req: Request) {
   try {
     const session = await getSession()
@@ -28,6 +44,7 @@ export async function POST(req: Request) {
       secs?: number
       order?: string
       includeGame?: boolean
+      slots?: string[] | null
     }
 
     // Merge semantics — a field the caller omitted keeps its stored value.
@@ -42,11 +59,25 @@ export async function POST(req: Request) {
     const includeGame = body.includeGame === undefined
       ? existing?.rpcRotateIncludeGame !== false
       : body.includeGame !== false
+    // Task 89 — explicit rotation pool. undefined = keep; null = clear back
+    // to "every enabled RPC rotates" (the includeGame legacy rule); an array
+    // = exactly those candidates rotate.
+    const slots = body.slots === undefined
+      ? rotateSettingsView(existing).slots
+      : sanitizeRotateSlots(body.slots)
 
     const updated = await db.globalConfig.upsert({
       where: { userId: session.userId },
-      create: { userId: session.userId, rpcAutoRotate: enabled, rpcRotateSecs: secs, rpcRotateOrder: order, rpcRotateIncludeGame: includeGame },
-      update: { rpcAutoRotate: enabled, rpcRotateSecs: secs, rpcRotateOrder: order, rpcRotateIncludeGame: includeGame },
+      create: {
+        userId: session.userId, rpcAutoRotate: enabled, rpcRotateSecs: secs,
+        rpcRotateOrder: order, rpcRotateIncludeGame: includeGame,
+        rpcRotateSlots: slots ? JSON.stringify(slots) : null,
+      },
+      update: {
+        rpcAutoRotate: enabled, rpcRotateSecs: secs, rpcRotateOrder: order,
+        rpcRotateIncludeGame: includeGame,
+        rpcRotateSlots: slots && slots.length > 0 ? JSON.stringify(slots) : null,
+      },
     })
 
     // Runtime-only change — rebuild what is being sent (rotation starts/ends

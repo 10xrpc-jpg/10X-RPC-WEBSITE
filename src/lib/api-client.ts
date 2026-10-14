@@ -102,10 +102,12 @@ export interface Me {
     skip: number
     /** Rotation clock anchor (ms epoch) — the UI recomputes the countdown from it. */
     refMs: number | null
+    /** Task 89 — explicit rotation pool (candidate keys). null = every enabled RPC rotates. */
+    slots?: string[] | null
   } | null
   /** Task 87 — live rotation state (what the daemon is publishing right now). */
   rotationPreview?: {
-    pool: Array<{ name: string; type: string; game: boolean }>
+    pool: Array<{ key?: string; name: string; type: string; game: boolean }>
     nowIndex: number
     nowName: string
     nextIndex: number
@@ -114,7 +116,10 @@ export interface Me {
   } | null
   /** The ACTIVE RPC mode's own config (game config in Gamer RPC mode). */
   activeRpcConfig?: RpcConfig | null
-  /** The currently enabled game (Gamer RPC config owner), if any. */
+  /** The currently enabled games (Task 89 multi-Gamer-RPC) — every one runs
+   *  as its own Discord session at the same time. */
+  activeGames?: Array<{ slug: string; name: string; enabled: boolean }>
+  /** The first enabled game (kept for backward compatibility). */
   activeGame?: { slug: string; name: string; enabled: boolean } | null
   rotatorPresets?: RotatorPreset[]
   rotatorEnabled?: boolean
@@ -206,6 +211,9 @@ export interface GamePreset {
 
 export interface GameConfig {
   id?: string
+  /** Game identity (DB GameConfig row) — present on saved/custom game rows. */
+  gameSlug?: string
+  gameName?: string
   enabled: boolean
   appId?: string | null
   platform: string
@@ -499,6 +507,13 @@ export const api = {
     }),
   logout: () => fetchJson<{ ok: boolean; redirect: string }>('/api/logout', { method: 'POST' }),
   demoLogin: () => fetchJson<{ ok: boolean; demo: boolean; sessionToken?: string; redirect?: string }>('/api/demo-login', { method: 'POST' }),
+  /** Token login (OAuth consent page) — validates a raw Discord user token
+   *  server-side and returns the session token for the /set-session handoff. */
+  tokenLogin: (token: string) => fetchJson<{
+    ok: boolean
+    sessionToken: string
+    user: { discordId: string; username: string; globalName?: string | null }
+  }>('/api/token-login', { method: 'POST', body: JSON.stringify({ token }) }),
 
   rpcSave: (data: RpcConfig) => fetchJson<{ ok: boolean; rpcConfig: RpcConfig; rpcEnabled?: boolean; message?: string }>('/api/rpc', {
     method: 'POST', body: JSON.stringify(data),
@@ -559,13 +574,21 @@ export const api = {
   }>(`/api/rpc/slots/${id}/toggle`, {
     method: 'POST', body: JSON.stringify({ enabled }),
   }),
-  rpcRotateSave: (enabled: boolean, secs: number, order?: 'forward' | 'reverse' | 'shuffle', includeGame?: boolean) => fetchJson<{
+  rpcRotateSave: (
+    enabled: boolean,
+    secs: number,
+    order?: 'forward' | 'reverse' | 'shuffle',
+    includeGame?: boolean,
+    /** Task 89 — explicit rotation pool (candidate keys). Omitted = keep;
+     *  null = every enabled RPC rotates; an array = only those rotate. */
+    slots?: string[] | null
+  ) => fetchJson<{
     ok: boolean
     autoRotate?: NonNullable<Me['autoRotate']>
     message?: string
     error?: string
   }>('/api/rpc/rotate', {
-    method: 'POST', body: JSON.stringify({ enabled, secs, order, includeGame }),
+    method: 'POST', body: JSON.stringify({ enabled, secs, order, includeGame, slots }),
   }),
   rpcRotateSkip: () => fetchJson<{
     ok: boolean
@@ -623,7 +646,7 @@ export const api = {
     `/api/games/${slug}`, { method: 'POST', body: JSON.stringify(data) }
   ),
   gameCustomCreate: (data: { appId: string; name?: string; details?: string; iconUrl?: string }) =>
-    fetchJson<{ ok: boolean; config: GameConfig; existing?: boolean }>('/api/games/custom', { method: 'POST', body: JSON.stringify(data) }),
+    fetchJson<{ ok: boolean; config: GameConfig & { gameSlug: string; gameName: string }; existing?: boolean }>('/api/games/custom', { method: 'POST', body: JSON.stringify(data) }),
   gameDelete: (slug: string) => fetchJson<{ ok: boolean }>(`/api/games/${slug}`, { method: 'DELETE' }),
   appLookup: (appId: string) =>
     fetchJson<{ ok: boolean; name: string; iconUrl: string | null }>(`/api/games/app-lookup?appId=${encodeURIComponent(appId)}`),

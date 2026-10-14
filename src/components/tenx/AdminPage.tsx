@@ -710,7 +710,6 @@ function OverviewTab({ sys, stats, c }: { sys: AdminStats['system'] | undefined;
           <MiniChip label="Custom games" value={c.customGames} />
           <MiniChip label="Rotator users" value={c.rotatorEnabledUsers} />
           <MiniChip label="Presets" value={c.rotatorPresets} />
-          <MiniChip label="Favorites" value={c.favorites} />
           <MiniChip label="Trials active (legacy)" value={c.trialsActive} />
           <MiniChip label="Subs active" value={c.subsActive} />
           <MiniChip label="Subs trialing" value={c.subsTrialing} />

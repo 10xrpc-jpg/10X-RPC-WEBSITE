@@ -14,6 +14,7 @@ import {
   fetchRpcAppIds,
   refreshDiscordToken,
   resolveRuntimeCandidates,
+  rpcCandidateKey,
   selectActiveRpcConfigs,
   assignSessionPlatforms,
   discordPlatformClass,
@@ -140,6 +141,10 @@ interface RpcRotateSettings {
   includeGame: boolean
   /** Task 87 — manual advance counter ("Skip to next"). */
   skip: number
+  /** Task 89 — explicit rotation pool (candidate keys: RpcConfig ids or
+   *  "game:<slug>"). null = not set → the legacy includeGame rule applies;
+   *  an array = ONLY those candidates take turns in the Auto Rotator. */
+  slots: string[] | null
 }
 
 const ROTATE_DEFAULTS: RpcRotateSettings = {
@@ -149,6 +154,28 @@ const ROTATE_DEFAULTS: RpcRotateSettings = {
   order: 'forward',
   includeGame: true,
   skip: 0,
+  slots: null,
+}
+
+/** Task 89 — parse the stored rpcRotateSlots JSON column (raw-SQL safe).
+ *  Returns null for unset/invalid values (→ legacy includeGame rule) and a
+ *  sanitized string[] otherwise (deduped, capped at 12 entries). */
+function parseRotateSlots(raw: unknown): string[] | null {
+  if (typeof raw !== 'string' || !raw.trim()) return null
+  try {
+    const parsed = JSON.parse(raw)
+    if (!Array.isArray(parsed)) return null
+    const out: string[] = []
+    for (const v of parsed) {
+      if (typeof v !== 'string') continue
+      const k = v.slice(0, 64)
+      if (k && !out.includes(k)) out.push(k)
+      if (out.length >= 12) break
+    }
+    return out
+  } catch {
+    return null
+  }
 }
 
 async function fetchRpcRotateSettings(userId: string): Promise<RpcRotateSettings> {
@@ -163,10 +190,11 @@ async function fetchRpcRotateSettings(userId: string): Promise<RpcRotateSettings
         rpcRotateOrder: string | null
         rpcRotateIncludeGame: boolean | number | null
         rpcRotateSkip: number | null
+        rpcRotateSlots: string | null
         updatedAt: Date | string
       }>>`
         SELECT "rpcAutoRotate", "rpcRotateSecs", "rpcRotateOrder",
-               "rpcRotateIncludeGame", "rpcRotateSkip", "updatedAt"
+               "rpcRotateIncludeGame", "rpcRotateSkip", "rpcRotateSlots", "updatedAt"
         FROM "GlobalConfig" WHERE "userId" = ${userId} LIMIT 1`
       const r = rows?.[0]
       if (!r) return ROTATE_DEFAULTS
@@ -178,8 +206,12 @@ async function fetchRpcRotateSettings(userId: string): Promise<RpcRotateSettings
         order: normalizeRotateOrder(r.rpcRotateOrder),
         includeGame: inc !== false && (inc as unknown) !== 0,
         skip: Math.max(0, Math.min(1_000_000_000, Math.floor(Number(r.rpcRotateSkip) || 0))),
+        slots: parseRotateSlots(r.rpcRotateSlots),
       }
-    } catch {
+    } catch (legacyErr) {
+      if (process.env.NODE_ENV !== 'production') {
+        console.warn(`[10X RPC Daemon] rotate settings extended read failed for ${userId}, legacy fallback:`, legacyErr instanceof Error ? legacyErr.message : legacyErr)
+      }
       const rows = await db.$queryRaw<Array<{ rpcAutoRotate: boolean | number; rpcRotateSecs: number | null; updatedAt: Date | string }>>`
         SELECT "rpcAutoRotate", "rpcRotateSecs", "updatedAt"
         FROM "GlobalConfig" WHERE "userId" = ${userId} LIMIT 1`
@@ -192,7 +224,10 @@ async function fetchRpcRotateSettings(userId: string): Promise<RpcRotateSettings
         refMs: r.updatedAt ? new Date(r.updatedAt).getTime() : null,
       }
     }
-  } catch {
+  } catch (rotateErr) {
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`[10X RPC Daemon] rotate settings read failed for ${userId} (rotation OFF):`, rotateErr instanceof Error ? rotateErr.message : rotateErr)
+    }
     return ROTATE_DEFAULTS
   }
 }
@@ -638,10 +673,12 @@ export class RpcDaemon {
       }
 
       const rpcConfigs = (session.user.rpcConfigs ?? []) as Array<RpcCandidate & { enabled: boolean }>
-      const enabledGame = session.user.gameConfigs?.find(g => g.enabled) ?? null
-      // MULTI-RPC: every enabled slot (each with its own flag) + the enabled
+      // Task 89 — MULTI-GAME: every enabled game is a candidate (array form),
+      // so several Gamer RPCs run at the same time alongside the slots.
+      const enabledGames = (session.user.gameConfigs ?? []).filter(g => g.enabled)
+      // MULTI-RPC: every enabled slot (each with its own flag) + every enabled
       // game are candidates. No mode exclusivity — combinations are supported.
-      const selection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGame)
+      const selection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGames)
       const hasRpc = selection.active
       const hasStatus = !!session.statusEnabled
       const hasRotator = !!(session.statusEnabled && session.user.globalConfig?.rotatorEnabled && session.user.rotatorPresets?.some(p => p.enabled))
@@ -810,9 +847,10 @@ export class RpcDaemon {
       const r = await db.rpcConfig.findFirst({ where: { userId } }).catch(() => null)
       return r ? [r as RpcCandidate] : []
     })) as Array<RpcCandidate & { enabled: boolean }>
-    const enabledGame = await db.gameConfig.findFirst({ where: { userId, enabled: true } })
-    // MULTI-RPC: all enabled slots + the enabled game (no mode exclusivity).
-    const selection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGame)
+    // Task 89 — MULTI-GAME: every enabled game runs as its own candidate.
+    const enabledGames = await db.gameConfig.findMany({ where: { userId, enabled: true }, orderBy: { createdAt: 'asc' } })
+    // MULTI-RPC: all enabled slots + ALL enabled games (no mode exclusivity).
+    const selection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGames)
     const hasRpc = selection.active
     const hasStatus = !!session.statusEnabled
     const hasRotator = !!(session.statusEnabled && session.user.globalConfig?.rotatorEnabled && session.user.rotatorPresets?.some(p => p.enabled))
@@ -974,8 +1012,9 @@ export class RpcDaemon {
         const r = await db.rpcConfig.findFirst({ where: { userId } }).catch(() => null)
         return r ? [r as RpcCandidate] : []
       })) as Array<RpcCandidate & { enabled: boolean }>
-      const enabledGame = await db.gameConfig.findFirst({ where: { userId, enabled: true } })
-      const selection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGame)
+      // Task 89 — MULTI-GAME: every enabled game runs as its own candidate.
+      const enabledGames = await db.gameConfig.findMany({ where: { userId, enabled: true }, orderBy: { createdAt: 'asc' } }).catch(() => [])
+      const selection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGames)
       const isRpcActive = selection.active
       const isStatusActive = !!session.statusEnabled
 
@@ -1266,19 +1305,20 @@ export class RpcDaemon {
     type GameCfgRow = Awaited<ReturnType<typeof db.gameConfig.findFirst>>
     let rpcConfigs: Array<RpcCandidate & { enabled: boolean; updatedAt?: Date }> = []
     let globalConfig: GlobalCfgRow = null
-    let enabledGame: GameCfgRow = null
+    let enabledGames: GameCfgRow[] = []
     try {
-      const [rpc, glob, game] = await Promise.all([
+      const [rpc, glob, games] = await Promise.all([
         // createdAt order only — never orderBy `slot` (old daemon clients).
         // A DB failure here must NEVER be read as "no slots" — that would
         // clear the user's live presence; bail out and retry next tick.
         db.rpcConfig.findMany({ where: { userId }, orderBy: { createdAt: 'asc' } }),
         db.globalConfig.findUnique({ where: { userId } }),
-        db.gameConfig.findFirst({ where: { userId, enabled: true } }),
+        // Task 89 — MULTI-GAME: every enabled game is a live candidate.
+        db.gameConfig.findMany({ where: { userId, enabled: true }, orderBy: { createdAt: 'asc' } }),
       ])
       rpcConfigs = rpc as Array<RpcCandidate & { enabled: boolean }>
       globalConfig = glob
-      enabledGame = game
+      enabledGames = (games ?? []) as GameCfgRow[]
     } catch (dbErr) {
       console.warn(`[10X RPC Daemon] Transient DB error in pushPresenceForUser for user ${userId}:`, dbErr)
       return
@@ -1291,27 +1331,28 @@ export class RpcDaemon {
       timezone: globalConfig?.timezone || 'UTC',
       city: globalConfig?.city || undefined,
       tempUnit: globalConfig?.tempUnit === 'F' ? 'F' : 'C',
-      rpcStartedAt: (rpcConfigs[0]?.updatedAt || enabledGame?.updatedAt)
-        ? new Date((rpcConfigs[0]?.updatedAt || enabledGame?.updatedAt) as Date).getTime()
+      rpcStartedAt: (rpcConfigs[0]?.updatedAt || enabledGames[0]?.updatedAt)
+        ? new Date((rpcConfigs[0]?.updatedAt || enabledGames[0]?.updatedAt) as Date).getTime()
         : (session.lastPresenceUpdate ? new Date(session.lastPresenceUpdate).getTime() : Date.now()),
     }
 
-    // MULTI-RPC — all enabled slots (each with its own flag) + the enabled
-    // game (isolated). resolveRuntimeCandidates applies the OPTIONAL Auto
-    // Rotate overlay: simultaneous (default) sends every candidate in one
-    // authorized OP 3; rotate sends exactly one, advancing every interval.
-    // Rotation is runtime-only — no config is ever read-write here.
-    const fullSelection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGame)
+    // MULTI-RPC — all enabled slots (each with its own flag) + ALL enabled
+    // games (Task 89 multi-game). resolveRuntimeCandidates applies the
+    // OPTIONAL Auto Rotate overlay: simultaneous (default) sends every
+    // candidate in one authorized OP 3; rotate sends exactly one, advancing
+    // every interval. Rotation is runtime-only — no config is read-write here.
+    const fullSelection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGames)
     const runtime = resolveRuntimeCandidates({
       rpcEnabled: session.rpcEnabled,
       rpcConfigs,
-      enabledGame,
+      enabledGame: enabledGames,
       autoRotate: rotate.enabled,
       rotateSecs: rotate.secs,
       rotateRefMs: rotate.refMs,
       rotateOrder: rotate.order,
       rotateSkip: rotate.skip,
       rotateIncludeGame: rotate.includeGame,
+      rotateSlotKeys: rotate.slots,
       rotateSeed: userId,
     })
     const isRpcActive = runtime.active
@@ -1355,16 +1396,26 @@ export class RpcDaemon {
     }
     userSock.platform = targetPlatform
 
-    // The GAME candidate (isolated Game RPC) may carry a custom Application ID
-    // ("Add Games") — spoof that application. In rotate mode with the game
-    // EXCLUDED from the pool (Task 87) the game is not in runtime.candidates —
-    // resolve it from the FULL list so its app id + extra session still work.
-    const rotateGameExtra = isRpcActive && runtime.runtimeMode === 'rotate' && !rotate.includeGame
-      ? (fullSelection.candidates.find(c => c.gameSlug) ?? null)
-      : null
-    const gameCandidate = runtime.candidates.find(c => c.gameSlug) ?? rotateGameExtra
-    if (gameCandidate && !gameCandidate.gameAppId) {
-      gameCandidate.gameAppId = await fetchGameAppId(userId, gameCandidate.gameSlug)
+    // The GAME candidates (isolated Game RPCs) may each carry a custom
+    // Application ID ("Add Games") — spoof that application. In rotate mode
+    // with games EXCLUDED from the pool (Task 87 includeGame=false, or the
+    // Task 89 selection) those games are not in runtime.candidates — resolve
+    // their app ids from the FULL list so their pinned extra sessions work.
+    // Task 89 — pinned games while rotating:
+    //   • explicit selection (rotate.slots) → the games the user left OUT of
+    //     the rotation are NOT pinned — "only the RPCs I select participate".
+    //   • legacy includeGame=false (no selection) → every game stays visible
+    //     in its own always-on session while the slots rotate.
+    const rotateGameExtras: RpcCandidate[] = isRpcActive && runtime.runtimeMode === 'rotate'
+      ? (Array.isArray(rotate.slots)
+        ? []
+        : (rotate.includeGame ? [] : fullSelection.candidates.filter(c => c.gameSlug)))
+      : []
+    const gameCandidates = [...runtime.candidates.filter(c => c.gameSlug), ...rotateGameExtras]
+    for (const gc of gameCandidates) {
+      if (!gc.gameAppId) {
+        gc.gameAppId = await fetchGameAppId(userId, gc.gameSlug)
+      }
     }
 
     // Per-slot Application ID fallbacks (their own Discord apps) — queryRaw
@@ -1382,12 +1433,12 @@ export class RpcDaemon {
     const multiSessionActive = isRpcActive
       && runtime.runtimeMode === 'simultaneous'
       && runtime.candidates.length >= 2
-    // Task 87 — rotate mode with the game EXCLUDED from the pool: the game
-    // keeps its own always-visible extra session while the slots rotate.
+    // Task 87/89 — rotate mode with games EXCLUDED from the pool (legacy
+    // includeGame=false; the explicit selection pins nothing): every excluded
+    // game keeps its own always-visible extra session while the pool rotates.
     const rotateGameExtraActive = isRpcActive
       && runtime.runtimeMode === 'rotate'
-      && !rotate.includeGame
-      && !!rotateGameExtra
+      && rotateGameExtras.length > 0
 
     // Task 85 — NO Application-ID shell overlay: normal slots present under
     // the user's custom Application ID or the 10X RPC application (game ids
@@ -1417,16 +1468,16 @@ export class RpcDaemon {
       const idx = c.id ? allConfigIndex.get(c.id) : undefined
       return typeof idx === 'number' && idx >= 1 ? idx - 1 : 4
     }
-    // Task 87 — the extra-session SOURCE list. Simultaneous mode: every
-    // candidate beyond the first (existing Task 84 behavior). Rotate mode
-    // with the game EXCLUDED from the pool: exactly the game candidate — it
-    // stays visible in its own session while the slots rotate in the main
-    // session.
+    // Task 87/89 — the extra-session SOURCE list. Simultaneous mode: every
+    // candidate beyond the first (existing Task 84 behavior — slots AND
+    // games). Rotate mode with games EXCLUDED from the pool: exactly the
+    // pinned game candidates — they stay visible in their own sessions while
+    // the pool rotates in the main session.
     interface ExtraSource { cand: RpcCandidate; hint: number }
     const extrasSource: ExtraSource[] = multiSessionActive
       ? runtime.candidates.slice(1, 5).map(cand => ({ cand, hint: stableHintOf(cand) }))
-      : rotateGameExtraActive && rotateGameExtra
-        ? [{ cand: rotateGameExtra, hint: stableHintOf(rotateGameExtra) }]
+      : rotateGameExtraActive
+        ? rotateGameExtras.slice(0, 4).map(cand => ({ cand, hint: stableHintOf(cand) }))
         : []
     if (extrasSource.length > 0) {
       const globalVr = (isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive)) || (isRpcActive && fullSelection.candidates[0]?.platform === 'meta_quest')
@@ -1501,7 +1552,7 @@ export class RpcDaemon {
             })
             extras.push({
               idx: multiSessionActive ? i + 1 : 0,
-              key: cand.id ?? `game:${cand.gameSlug ?? cand.name ?? `slot${i + 1}`}`,
+              key: rpcCandidateKey(cand) || `slot${i + 1}`,
               label: String((safe[0] as { name?: string }).name ?? cand.name ?? `RPC ${i + 1}`),
               platform: assignedPlatform,
               activity: safe[0],
@@ -1563,7 +1614,10 @@ export class RpcDaemon {
     }
 
     if (isRpcActive && runtime.runtimeMode === 'rotate' && runtime.rotateIndex != null) {
-      console.log(`[10X RPC Daemon] Auto Rotate for user ${userId}: candidate ${runtime.rotateIndex + 1}/${runtime.rotatePoolLength ?? fullSelection.candidates.length} (${runtime.candidates[0]?.name ?? '?'}) every ${rotate.secs}s, order=${rotate.order}${rotate.skip > 0 ? `, skip+${rotate.skip}` : ''}${rotate.includeGame ? '' : ', game pinned to its own session'}`)
+      const poolNote = Array.isArray(rotate.slots)
+        ? `, selection: ${runtime.rotatePoolLength} of ${fullSelection.candidates.length} RPCs`
+        : `${rotate.includeGame ? '' : ', game pinned to its own session'}`
+      console.log(`[10X RPC Daemon] Auto Rotate for user ${userId}: candidate ${runtime.rotateIndex + 1}/${runtime.rotatePoolLength ?? fullSelection.candidates.length} (${runtime.candidates[0]?.name ?? '?'}) every ${rotate.secs}s, order=${rotate.order}${rotate.skip > 0 ? `, skip+${rotate.skip}` : ''}${poolNote}`)
     }
 
     // If socket is open and payload is ready, send OP 3

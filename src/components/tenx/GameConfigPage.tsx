@@ -154,12 +154,15 @@ export function GameConfigPage({ slug }: { slug: string }) {
             <PurpleSwitch checked={enabled} onCheckedChange={setEnabled} />
           </div>
 
-          {/* Multi-RPC note: Game RPC runs ALONGSIDE the user's RPC slots */}
+          {/* Multi-RPC note: Game RPC runs ALONGSIDE the user's RPC slots —
+              and MULTIPLE games can be live at the same time (Task 89). */}
           <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-white/45 px-1">
             <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span>
-              Game RPC is fully independent — it runs alongside your Normal RPC slots and enabling
-              or disabling it never modifies their saved configurations.
+              Game RPC is fully independent — it runs alongside your Normal RPC slots, and you can
+              enable as many games as you like: every enabled game shows up as its own Discord card
+              at the same time. Enabling or disabling this game never modifies any other
+              configuration.
             </span>
           </p>
 

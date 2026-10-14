@@ -214,7 +214,11 @@ export async function buildActivityPayload(
   // identity is used. Game catalog ids (Minecraft, Valorant, ...) are NOT
   // valid custom ids for a normal slot — they are reserved for the isolated
   // Game RPC and are treated as unset here (→ 10X default).
-  activity.application_id = customAppId || CONFIG.discord.clientId
+  // NEVER send an empty application_id — Discord silently drops activities
+  // carrying one. Omit the field instead (the gateway then attributes the
+  // activity to the OAuth client itself).
+  const resolvedAppId = customAppId || CONFIG.discord.clientId
+  if (resolvedAppId) activity.application_id = resolvedAppId
 
   return activity
 }
@@ -291,20 +295,42 @@ export interface MultiRpcSelection {
   /** Master RPC flag ON and at least one candidate is enabled. */
   active: boolean
   /**
-   * Enabled RpcConfig slots (slot order) + the synthesized enabled game config
-   * appended LAST. Never a merge across slots.
+   * Enabled RpcConfig slots (slot order) + the synthesized enabled game
+   * configs appended LAST (Task 89 — MULTI-GAME: every enabled game runs as
+   * its own candidate, so several Gamer RPCs can be live at once). Never a
+   * merge across slots or games.
    */
   candidates: RpcCandidate[]
 }
 
+/** A single enabled-game input — one GameConfig row (or legacy single game). */
+type EnabledGameInput = (RpcConfig & { gameSlug?: string; gameName?: string }) | null | undefined
+
+/** Normalize the legacy single-game shape and the Task 89 array shape to a list. */
+export function normalizeEnabledGames(enabledGame: EnabledGameInput | EnabledGameInput[]): Array<RpcConfig & { gameSlug?: string; gameName?: string }> {
+  const list = Array.isArray(enabledGame) ? enabledGame : (enabledGame ? [enabledGame] : [])
+  const out: Array<RpcConfig & { gameSlug?: string; gameName?: string }> = []
+  const seen = new Set<string>()
+  for (const g of list) {
+    if (!g || g.enabled === false) continue
+    const slug = (g as { gameSlug?: string }).gameSlug || `custom:${g.id ?? out.length}`
+    if (seen.has(slug)) continue // defensive dedupe — one candidate per game
+    seen.add(slug)
+    out.push(g)
+  }
+  return out
+}
+
 /**
  * Collect the enabled candidates. Each slot's own `enabled` flag is the ONLY
- * thing that decides inclusion; the game candidate keeps its own flag too.
+ * thing that decides inclusion; every game candidate keeps its own flag too.
+ * Task 89 — `enabledGame` accepts EITHER the legacy single game OR an array
+ * of every enabled game (multi-Gamer-RPC).
  */
 export function selectActiveRpcConfigs(
   rpcEnabled: boolean | null | undefined,
   rpcConfigs: Array<RpcConfig & { slot?: number }> | null | undefined,
-  enabledGame: (RpcConfig & { gameSlug?: string; gameName?: string }) | null | undefined
+  enabledGame: EnabledGameInput | EnabledGameInput[]
 ): MultiRpcSelection {
   const candidates: RpcCandidate[] = []
   const slots = (rpcConfigs ?? [])
@@ -313,13 +339,13 @@ export function selectActiveRpcConfigs(
     .sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99))
   candidates.push(...slots)
 
-  // GAME RPC — synthesized config appended last (isolated from the slots).
-  // (Defensive: also verifies the row's own enabled flag, so passing an
+  // GAME RPCs — synthesized configs appended last (isolated from the slots).
+  // (Defensive: also verifies each row's own enabled flag, so passing an
   // unfiltered GameConfig row can never activate a disabled game.)
-  if (enabledGame && enabledGame.enabled !== false) {
-    const gameName = (enabledGame as { gameName?: string }).gameName || enabledGame.name || 'Game'
+  for (const game of normalizeEnabledGames(enabledGame)) {
+    const gameName = (game as { gameName?: string }).gameName || game.name || 'Game'
     candidates.push({
-      ...enabledGame,
+      ...game,
       name: gameName,
       type: 'PLAYING',
       enabled: true,
@@ -336,6 +362,36 @@ export interface RuntimeCandidateResult extends MultiRpcSelection {
   rotateIndex: number | null
   /** Length of the rotation pool while rotating (else null). */
   rotatePoolLength: number | null
+  /** Task 89 — the pool's candidate keys while rotating (else null). Lets the
+   *  daemon pin exactly the enabled games the user LEFT OUT of the rotation. */
+  rotatePoolKeys: string[] | null
+}
+
+/**
+ * Task 89 — the ROTATION POOL for a selection. Shared by the daemon, /api/me
+ * and the dashboard so every surface agrees on which candidates rotate.
+ *
+ * `rotateSlotKeys` (Task 89 — the user's explicit "which RPCs rotate" pick):
+ *   • array (even empty) → ONLY the candidates whose key is in the list join
+ *     the pool — "only the RPCs I select participate in the Auto Rotator".
+ *   • null/undefined    → legacy rule: every enabled candidate, minus the
+ *     Game RPCs when `includeGame` is false (games keep their own sessions).
+ */
+export function rotationPoolCandidates(
+  sel: MultiRpcSelection,
+  o: { rotateSlotKeys?: string[] | null; includeGame?: boolean | null }
+): RpcCandidate[] {
+  const keys = Array.isArray(o.rotateSlotKeys)
+    ? o.rotateSlotKeys.filter((k): k is string => typeof k === 'string' && k.length > 0)
+    : null
+  if (keys) {
+    const set = new Set(keys)
+    const pool = sel.candidates.filter(c => set.has(rpcCandidateKey(c)))
+    // Empty explicit selection must never blank the profile — fall back to all.
+    return pool.length > 0 ? pool : sel.candidates
+  }
+  const includeGame = o.includeGame !== false
+  return includeGame ? sel.candidates : sel.candidates.filter(c => !c.gameSlug)
 }
 
 /**
@@ -347,6 +403,8 @@ export interface RuntimeCandidateResult extends MultiRpcSelection {
  * the manual "Skip" counter). The pool is the enabled candidates EXCLUDING the
  * Game RPC when `rotateIncludeGame` is false — in that case the game keeps its
  * own always-visible session (the daemon opens it as a separate extra).
+ * Task 89 — `rotateSlotKeys` narrows the pool to exactly the RPCs the user
+ * selected (see rotationPoolCandidates).
  * Stateless across daemon restarts/multi-instance (same inputs → same index).
  * Auto Rotate is a RUNTIME-ONLY overlay: it never writes configs, never flips
  * enabled flags, never touches Game RPC settings, app IDs, buttons, images or
@@ -355,7 +413,7 @@ export interface RuntimeCandidateResult extends MultiRpcSelection {
 export function resolveRuntimeCandidates(opts: {
   rpcEnabled: boolean | null | undefined
   rpcConfigs: Array<RpcConfig & { slot?: number }> | null | undefined
-  enabledGame: (RpcConfig & { gameSlug?: string; gameName?: string }) | null | undefined
+  enabledGame: EnabledGameInput | EnabledGameInput[]
   autoRotate?: boolean | null
   rotateSecs?: number | null
   /** Stable rotation clock anchor (ms epoch) — e.g. rotate settings' updatedAt. */
@@ -366,27 +424,29 @@ export function resolveRuntimeCandidates(opts: {
   rotateSkip?: number | null
   /** Task 87 — include the Game RPC in the rotation pool (default true). */
   rotateIncludeGame?: boolean | null
+  /** Task 89 — explicit rotation pool (candidate keys). null = legacy rule. */
+  rotateSlotKeys?: string[] | null
   /** Shuffle seed — the userId, so the permutation is stable per user. */
   rotateSeed?: string | null
   nowMs?: number
 }): RuntimeCandidateResult {
   const sel = selectActiveRpcConfigs(opts.rpcEnabled, opts.rpcConfigs, opts.enabledGame)
   if (!sel.active) {
-    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null }
+    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null, rotatePoolKeys: null }
   }
   if (sel.candidates.length === 1) {
-    return { ...sel, runtimeMode: 'single', rotateIndex: null, rotatePoolLength: null }
+    return { ...sel, runtimeMode: 'single', rotateIndex: null, rotatePoolLength: null, rotatePoolKeys: null }
   }
   if (!opts.autoRotate) {
-    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null }
+    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null, rotatePoolKeys: null }
   }
-  // Rotation pool — Game RPC only joins when includeGame is on (default).
-  const includeGame = opts.rotateIncludeGame !== false
-  const pool = includeGame ? sel.candidates : sel.candidates.filter(c => !c.gameSlug)
+  // Rotation pool — the user's explicit selection (Task 89) or the legacy
+  // includeGame rule.
+  const pool = rotationPoolCandidates(sel, { rotateSlotKeys: opts.rotateSlotKeys, includeGame: opts.rotateIncludeGame })
   if (pool.length < 2) {
     // Nothing to cycle (e.g. one slot + excluded game) — simultaneous keeps
     // every candidate visible; the excluded game gets its own extra session.
-    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null }
+    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null, rotatePoolKeys: null }
   }
   const idx = rotateCycleIndex({
     refMs: opts.rotateRefMs,
@@ -403,6 +463,7 @@ export function resolveRuntimeCandidates(opts: {
     runtimeMode: 'rotate',
     rotateIndex: idx,
     rotatePoolLength: pool.length,
+    rotatePoolKeys: pool.map(rpcCandidateKey),
   }
 }
 
@@ -422,9 +483,13 @@ export const RPC_SHELL_APPLICATION_IDS: string[] = Array.from(
   new Set(Object.values(GAME_SPOOF).map(e => e.appId))
 )
 
-/** Candidate map key — stable, mirrors the daemon's slot-session key. */
-function rpcCandidateKey(cfg: RpcCandidate): string {
-  return cfg.id || (cfg.gameSlug ? `game:${cfg.gameSlug}` : '')
+/** Candidate map key — stable, mirrors the daemon's slot-session key. Exported
+ *  for the rotate-settings surfaces (API + UI selection chips, Task 89).
+ *  Game candidates ALWAYS key as "game:<slug>" (the slug is the stable
+ *  identity the dashboard selection stores); slot candidates key by row id. */
+export function rpcCandidateKey(cfg: RpcCandidate): string {
+  if (cfg.gameSlug) return `game:${cfg.gameSlug}`
+  return cfg.id || ''
 }
 
 /**
@@ -1357,11 +1422,11 @@ export async function applyPresence(
   // IDENTIFY properties and the OP 3 payload always agree).
   const isVr = (isStatusActive && (statusPlatform === 'meta_quest' || !!(session as any).vrStatusActive)) || (isRpcActive && firstCandidate?.platform === 'meta_quest')
 
-  // The GAME candidate carries its slug; resolve its custom Application ID
-  // ("Add Games") so the activity can present as that application.
-  const gameCandidate = selection.candidates.find(c => c.gameSlug)
-  if (gameCandidate) {
-    gameCandidate.gameAppId = await fetchGameAppId(session.userId, gameCandidate.gameSlug)
+  // The GAME candidates (isolated Game RPCs, Task 89 multi-game) may each
+  // carry a custom Application ID ("Add Games") — resolve every one of them.
+  const gameCandidates = selection.candidates.filter(c => c.gameSlug)
+  for (const gc of gameCandidates) {
+    gc.gameAppId = await fetchGameAppId(session.userId, gc.gameSlug)
   }
 
   // Per-row Application ID fallbacks (pre-appId Prisma clients).

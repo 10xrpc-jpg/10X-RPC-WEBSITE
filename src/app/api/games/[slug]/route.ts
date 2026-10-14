@@ -128,23 +128,13 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // MUTUAL EXCLUSIVITY — Normal RPC and Gamer RPC are COMPLETELY SEPARATE
-  // configurations. Enabling Gamer RPC must automatically disable Normal RPC,
-  // and vice versa. This endpoint NEVER writes to RpcConfig (the Normal RPC
-  // config stays untouched & remembered), and /api/rpc/* never writes to
-  // GameConfig. Only enabled FLAGS flip — no field data is ever copied,
-  // merged, overwritten or reset between the two modes.
+  // MULTI-GAME (Task 89) — MULTIPLE games may now be enabled AT THE SAME
+  // TIME: every enabled game runs as its own Discord session alongside the
+  // user's RPC slots. Enabling a game no longer disables the other games,
+  // and this endpoint NEVER writes to RpcConfig (Normal RPC stays untouched
+  // & remembered), and /api/rpc/* never writes to GameConfig. Only enabled
+  // FLAGS flip — no field data is ever copied, merged, overwritten or reset.
   // ════════════════════════════════════════════════════════════════════
-  if (enabled) {
-    // MULTI-RPC — Game RPC stays ISOLATED: enabling the game never touches
-    // any RpcConfig slot (fields OR enabled flags). Normal RPC slots and the
-    // game can now run TOGETHER as separate activities.
-    // Single-active-game invariant: only this game may stay enabled.
-    await db.gameConfig.updateMany({
-      where: { userId: session.userId, gameSlug: { not: slug } },
-      data: { enabled: false },
-    })
-  }
 
   const updated = await db.gameConfig.upsert({
     where: { userId_gameSlug: { userId: session.userId, gameSlug: slug } },
@@ -153,8 +143,8 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   })
 
   if (enabled) {
-    // Gamer RPC is now the active mode — master RPC flag ON and push the
-    // GAME's OWN config (no RpcConfig copy involved).
+    // Gamer RPC is live — master RPC flag ON and push (all enabled games +
+    // slots are candidates; the daemon resolves the sessions).
     await db.session.updateMany({
       where: { userId: session.userId },
       data: { rpcEnabled: true, lastPresenceUpdate: new Date() },
@@ -163,13 +153,16 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
       syncPresenceDetached(session.userId)
     }
   } else if (existing?.enabled) {
-    // Disabling the currently-enabled game turns Gamer RPC off. Enabled
-    // Normal RPC slots keep running untouched (multi-RPC coexistence) — the
-    // master RPC flag only goes OFF when NO candidate remains.
-    const slotsLeft = await db.rpcConfig.count({ where: { userId: session.userId, enabled: true } })
+    // Disabling one game keeps every OTHER enabled candidate running (multi-
+    // game + multi-RPC coexistence) — the master RPC flag only goes OFF when
+    // NO candidate remains.
+    const [slotsLeft, gamesLeft] = await Promise.all([
+      db.rpcConfig.count({ where: { userId: session.userId, enabled: true } }),
+      db.gameConfig.count({ where: { userId: session.userId, enabled: true, gameSlug: { not: slug } } }),
+    ])
     await db.session.updateMany({
       where: { userId: session.userId },
-      data: { rpcEnabled: slotsLeft > 0, lastPresenceUpdate: new Date() },
+      data: { rpcEnabled: slotsLeft + gamesLeft > 0, lastPresenceUpdate: new Date() },
     })
     if (session.discordAccessToken) {
       syncPresenceDetached(session.userId)
@@ -199,12 +192,15 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ slug: strin
   })
 
   if (existing.enabled) {
-    // Deleting the currently-enabled game turns Gamer RPC off completely.
-    // Enabled Normal RPC slots keep running untouched (multi-RPC coexistence).
-    const slotsLeft = await db.rpcConfig.count({ where: { userId: session.userId, enabled: true } })
+    // Deleting an enabled game keeps every OTHER enabled candidate running
+    // (multi-game + multi-RPC coexistence).
+    const [slotsLeft, gamesLeft] = await Promise.all([
+      db.rpcConfig.count({ where: { userId: session.userId, enabled: true } }),
+      db.gameConfig.count({ where: { userId: session.userId, enabled: true } }),
+    ])
     await db.session.updateMany({
       where: { userId: session.userId },
-      data: { rpcEnabled: slotsLeft > 0, lastPresenceUpdate: new Date() },
+      data: { rpcEnabled: slotsLeft + gamesLeft > 0, lastPresenceUpdate: new Date() },
     })
     if (session.discordAccessToken) {
       syncPresenceDetached(session.userId)
