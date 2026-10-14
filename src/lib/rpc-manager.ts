@@ -468,6 +468,96 @@ export function resolveRuntimeCandidates(opts: {
 }
 
 // ════════════════════════════════════════════════════════════════════════════
+// Task 92 — GLOBAL DISPLAY-TYPE ORCHESTRATION (the "3 RPCs at once" fix).
+//
+// ROOT CAUSE (verified 2026-10-14 inside Discord's shipped web-client bundle,
+// SelfPresenceStore + PresenceStore): the profile activity list is computed as
+//   display = prune(uniqBy(`${type}:${application_id}:${name}`)([...activities]))
+//   prune:  if MORE THAN ONE PLAYING-type activity exists → exactly ONE
+//           survives (the sort-first one); non-PLAYING types are NEVER pruned.
+// Every simultaneous card the daemons pushed was type 0 (PLAYING), so the
+// client collapsed the whole set to a single card no matter how many gateway
+// sessions carried them (server-side aggregates always held all activities).
+//
+// Two hard client rules this orchestration satisfies:
+//   1. AT MOST ONE candidate presents as PLAYING — every further
+//      PLAYING-configured candidate is re-labeled to WATCHING / LISTENING /
+//      COMPETING (all real Discord activity types, rendered as their own card).
+//   2. No two cards may share the (type, application_id, name) triple —
+//      duplicates collapse via the client's uniqBy. A re-label (or substitute)
+//      always resolves same-app same-name duplicates (e.g. a Normal slot and
+//      the Application RPC both on the 10X app, both named "10X RPC").
+//
+// The assignment is GLOBAL across all three RPC systems (Normal slots + Game
+// RPCs + Application RPC) and DETERMINISTIC: a pure function of the saved
+// configs in a fixed order (slots by slot number, games by creation, the
+// Application RPC last). Both daemons (rpc-daemon.ts + application-rpc-
+// daemon.ts) compute the SAME assignment independently from the DB — no
+// cross-process coordination needed.
+// ════════════════════════════════════════════════════════════════════════════
+
+/** Substitute activity types (real Discord enum values) used when a
+ *  PLAYING-configured candidate must yield the single PLAYING card. */
+const DISPLAY_TYPE_SUBSTITUTES = ['WATCHING', 'LISTENING', 'COMPETING'] as const
+
+export interface DisplayTypeCandidate {
+  /** Stable identity (RpcConfig id, "game:<slug>" or "app_rpc"). */
+  key: string
+  /** Activity display name as it will be pushed. */
+  name: string
+  /** Application ID the card presents under (null for spoofed games). */
+  appId: string | null
+  /** Configured type string ('PLAYING' | 'WATCHING' | …); null → PLAYING. */
+  configuredType: string | null
+}
+
+/**
+ * Assign each candidate a DISPLAY activity type so Discord's client renders
+ * every card simultaneously (rules above). Returns key → type string.
+ *
+ * @param neverPlayingKeys candidates that must NEVER present as PLAYING
+ *   (rotate-mode pinned extras / the Application RPC while Auto Rotate runs —
+ *   the rotating main session owns the single PLAYING card in that mode).
+ */
+export function assignDisplayTypes(
+  cands: DisplayTypeCandidate[],
+  neverPlayingKeys: ReadonlySet<string> = new Set()
+): Map<string, string> {
+  const out = new Map<string, string>()
+  const used = new Set<string>()
+  const tripleOf = (c: DisplayTypeCandidate, ty: string) => `${ty}|${c.appId ?? ''}|${c.name}`
+  let playingTaken = false
+  let subIdx = 0
+  for (const c of cands) {
+    const configured = (c.configuredType || 'PLAYING').toUpperCase()
+    let t: string
+    if ((configured === 'PLAYING' && !playingTaken && !neverPlayingKeys.has(c.key))) {
+      t = 'PLAYING'
+      playingTaken = true
+    } else if (configured !== 'PLAYING' && !neverPlayingKeys.has(c.key) && !used.has(tripleOf(c, configured))) {
+      t = configured
+    } else {
+      // A further PLAYING-configured candidate, a rotate-mode never-PLAYING
+      // candidate, or a colliding (type, app, name) duplicate → walk the
+      // substitute pool deterministically until the triple is unique.
+      t = ''
+      for (let k = 0; k < DISPLAY_TYPE_SUBSTITUTES.length * 2; k++) {
+        const cand = DISPLAY_TYPE_SUBSTITUTES[(subIdx + k) % DISPLAY_TYPE_SUBSTITUTES.length]
+        if (!used.has(tripleOf(c, cand))) {
+          t = cand
+          subIdx = (subIdx + k + 1) % DISPLAY_TYPE_SUBSTITUTES.length
+          break
+        }
+      }
+      if (!t) t = 'WATCHING' // substitute pool exhausted (degenerate config)
+    }
+    used.add(tripleOf(c, t))
+    out.set(c.key, t)
+  }
+  return out
+}
+
+// ════════════════════════════════════════════════════════════════════════════
 // APPLICATION-ID DE-COLLISION — RETIRED (Task 85).
 // The Task 84b "shell id" overlay assigned GAME catalog application ids to
 // duplicate normal slots at runtime. Per the product rule ("normal RPCs run

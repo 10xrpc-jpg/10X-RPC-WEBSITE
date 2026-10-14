@@ -17,10 +17,12 @@ import {
   rpcCandidateKey,
   selectActiveRpcConfigs,
   assignSessionPlatforms,
+  assignDisplayTypes,
   discordPlatformClass,
   isValidActivityPlatform,
   type PresenceResult,
   type RpcCandidate,
+  type DisplayTypeCandidate,
 } from './rpc-manager'
 import { resolvePlaceholders, type PlaceholderContext } from './placeholders'
 import { sanitizeActivities } from './discord-assets'
@@ -156,6 +158,25 @@ const ROTATE_DEFAULTS: RpcRotateSettings = {
   includeGame: true,
   skip: 0,
   slots: null,
+}
+
+// ─── Task 92 — Application RPC display-type context (raw SQL, Orihost-safe) ─
+// The global display-type assignment (assignDisplayTypes) spans ALL THREE RPC
+// systems, so the main daemon must know the Application RPC's saved shape —
+// read-only, tolerant of a missing table (pre-Task-90 daemons).
+interface AppRpcTypeRow { name: string; appId: string | null; type: string | null }
+
+async function fetchAppRpcTypeRow(userId: string): Promise<AppRpcTypeRow | null> {
+  try {
+    const rows = await db.$queryRaw<Array<AppRpcTypeRow>>`
+      SELECT "name", "appId", "type"
+      FROM "ApplicationRpcConfig"
+      WHERE "userId" = ${userId} AND "enabled" = ${true}
+      LIMIT 1`
+    return rows?.[0] ?? null
+  } catch {
+    return null
+  }
 }
 
 /** Task 89 — parse the stored rpcRotateSlots JSON column (raw-SQL safe).
@@ -676,7 +697,12 @@ export class RpcDaemon {
       const rpcConfigs = (session.user.rpcConfigs ?? []) as Array<RpcCandidate & { enabled: boolean }>
       // Task 89 — MULTI-GAME: every enabled game is a candidate (array form),
       // so several Gamer RPCs run at the same time alongside the slots.
-      const enabledGames = (session.user.gameConfigs ?? []).filter(g => g.enabled)
+      // Task 92 — deterministic createdAt order (the relation include has no
+      // orderBy; the display-type orchestration requires BOTH daemons to see
+      // the SAME candidate order).
+      const enabledGames = (session.user.gameConfigs ?? [])
+        .filter(g => g.enabled)
+        .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       // MULTI-RPC: every enabled slot (each with its own flag) + every enabled
       // game are candidates. No mode exclusivity — combinations are supported.
       const selection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGames)
@@ -1442,6 +1468,51 @@ export class RpcDaemon {
     const rotateGameExtraActive = isRpcActive
       && runtime.runtimeMode === 'rotate'
       && rotateGameExtras.length > 0
+
+    // ── Task 92 — GLOBAL DISPLAY-TYPE ORCHESTRATION (the "only one RPC
+    // shows" fix) ────────────────────────────────────────────────────────────
+    // Discord's client prunes the profile activity list: at most ONE
+    // PLAYING-type card renders and (type, application_id, name) duplicates
+    // collapse (verified in the shipped client bundle 2026-10-14 — see
+    // rpc-manager.assignDisplayTypes). Assign display types across ALL THREE
+    // systems (slots + games + Application RPC) so every simultaneous card
+    // survives the client-side prune. Deterministic from saved configs → both
+    // daemons independently reach the same assignment.
+    if (isRpcActive) {
+      const appRpcRow = await fetchAppRpcTypeRow(userId)
+      const globalTypeInputs: DisplayTypeCandidate[] = [
+        ...fullSelection.candidates.map(c => ({
+          key: rpcCandidateKey(c),
+          name: c.name,
+          appId: c.gameSlug ? null : (c.appId ?? null),
+          configuredType: c.type ?? null,
+        })),
+        ...(appRpcRow ? [{
+          key: 'app_rpc',
+          name: appRpcRow.name,
+          appId: appRpcRow.appId,
+          configuredType: appRpcRow.type,
+        }] : []),
+      ]
+      if (multiSessionActive) {
+        const displayTypes = assignDisplayTypes(globalTypeInputs)
+        for (const c of runtime.candidates) {
+          const t = displayTypes.get(rpcCandidateKey(c))
+          if (t && t !== c.type) c.type = t
+        }
+      } else if (rotateGameExtraActive) {
+        // Rotate mode: the rotating main session owns the single PLAYING card.
+        // Pinned extras (and the Application RPC — it enforces the same rule
+        // via GlobalConfig.rpcAutoRotate) never present as PLAYING.
+        const neverPlaying = new Set<string>(rotateGameExtras.map(c => rpcCandidateKey(c)))
+        if (appRpcRow) neverPlaying.add('app_rpc')
+        const displayTypes = assignDisplayTypes(globalTypeInputs, neverPlaying)
+        for (const c of rotateGameExtras) {
+          const t = displayTypes.get(rpcCandidateKey(c))
+          if (t && t !== c.type) c.type = t
+        }
+      }
+    }
 
     // Task 85 — NO Application-ID shell overlay: normal slots present under
     // the user's custom Application ID or the 10X RPC application (game ids

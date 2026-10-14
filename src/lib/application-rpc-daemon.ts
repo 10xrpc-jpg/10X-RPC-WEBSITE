@@ -33,7 +33,7 @@
 import WebSocket from 'ws'
 import { CONFIG } from './config'
 import { db } from './db'
-import { buildActivityPayload } from './rpc-manager'
+import { buildActivityPayload, assignDisplayTypes, type DisplayTypeCandidate } from './rpc-manager'
 import { resolvePlaceholders, type PlaceholderContext } from './placeholders'
 import { sanitizeActivities } from './discord-assets'
 import { discordAuthValue } from './discord-auth'
@@ -612,8 +612,67 @@ export class ApplicationRpcDaemon {
 
   // ─── Activity builder (reuses the platform's pure payload builder) ────────
 
+  // ─── Task 92 — global display-type assignment (read-only) ─────────────────
+
+  /**
+   * Task 92 — THIS system's display type under the GLOBAL orchestration.
+   *
+   * Discord's client renders at most ONE PLAYING-type card and collapses
+   * (type, application_id, name) duplicates (verified in the shipped client
+   * bundle 2026-10-14). The main daemon (rpc-daemon.ts) computes the same
+   * deterministic assignment over slots + games + THIS row (key "app_rpc",
+   * always LAST in the global order), so both processes independently agree.
+   * Read-only: two raw SELECTs against RpcConfig/GameConfig + one against
+   * GlobalConfig for the Auto-Rotate flag — zero writes to other systems.
+   */
+  private async resolveDisplayType(row: AppRpcRow): Promise<string> {
+    const inputs: DisplayTypeCandidate[] = []
+    // Enabled Normal slots first (slot number, then creation — the same order
+    // selectActiveRpcConfigs uses on the main-daemon side).
+    try {
+      const slots = await db.$queryRaw<Array<{ id: string; name: string; appId: string | null; type: string | null }>>`
+        SELECT "id", "name", "appId", "type"
+        FROM "RpcConfig"
+        WHERE "userId" = ${row.userId} AND "enabled" = ${true}
+        ORDER BY "slot" ASC, "createdAt" ASC`
+      for (const s of slots ?? []) {
+        inputs.push({ key: s.id, name: s.name, appId: s.appId ?? null, configuredType: s.type ?? null })
+      }
+    } catch { /* table/column missing on an old schema — no slots known */ }
+    // Enabled Game RPCs (creation order — same as the main daemon's list).
+    try {
+      const games = await db.$queryRaw<Array<{ id: string; gameName: string }>>`
+        SELECT "id", "gameName"
+        FROM "GameConfig"
+        WHERE "userId" = ${row.userId} AND "enabled" = ${true}
+        ORDER BY "createdAt" ASC`
+      for (const g of games ?? []) {
+        inputs.push({ key: g.id, name: g.gameName, appId: null, configuredType: 'PLAYING' })
+      }
+    } catch { /* no GameConfig table — skip */ }
+    // While Auto Rotate runs, the rotating main session owns the single
+    // PLAYING card — this system never presents as PLAYING in that mode.
+    let rotateOn = false
+    try {
+      const rot = await db.$queryRaw<Array<{ rpcAutoRotate: boolean | number }>>`
+        SELECT "rpcAutoRotate" FROM "GlobalConfig" WHERE "userId" = ${row.userId} LIMIT 1`
+      rotateOn = rot?.[0]?.rpcAutoRotate === true || (rot?.[0]?.rpcAutoRotate as unknown) === 1
+    } catch { /* column/table missing — rotation off */ }
+    inputs.push({
+      key: 'app_rpc',
+      name: row.name,
+      appId: isUsableApplicationRpcAppId(row.appId) ? row.appId : null,
+      configuredType: row.type ?? null,
+    })
+    const neverPlaying = rotateOn ? new Set(['app_rpc']) : new Set<string>()
+    return assignDisplayTypes(inputs, neverPlaying).get('app_rpc') ?? 'PLAYING'
+  }
+
   private async buildActivity(row: AppRpcRow, userAccessToken: string, activityLabel?: string): Promise<Record<string, unknown> | null> {
     const updatedAtMs = row.updatedAt ? new Date(row.updatedAt).getTime() : NaN
+    // Task 92 — display type from the GLOBAL orchestration (may differ from
+    // the saved row.type when another system owns the single PLAYING card).
+    const displayType = await this.resolveDisplayType(row)
     const ctx: PlaceholderContext = {
       timezone: 'UTC',
       rpcStartedAt: Number.isFinite(updatedAtMs) && updatedAtMs > 0 ? updatedAtMs : Date.now(),
@@ -639,7 +698,7 @@ export class ApplicationRpcDaemon {
     const cfg = {
       // RpcConfig-compatible shape for the shared pure builder.
       name: row.name,
-      type: row.type,
+      type: displayType,
       platform: row.platform,
       state,
       details,
