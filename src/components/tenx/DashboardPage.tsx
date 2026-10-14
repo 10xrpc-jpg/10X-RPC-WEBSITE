@@ -10,6 +10,7 @@ import { ProfileSection } from './ProfileSection'
 import { BrandMark, BrandName } from './BrandMark'
 import { SmartSleepTimerCard } from './SmartSleepTimerCard'
 import { RpcSlotsManager } from './RpcSlotsManager'
+import { ApplicationRpcCard } from './ApplicationRpcCard'
 import { ConfigBackupCard } from './ConfigBackupCard'
 import { ReconnectBanner } from './ReconnectBanner'
 import { startPlanCheckout } from './subscriptionCheckout'
@@ -208,6 +209,11 @@ export function DashboardPage() {
             })
           }}
         />
+
+        {/* Application RPC — the THIRD, fully independent RPC system. Own
+            config, own controls, own execution path; Normal RPC and Game RPC
+            are never read, written or affected by it. */}
+        <ApplicationRpcCard />
 
         {/* Backup & Restore — export/import every saved setting as JSON */}
         <ConfigBackupCard me={me} onRefresh={() => {

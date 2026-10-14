@@ -26,6 +26,7 @@ import fs from 'fs'
 import http from 'http'
 import path from 'path'
 import { getRpcDaemon } from '../src/lib/rpc-daemon'
+import { getApplicationRpcDaemon } from '../src/lib/application-rpc-daemon'
 
 const HEARTBEAT_FILE = path.join(process.cwd(), '.daemon-heartbeat')
 const SYNC_PORT = parseInt(process.env.DAEMON_SYNC_PORT || '3100', 10)
@@ -40,6 +41,7 @@ function writeHeartbeat(): void {
       iso: new Date().toISOString(),
       pid: process.pid,
       status: daemon.getStatus(),
+      application: getApplicationRpcDaemon().getStatus(),
     }
     fs.writeFileSync(HEARTBEAT_FILE, JSON.stringify(payload))
   } catch (err) {
@@ -91,10 +93,17 @@ async function runSync(userId: string, mode: string): Promise<{ ok: boolean; mes
   try {
     if (mode === 'stop') {
       await daemon.stopUserRpc(userId)
+      // Application RPC is INDEPENDENT: a Normal/Game 'stop' notification must
+      // never stop it — syncUser re-evaluates ONLY the Application RPC's own
+      // enabled flag (kept running when its own row is enabled).
+      await getApplicationRpcDaemon().syncUser(userId)
       return { ok: true, message: 'Presence stopped via instant sync' }
     }
     const result = await daemon.syncUser(userId)
-    return { ok: !!result?.ok, message: result?.message || 'Presence synced via instant sync' }
+    const appResult = await getApplicationRpcDaemon().syncUser(userId)
+    const ok = !!result?.ok && appResult.ok
+    const message = result?.message || appResult.message || 'Presence synced via instant sync'
+    return { ok, message }
   } catch (err) {
     return {
       ok: false,
@@ -177,6 +186,7 @@ const syncServer = http.createServer((req, res) => {
       uptime: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
       daemon: daemon.getStatus(),
+      application: getApplicationRpcDaemon().getStatus(),
     })
     return
   }
@@ -200,14 +210,23 @@ daemon.start().then(() => {
   process.exit(1)
 })
 
+// Task 90 — the Application RPC daemon runs INDEPENDENTLY alongside the main
+// daemon: own tick, own sessions, own config table. A failure here never
+// affects the Normal/Game presence loop (and vice versa).
+getApplicationRpcDaemon().start().catch(err => {
+  console.error('[10X RPC Standalone Daemon] Application RPC daemon failed to start (main daemon unaffected):', err)
+})
+
 process.on('SIGINT', () => {
   console.log('[10X RPC Standalone Daemon] SIGINT received, stopping daemon...')
   daemon.stop()
+  getApplicationRpcDaemon().stop()
   process.exit(0)
 })
 
 process.on('SIGTERM', () => {
   console.log('[10X RPC Standalone Daemon] SIGTERM received, stopping daemon...')
   daemon.stop()
+  getApplicationRpcDaemon().stop()
   process.exit(0)
 })

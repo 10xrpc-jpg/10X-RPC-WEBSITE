@@ -32,6 +32,7 @@ model User {
   trial          Trial?
   subscription   Subscription?
   payments       Payment[]
+  applicationRpc ApplicationRpcConfig?
   /** Internal admin remarks (never shown to the user). */
   adminNote      String?
 }
@@ -136,6 +137,51 @@ model GameConfig {
   updatedAt    DateTime @updatedAt
 
   @@unique([userId, gameSlug])
+  @@index([userId])
+}
+
+// Application RPC — the THIRD, fully independent RPC system (alongside the
+// Normal RPC slots and the Game RPC). Own table, own identifiers, own enabled
+// flag, own execution path (src/lib/application-rpc-daemon.ts) and own status
+// tracking. Saving/toggling this row NEVER reads or writes RpcConfig,
+// GameConfig or the Session RPC flags, and vice versa.
+// runState is the daemon-written execution truth: idle | starting | running |
+// error (runError carries the exact reason). runSinceAt is an ISO timestamp —
+// epoch ms would overflow the 32-bit Int column; a String keeps the raw-SQL
+// status writes portable across Postgres/SQLite and never touches updatedAt
+// (the elapsed-time anchor for the activity).
+model ApplicationRpcConfig {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String   @default("10X RPC")
+  type         String   @default("PLAYING") // PLAYING / STREAMING / LISTENING / WATCHING / COMPETING
+  platform     String   @default("meta_quest") // session platform class; default = VR class (collision-safe)
+  /** Discord Application ID this RPC presents as. REQUIRED to enable — the
+   *  whole point of Application RPC is running under a specific application.
+   *  Game catalog ids are rejected here (reserved for the isolated Game RPC). */
+  appId        String?
+  state        String?
+  details      String?
+  largeImage   String?
+  largeText    String?
+  smallImage   String?
+  smallText    String?
+  button1Label String?
+  button1Url   String?
+  button2Label String?
+  button2Url   String?
+  partyCurrent Int?
+  partyMax     Int?
+  startMinsAgo Int      @default(0)
+  endTotalMins Int?
+  enabled      Boolean  @default(false)
+  runState     String   @default("idle")
+  runError     String?
+  runSinceAt  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
   @@index([userId])
 }
 

@@ -163,6 +163,48 @@ export interface RotatorPreset {
   order?: number
 }
 
+// Application RPC — the THIRD, fully independent RPC system (Task 90).
+// Own config row, own enable flag, own daemon-written run state. Never merged
+// with RpcConfig (Normal RPC) or GameConfig (Game RPC).
+export type ApplicationRunState = 'idle' | 'starting' | 'running' | 'error'
+
+export interface ApplicationRpcConfig {
+  id: string
+  name: string
+  type: string
+  platform: string
+  /** Discord Application ID this RPC presents under (REQUIRED to enable). */
+  appId: string | null
+  state: string | null
+  details: string | null
+  largeImage: string | null
+  largeText: string | null
+  smallImage: string | null
+  smallText: string | null
+  button1Label: string | null
+  button1Url: string | null
+  button2Label: string | null
+  button2Url: string | null
+  partyCurrent: number | null
+  partyMax: number | null
+  startMinsAgo: number
+  endTotalMins: number | null
+  enabled: boolean
+  /** Daemon-written execution truth — never faked by the API layer. */
+  runState: ApplicationRunState
+  runError: string | null
+  runSinceAt: string | null
+}
+
+export interface ApplicationRpcResponse {
+  ok: boolean
+  config: ApplicationRpcConfig
+  /** 'orihost-daemon' (24/7 execution) | 'in-process' (local dev). */
+  backend?: string
+  enabled?: boolean
+  message?: string
+}
+
 export interface GameListItem {
   slug: string
   name: string
@@ -596,6 +638,15 @@ export const api = {
     message?: string
     error?: string
   }>('/api/rpc/rotate/skip', { method: 'POST' }),
+
+  // ── Application RPC (the THIRD, independent RPC system — Task 90) ──
+  applicationRpcGet: () => fetchJson<ApplicationRpcResponse>('/api/application-rpc'),
+  applicationRpcSave: (data: Partial<ApplicationRpcConfig>) => fetchJson<ApplicationRpcResponse>('/api/application-rpc', {
+    method: 'PUT', body: JSON.stringify(data),
+  }),
+  applicationRpcToggle: (enabled: boolean) => fetchJson<ApplicationRpcResponse>('/api/application-rpc/toggle', {
+    method: 'POST', body: JSON.stringify({ enabled }),
+  }),
 
   customStatus: (emoji: string | null, text: string | null) =>
     fetchJson<{ ok: boolean }>('/api/rpc/custom-status', {
