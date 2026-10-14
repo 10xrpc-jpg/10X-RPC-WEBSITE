@@ -640,6 +640,8 @@ export class ApplicationRpcDaemon {
       }
     } catch { /* table/column missing on an old schema — no slots known */ }
     // Enabled Game RPCs (creation order — same as the main daemon's list).
+    // Task 93 — marked kind:'game': Game RPCs are PINNED to PLAYING and never
+    // consume (or yield) the non-game PLAYING position.
     try {
       const games = await db.$queryRaw<Array<{ id: string; gameName: string }>>`
         SELECT "id", "gameName"
@@ -647,7 +649,7 @@ export class ApplicationRpcDaemon {
         WHERE "userId" = ${row.userId} AND "enabled" = ${true}
         ORDER BY "createdAt" ASC`
       for (const g of games ?? []) {
-        inputs.push({ key: g.id, name: g.gameName, appId: null, configuredType: 'PLAYING' })
+        inputs.push({ key: g.id, name: g.gameName, appId: null, configuredType: 'PLAYING', kind: 'game' })
       }
     } catch { /* no GameConfig table — skip */ }
     // While Auto Rotate runs, the rotating main session owns the single

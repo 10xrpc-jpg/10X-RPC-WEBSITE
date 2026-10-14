@@ -479,8 +479,20 @@ export function resolveRuntimeCandidates(opts: {
 // client collapsed the whole set to a single card no matter how many gateway
 // sessions carried them (server-side aggregates always held all activities).
 //
-// Two hard client rules this orchestration satisfies:
-//   1. AT MOST ONE candidate presents as PLAYING — every further
+// Task 93 — GAME RPCs ARE PINNED TO PLAYING (user directive, supersedes the
+// multi-PLAYING prune workaround):
+//   "All Game RPCs must always display the status as Playing. Ensure every
+//    Game RPC stays in the Playing state and does not switch to any other
+//    status."
+// Every game candidate therefore ALWAYS presents as PLAYING (type 0). It is
+// never re-labeled to WATCHING / LISTENING / COMPETING, never yields the
+// PLAYING position to another candidate, and ignores rotate-mode neverPlaying.
+// The at-most-one-PLAYING + duplicate-triple rules now apply ONLY among the
+// NON-game candidates (Normal slots + the Application RPC), which are exactly
+// the cards that visibly collapsed when they shared type 0.
+//
+// Remaining hard client rule for non-game cards:
+//   1. AT MOST ONE non-game candidate presents as PLAYING — every further
 //      PLAYING-configured candidate is re-labeled to WATCHING / LISTENING /
 //      COMPETING (all real Discord activity types, rendered as their own card).
 //   2. No two cards may share the (type, application_id, name) triple —
@@ -509,15 +521,21 @@ export interface DisplayTypeCandidate {
   appId: string | null
   /** Configured type string ('PLAYING' | 'WATCHING' | …); null → PLAYING. */
   configuredType: string | null
+  /** Task 93 — true for Game RPC candidates: pinned to PLAYING forever. */
+  kind?: 'game'
 }
 
 /**
  * Assign each candidate a DISPLAY activity type so Discord's client renders
  * every card simultaneously (rules above). Returns key → type string.
  *
- * @param neverPlayingKeys candidates that must NEVER present as PLAYING
- *   (rotate-mode pinned extras / the Application RPC while Auto Rotate runs —
- *   the rotating main session owns the single PLAYING card in that mode).
+ * Task 93 — Game RPC candidates (kind: 'game') are PINNED to PLAYING:
+ * they never switch to another status, in any mode, ever.
+ *
+ * @param neverPlayingKeys non-game candidates that must NEVER present as
+ *   PLAYING (rotate-mode pinned slot extras / the Application RPC while Auto
+ *   Rotate runs — the rotating main session owns the PLAYING card in that
+ *   mode). Games are exempt by definition.
  */
 export function assignDisplayTypes(
   cands: DisplayTypeCandidate[],
@@ -531,7 +549,14 @@ export function assignDisplayTypes(
   for (const c of cands) {
     const configured = (c.configuredType || 'PLAYING').toUpperCase()
     let t: string
-    if ((configured === 'PLAYING' && !playingTaken && !neverPlayingKeys.has(c.key))) {
+    if (c.kind === 'game') {
+      // Task 93 — Game RPCs ALWAYS present as PLAYING (type 0). The
+      // "Playing <Game>" status is the product contract for the Game RPC
+      // system: no substitute, no rotate-mode demotion, no collapse-driven
+      // re-labeling. Distinct game names / spoofed app ids keep every game
+      // card's (type, application_id, name) triple unique by construction.
+      t = 'PLAYING'
+    } else if ((configured === 'PLAYING' && !playingTaken && !neverPlayingKeys.has(c.key))) {
       t = 'PLAYING'
       playingTaken = true
     } else if (configured !== 'PLAYING' && !neverPlayingKeys.has(c.key) && !used.has(tripleOf(c, configured))) {

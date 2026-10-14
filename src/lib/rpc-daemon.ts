@@ -1486,6 +1486,9 @@ export class RpcDaemon {
           name: c.name,
           appId: c.gameSlug ? null : (c.appId ?? null),
           configuredType: c.type ?? null,
+          // Task 93 — Game RPC candidates are PINNED to PLAYING (they never
+          // present as any other status, in any mode).
+          kind: c.gameSlug ? ('game' as const) : undefined,
         })),
         ...(appRpcRow ? [{
           key: 'app_rpc',
@@ -1501,10 +1504,16 @@ export class RpcDaemon {
           if (t && t !== c.type) c.type = t
         }
       } else if (rotateGameExtraActive) {
-        // Rotate mode: the rotating main session owns the single PLAYING card.
-        // Pinned extras (and the Application RPC — it enforces the same rule
-        // via GlobalConfig.rpcAutoRotate) never present as PLAYING.
-        const neverPlaying = new Set<string>(rotateGameExtras.map(c => rpcCandidateKey(c)))
+        // Rotate mode: the rotating main session owns the single PLAYING card
+        // among the NON-game candidates. Pinned slot extras and the
+        // Application RPC (it enforces the same rule via GlobalConfig
+        // .rpcAutoRotate) never present as PLAYING.
+        // Task 93 — GAME extras are EXEMPT: a Game RPC always presents as
+        // PLAYING ("Playing <Game>"), pinned or not — it never switches to
+        // another status, even while Auto Rotate runs.
+        const neverPlaying = new Set<string>(
+          rotateGameExtras.filter(c => !c.gameSlug).map(c => rpcCandidateKey(c))
+        )
         if (appRpcRow) neverPlaying.add('app_rpc')
         const displayTypes = assignDisplayTypes(globalTypeInputs, neverPlaying)
         for (const c of rotateGameExtras) {
