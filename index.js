@@ -143,6 +143,9 @@ const server = http.createServer((req, res) => {
       daemon: hb
         ? { heartbeatAgeSec: hb.ageSec, connected: hb.data.status?.activeConnections, trackedUsers: hb.data.status?.totalTrackedUsers, pid: hb.data.pid }
         : { heartbeatAgeSec: null, connected: null, trackedUsers: null, pid: null },
+      // Task 90 — additive Application RPC daemon status (independent system,
+      // reported from the same heartbeat; null on pre-Task-90 heartbeats).
+      application: hb?.data?.application ?? null,
     }))
   } else if (url.pathname === '/sync') {
     // Shared-secret gate for EXTERNAL callers (the website). The supervisor
