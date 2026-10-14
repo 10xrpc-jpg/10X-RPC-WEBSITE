@@ -18,6 +18,7 @@ import {
   selectActiveRpcConfigs,
   assignSessionPlatforms,
   discordPlatformClass,
+  isValidActivityPlatform,
   type PresenceResult,
   type RpcCandidate,
 } from './rpc-manager'
@@ -1534,6 +1535,16 @@ export class RpcDaemon {
             // card dropped ('web'/'mobile' rejected; inconsistent with the
             // gateway-classified session). Cards inherit the session's
             // platform label from the identify, which is what we want.
+            // Task 91 — REVERSED (live-verified): the client merges rendered
+            // profile cards by the ACTIVITY's `platform` field, NOT the
+            // session's gateway class. Three extras on web/android/embedded
+            // sessions all arrived label-less → Discord stamped every one
+            // 'desktop' → all three collapsed into ONE card (and the real
+            // desktop client wiped that label group). Every extra now stamps
+            // its activity with its ASSIGNED platform — the pool exclusively
+            // contains valid activity-enum values (ps4/xbox/android/ios), so
+            // every card carries a UNIQUE label and can neither merge with a
+            // sibling nor be wiped by a real client's push.
             // STABLE config hash — the session reopen guard. Resolved activities
             // churn every tick (dynamic placeholders), the row's fields don't.
             // Includes the ASSIGNED platform: a class reassignment reopens.
@@ -1552,6 +1563,15 @@ export class RpcDaemon {
               u: (cand as { updatedAt?: unknown }).updatedAt ?? null,
               pl: assignedPlatform,
             })
+            // Task 91 — stamp the activity-level platform label (the card
+            // merge key). The assigned platform always comes from the
+            // Task 91 pool (valid activity-enum values only). A candidate
+            // whose builder already set a label (VR meta_quest) gets
+            // overridden — the assignment is the single source of truth for
+            // extras; two meta_quest-labeled cards would merge client-side.
+            if (isValidActivityPlatform(assignedPlatform)) {
+              safe[0].platform = assignedPlatform
+            }
             extras.push({
               idx: multiSessionActive ? i + 1 : 0,
               key: rpcCandidateKey(cand) || `slot${i + 1}`,

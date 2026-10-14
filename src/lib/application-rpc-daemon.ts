@@ -4,9 +4,14 @@
 // NOTHING with the Normal RPC / Game RPC daemon (rpc-daemon.ts):
 //   • own tick loop + watchdog (started alongside the main daemon by the
 //     standalone runner; the in-process dev fallback starts its own instance)
-//   • own gateway WebSocket sessions (one per user, platform class chosen by
-//     the Application RPC's own config — default meta_quest/VR, a class the
-//     Normal/Game Multi-Session extras never take)
+//   • own gateway WebSocket sessions (one per user, platform chosen by the
+//     Application RPC's own config — default meta_quest/VR). Task 91: the
+//     session platform doubles as the ACTIVITY-level `platform` label — the
+//     field Discord clients merge profile cards by. When the saved platform
+//     is already used by an enabled Normal RPC slot (live example: slot 1 =
+//     meta_quest), this daemon deterministically moves itself to a free
+//     label (samsung → ps5 → embedded → …) so the two cards can never merge
+//     into one — that collision was exactly the "only one RPC shows" bug.
 //   • own Database access: every ApplicationRpcConfig read/write goes through
 //     $queryRaw so this works on ANY Prisma client generation (the standalone
 //     Orihost daemon's client may predate the ApplicationRpcConfig model — raw
@@ -85,6 +90,12 @@ interface AppRpcSocket {
   isConnecting: boolean
   connectingSince?: number
   identifiedPlatform?: string
+  /** Task 91 — the ACTIVITY-level platform label this session pushes (the
+   *  card-merge key). Equal to the session's identify platform so Discord
+   *  accepts the activity (mismatched labels get the whole activity
+   *  rejected). Recomputed every tick from the user's enabled Normal slots;
+   *  a change triggers one reconnect with the matched identify. */
+  activityLabel?: string
   /** The Discord token whose IDENTIFY was rejected with 4004. Retrying the
    *  same dead token hits 4004 forever — stay down until the stored token
    *  CHANGES (re-login, or the Normal daemon's refresh landing in the DB). */
@@ -266,6 +277,32 @@ export class ApplicationRpcDaemon {
 
   // ─── Per-user maintenance (the whole independent lifecycle) ───────────────
 
+  /**
+   * Task 91 — resolve THIS user's activity-level platform label (the card
+   * merge key). The saved Application RPC platform wins UNLESS an ENABLED
+   * Normal RPC slot already uses it (their two cards would merge into one —
+   * live-verified root cause of "only one RPC shows"). Deterministic and
+   * race-free: derived purely from saved configs, re-evaluated every tick.
+   * Read-only: one raw SELECT against RpcConfig, zero writes to it.
+   */
+  private async resolveActivityLabel(userId: string, row: AppRpcRow): Promise<string> {
+    const desired = row.platform || 'meta_quest'
+    let used: string[] = []
+    try {
+      const rows = await db.$queryRaw<Array<{ platform: string | null }>>`
+        SELECT "platform" FROM "RpcConfig" WHERE "userId" = ${userId} AND "enabled" = ${true}`
+      used = (rows ?? []).map(r => r.platform).filter((p): p is string => !!p)
+    } catch { /* table missing / transient DB issue — no Normal slots known */ }
+    if (!used.includes(desired)) return desired
+    // Task 91 pool — labels the Normal/Game extras NEVER take (their pool is
+    // ps4/xbox/android/ios), so these three are collision-free by construction.
+    const fallback = ['samsung', 'ps5', 'embedded', 'ps4', 'xbox', 'android', 'ios']
+    const free = fallback.find(p => !used.includes(p))
+    // (no per-tick log here — the tick runs every 10s; maintainUser logs the
+    // actual label CHANGE on the socket, which is the actionable event)
+    return free ?? 'desktop'
+  }
+
   private async maintainUser(row: AppRpcRow, forceConnect: boolean): Promise<void> {
     const userId = row.userId
     const now = new Date()
@@ -310,7 +347,21 @@ export class ApplicationRpcDaemon {
       return
     }
 
+    // Task 91 — resolve the card-merge label BEFORE any socket decision so a
+    // label change both drives the identify AND the pushed activity.
+    const activityLabel = await this.resolveActivityLabel(userId, row)
     const sock = this.ensureSocket(userId)
+    if (sock.activityLabel !== activityLabel) {
+      const hadSocket = sock.connected || sock.isConnecting
+      sock.activityLabel = activityLabel
+      if (hadSocket) {
+        // Label changed (user enabled/changed a Normal slot platform) — the
+        // session must re-identify with the MATCHED platform so Discord
+        // accepts the relabeled activity.
+        console.log(`[10X RPC AppDaemon] Activity label changed for user ${userId} → "${activityLabel}" — reconnecting with matched identify`)
+        this.cleanupSocket(sock)
+      }
+    }
 
     // A NEW token landed (re-login or the Normal daemon refreshed it) — clear
     // the auth-fatal block and retry with the fresh token automatically.
@@ -334,7 +385,7 @@ export class ApplicationRpcDaemon {
       }
       const backoffOk = !sock.lastFailAt || (Date.now() - sock.lastFailAt >= REOPEN_BACKOFF_MS)
       if (forceConnect || backoffOk) {
-        await this.connectUserSocket(userId, row, session.discordAccessToken)
+        await this.connectUserSocket(userId, row, session.discordAccessToken, activityLabel)
       }
       return
     }
@@ -343,7 +394,7 @@ export class ApplicationRpcDaemon {
     // bucket re-assert the Multi-Session extras use: idempotent, cheap, and
     // self-heals any same-class overwrite from another integration within 10s).
     if (sock.connected && sock.ws && sock.ws.readyState === WebSocket.OPEN) {
-      const activity = await this.buildActivity(row, session.discordAccessToken)
+      const activity = await this.buildActivity(row, session.discordAccessToken, activityLabel)
       if (!activity) {
         await this.transitionRunState(row, 'error', 'Failed to build the presence payload — check the saved Application RPC fields.')
         return
@@ -364,7 +415,7 @@ export class ApplicationRpcDaemon {
 
   // ─── Gateway session (own implementation, proven patterns) ────────────────
 
-  private async connectUserSocket(userId: string, row: AppRpcRow, accessToken: string): Promise<void> {
+  private async connectUserSocket(userId: string, row: AppRpcRow, accessToken: string, activityLabel?: string): Promise<void> {
     const sock = this.ensureSocket(userId)
     if (sock.isConnecting) return
     if (!accessToken) return // nothing to identify with — maintenance re-checks the session
@@ -376,8 +427,13 @@ export class ApplicationRpcDaemon {
     sock.isConnecting = true
     sock.connectingSince = Date.now()
 
-    const platform = row.platform || 'meta_quest'
+    // Task 91 — the session identify platform = the activity label (matched
+    // pair). Discord rejects activities whose platform label does not fit the
+    // session, and the label is the client-side card-merge key — the pair
+    // must agree. Falls back to the row's saved platform.
+    const platform = (activityLabel ?? sock.activityLabel ?? row.platform) || 'meta_quest'
     sock.identifiedPlatform = platform
+    sock.activityLabel = platform
 
     let settled = false
     const markSettled = () => {
@@ -556,7 +612,7 @@ export class ApplicationRpcDaemon {
 
   // ─── Activity builder (reuses the platform's pure payload builder) ────────
 
-  private async buildActivity(row: AppRpcRow, userAccessToken: string): Promise<Record<string, unknown> | null> {
+  private async buildActivity(row: AppRpcRow, userAccessToken: string, activityLabel?: string): Promise<Record<string, unknown> | null> {
     const updatedAtMs = row.updatedAt ? new Date(row.updatedAt).getTime() : NaN
     const ctx: PlaceholderContext = {
       timezone: 'UTC',
@@ -608,10 +664,16 @@ export class ApplicationRpcDaemon {
         userAccessToken,
       }) as Record<string, unknown>
 
-      // Task 84d rule (live-verified): the activity-level `platform` field is
-      // silently rejected for web/mobile values and duplicates the session's
-      // IDENTIFY otherwise. Keep only the VR label (meta_quest), drop the rest.
+      // Task 84d rule (live-verified): platform values OUTSIDE Discord's
+      // activity enum ('web'/'mobile') get the WHOLE activity silently
+      // rejected — drop those. Task 91: a VALID enum label is now REQUIRED —
+      // it is the field Discord clients merge profile cards by. The label
+      // always matches this session's identify (resolved in maintainUser),
+      // mirroring the accepted meta_quest/VR precedent.
       if (built.platform && built.platform !== 'meta_quest') delete built.platform
+      if (activityLabel && activityLabel !== 'desktop') {
+        built.platform = activityLabel
+      }
 
       const safe = sanitizeActivities([built])
       return safe.length > 0 ? safe[0] : null

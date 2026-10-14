@@ -606,53 +606,81 @@ export function discordPlatformClass(
 }
 
 /** Deterministic assignment pool for EXTRA (beyond-main) sessions.
- *  Task 84d — order chosen for COLLISION SAFETY, verified live via the
- *  SESSIONS_REPLACE observer (13:32Z): the user's REAL clients permanently
- *  occupy the `mobile` class (phone, always signed in) and often `desktop`
- *  (desktop app). Same-class sessions merge last-write-wins, so an extra
- *  session assigned `android` was repeatedly wiped by the phone's presence
- *  sync and its card silently disappeared. The pool therefore hands out the
- *  classes real users almost never occupy FIRST: web → console → mobile →
- *  desktop. Together with the main session's (any) class that is all 5. */
-const EXTRA_PLATFORM_FALLBACK_POOL = ['web', 'ps4', 'android', 'desktop'] as const
+ *  Task 91 REWRITE — the pool now contains ONLY platforms that are ALSO valid
+ *  ACTIVITY-level `platform` enum values. WHY: live-verified (Task 91 aggregate
+ *  dumps) — the Discord client merges rendered profile cards by the ACTIVITY's
+ *  own `platform` field, NOT by the session's gateway class. Three game extras
+ *  on web/android/embedded sessions all shipped WITHOUT an activity label, so
+ *  Discord defaulted every one of them to platform:"desktop" and the client
+ *  collapsed all three into a single card (and the user's real desktop client
+ *  — also desktop-labeled — wiped the group entirely). Distinct labels are the
+ *  actual multi-card mechanism.
+ *
+ *  Task 84d history kept for context: real clients permanently occupy the
+ *  `mobile` class (phone) and often `desktop`/`web`. The pool therefore
+ *  prefers the CONSOLE family (labels no real client emits, zero contention)
+ *  and only then mobile labels. 'web' and 'desktop' are deliberately ABSENT:
+ *  there is no 'web' activity enum value (activities from web sessions are
+ *  labeled 'desktop'), so web/desktop sessions can never carry a DISTINCT
+ *  label and would merge with the user's real desktop card. */
+const EXTRA_PLATFORM_FALLBACK_POOL = ['ps4', 'xbox', 'android', 'ios'] as const
+
+/** Discord's ACTIVITY-level platform enum (docs.discord.food Activity Object).
+ *  Values outside this list cause the WHOLE activity to be silently rejected
+ *  by the gateway (Task 84d: 'web'/'mobile' never stored). */
+const ACTIVITY_PLATFORM_ENUM: ReadonlySet<string> = new Set([
+  'desktop', 'xbox', 'samsung', 'ios', 'android', 'embedded', 'ps4', 'ps5', 'meta_quest',
+])
+
+/** True when `p` may be sent as an activity-level `platform` field. */
+export function isValidActivityPlatform(p: string | null | undefined): boolean {
+  return !!p && ACTIVITY_PLATFORM_ENUM.has(p)
+}
 
 /**
- * Assign each extra (beyond-main) session a platform whose CLASS is unique
- * across all concurrent sessions. Deterministic → assignments never churn
- * between ticks (sessions reopen only when the assignment actually changes).
+ * Assign each extra (beyond-main) session a platform whose VALUE (and hence
+ * the activity card label) is unique across all concurrent sessions.
+ * Deterministic → assignments never churn between ticks (sessions reopen
+ * only when the assignment actually changes).
  *
- * Task 84d — the candidate's OWN platform is deliberately NOT preferred:
- * slot configs are overwhelmingly `desktop`, and a desktop-class extra
- * collides with the user's real desktop client (and with sibling slots),
- * which is exactly the "only 2 of 3 RPCs render" bug. Extras always come
- * from the collision-safe pool instead; the card content (name/icon/state)
- * is unaffected by the session class.
+ * Task 91 — uniqueness moved from SESSION CLASS to PLATFORM VALUE: the client
+ * merges rendered cards by the activity's `platform` field (live-verified —
+ * extras on DISTINCT gateway classes but all defaulting to the 'desktop'
+ * activity label collapsed into one card). The pool therefore contains only
+ * valid activity-enum values, and two extras may now share a gateway class
+ * (ps4+xbox are both console) as long as their LABELS differ.
+ *
+ * Task 84d — the candidate's OWN platform is still deliberately NOT preferred:
+ * slot configs are overwhelmingly `desktop`/`meta_quest`, and a desktop extra
+ * merges with the user's real desktop card while a meta_quest extra merges
+ * with the MAIN session's card. Extras always come from the collision-safe
+ * pool; the card content (name/icon/state) is unaffected by the label.
  *
  * Task 84d — STABLE HINTS: assignments are anchored to each candidate's own
- * slot number (slot 2 → web, slot 3 → ps4, slot 4 → android, slot 5 →
- * desktop; game → web). Enabling/disabling a MIDDLE slot therefore never
- * reshuffles the others (no reopen churn, no zombie sessions, no flicker).
- * When a hinted class is taken the scan advances deterministically.
+ * slot number (slot 2 → pool[0], slot 3 → pool[1], …; game → pool[0]).
+ * Enabling/disabling a MIDDLE slot therefore never reshuffles the others
+ * (no reopen churn, no zombie sessions, no flicker). When a hinted value is
+ * taken the scan advances deterministically.
  *
- * @param mainPlatform the platform the MAIN session identifies as
+ * @param mainPlatform the platform the MAIN session identifies (and labels) as
  * @param candidatePlatforms own platform of each EXTRA candidate, in order
  * @param stableHints desired pool index per candidate (same order), or null
  * @returns assigned platform per candidate (same order); `null` = no free
- *          class remained (candidate is appended to the main push as fallback).
+ *          label remained (candidate is appended to the main push as fallback).
  */
 export function assignSessionPlatforms(
   mainPlatform: string | null | undefined,
   candidatePlatforms: Array<string | null | undefined>,
   stableHints?: Array<number | null | undefined>
 ): Array<string | null> {
-  const taken = new Set<DiscordPlatformClass>([discordPlatformClass(mainPlatform)])
+  const taken = new Set<string>([mainPlatform || 'desktop'])
   return candidatePlatforms.map((own, i) => {
     const hint = stableHints?.[i]
     const start = typeof hint === 'number' ? ((hint % EXTRA_PLATFORM_FALLBACK_POOL.length) + EXTRA_PLATFORM_FALLBACK_POOL.length) % EXTRA_PLATFORM_FALLBACK_POOL.length : 0
     for (let k = 0; k < EXTRA_PLATFORM_FALLBACK_POOL.length; k++) {
       const p = EXTRA_PLATFORM_FALLBACK_POOL[(start + k) % EXTRA_PLATFORM_FALLBACK_POOL.length]
-      if (!taken.has(discordPlatformClass(p))) {
-        taken.add(discordPlatformClass(p))
+      if (!taken.has(p)) {
+        taken.add(p)
         return p
       }
     }
