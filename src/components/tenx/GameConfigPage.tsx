@@ -93,8 +93,13 @@ export function GameConfigPage({ slug }: { slug: string }) {
     }
     setSaving(true)
     try {
-      await api.gameSave(slug, { ...cfg, enabled })
-      toast.success(`${preset?.name} config saved`, { duration: 2500 })
+      const res = await api.gameSave(slug, { ...cfg, enabled })
+      const deactivated = res.deactivated
+      if (enabled && deactivated && deactivated.length > 0) {
+        toast.success(`${preset?.name} is now live — paused: ${deactivated.slice(0, 3).join(', ')}${deactivated.length > 3 ? ` +${deactivated.length - 3} more` : ''}`, { duration: 3500 })
+      } else {
+        toast.success(`${preset?.name} config saved`, { duration: 2500 })
+      }
       navigate({ name: 'games' })
     } catch (e) {
       console.error(e)
@@ -154,15 +159,15 @@ export function GameConfigPage({ slug }: { slug: string }) {
             <PurpleSwitch checked={enabled} onCheckedChange={setEnabled} />
           </div>
 
-          {/* Multi-RPC note: Game RPC runs ALONGSIDE the user's RPC slots —
-              and MULTIPLE games can be live at the same time (Task 89). */}
+          {/* Single-active note (Task 95): Game RPC runs ALONGSIDE the user's
+              RPC slots — and exactly ONE game is live at a time. */}
           <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-white/45 px-1">
             <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span>
-              Game RPC is fully independent — it runs alongside your Normal RPC slots, and you can
-              enable as many games as you like: every enabled game shows up as its own Discord card
-              at the same time. Enabling or disabling this game never modifies any other
-              configuration.
+              Game RPC is fully independent — it runs alongside your Normal RPC slots. Only one game
+              can be live at a time: enabling this game automatically pauses the previously active one
+              (saved configs are never modified). Turn on Auto-Rotate Game RPC on the Games page to
+              cycle through your selected games automatically.
             </span>
           </p>
 

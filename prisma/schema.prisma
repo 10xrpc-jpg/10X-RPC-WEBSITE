@@ -225,6 +225,27 @@ model GlobalConfig {
    *  (RpcConfig ids or "game:<slug>"). null = not set → every enabled RPC
    *  joins per rpcRotateIncludeGame; an array = ONLY those candidates rotate. */
   rpcRotateSlots      String?
+  /** Task 95 — GAME Auto-Rotate: FULLY independent from the Normal RPC
+   *  rotation above. Own switch, own interval, own pool (game slugs), own
+   *  skip counter, own clock anchor and applied-skip watermark. The daemon
+   *  flips GameConfig.enabled so exactly ONE game runs at a time; these
+   *  columns never touch rpcAutoRotate* and vice versa. */
+  gameRotateEnabled   Boolean  @default(false)
+  gameRotateSecs      Int      @default(60)
+  gameRotateOrder     String   @default("forward")
+  /** Manual advance counter ("Skip to next game") — raw-SQL bump, never
+   *  touches updatedAt. */
+  gameRotateSkip      Int      @default(0)
+  /** JSON string[] of GameConfig.gameSlug values the user selected for the
+   *  rotation pool. null = rotate every game. */
+  gameRotateSlots     String?
+  /** The slug currently published by the rotation (persists restarts). */
+  gameRotateCurrent   String?
+  /** Rotation clock anchor — independent from updatedAt so either system's
+   *  settings changes never reset the other system's phase. */
+  gameRotateAnchorAt  DateTime?
+  /** Watermark of the gameRotateSkip counter already applied by the daemon. */
+  gameRotateAppliedSkip Int    @default(0)
   createdAt           DateTime @default(now())
   updatedAt           DateTime @updatedAt
 }

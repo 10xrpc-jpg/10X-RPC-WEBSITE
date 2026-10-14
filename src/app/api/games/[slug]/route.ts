@@ -8,6 +8,7 @@ import { db } from '@/lib/db'
 import { findGame, fetchDiscordApplication, DISCORD_APP_ID_RE } from '@/lib/games'
 import { syncPresenceDetached } from '@/lib/presence-sync'
 import { capStr, capNum, LIMIT_TEXT, LIMIT_ASSET_REF, LIMIT_URL, LIMIT_SHORT } from '@/lib/validate'
+import { advanceGameRotation, takeOverGameRotation } from '@/lib/game-rotate-settings'
 import type { GameConfig as DbGameConfig } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
@@ -128,48 +129,82 @@ export async function POST(req: Request, ctx: { params: Promise<{ slug: string }
   }
 
   // ════════════════════════════════════════════════════════════════════
-  // MULTI-GAME (Task 89) — MULTIPLE games may now be enabled AT THE SAME
-  // TIME: every enabled game runs as its own Discord session alongside the
-  // user's RPC slots. Enabling a game no longer disables the other games,
-  // and this endpoint NEVER writes to RpcConfig (Normal RPC stays untouched
-  // & remembered), and /api/rpc/* never writes to GameConfig. Only enabled
-  // FLAGS flip — no field data is ever copied, merged, overwritten or reset.
+  // SINGLE-ACTIVE GAME (Task 95) — only ONE Game RPC can be active at a
+  // time. Enabling a game AUTOMATICALLY disables every other enabled game
+  // (atomic transaction — no double-active window). This endpoint NEVER
+  // writes to RpcConfig (Normal RPC stays untouched & remembered), and
+  // /api/rpc/* never writes to GameConfig. Only enabled FLAGS flip — no
+  // field data is ever copied, merged, overwritten or reset.
+  //
+  // GAME AUTO-ROTATE interplay (fully independent system — see
+  // /api/games/rotate): a manual enable takes over as the rotation head;
+  // disabling the active game while rotation is ON advances to the next
+  // selected game. RpcConfig / rpcAutoRotate* are never read or written here.
   // ════════════════════════════════════════════════════════════════════
 
-  const updated = await db.gameConfig.upsert({
-    where: { userId_gameSlug: { userId: session.userId, gameSlug: slug } },
-    create: { userId: session.userId, gameSlug: slug, ...data },
-    update: data,
+  const updated = await db.$transaction(async tx => {
+    let deactivated: string[] = []
+    if (enabled) {
+      const previouslyOn = await tx.gameConfig.findMany({
+        where: { userId: session.userId, enabled: true, gameSlug: { not: slug } },
+        select: { gameName: true },
+      })
+      const off = await tx.gameConfig.updateMany({
+        where: { userId: session.userId, enabled: true, gameSlug: { not: slug } },
+        data: { enabled: false },
+      })
+      if (off.count > 0) {
+        deactivated = previouslyOn.map(r => r.gameName)
+      }
+    }
+    const row = await tx.gameConfig.upsert({
+      where: { userId_gameSlug: { userId: session.userId, gameSlug: slug } },
+      create: { userId: session.userId, gameSlug: slug, ...data },
+      update: data,
+    })
+    return { row, deactivated }
   })
 
+  const deactivated = updated.deactivated
+  const wasEnabled = !!existing?.enabled
+
   if (enabled) {
-    // Gamer RPC is live — master RPC flag ON and push (all enabled games +
-    // slots are candidates; the daemon resolves the sessions).
+    // Gamer RPC is live — master RPC flag ON and push (the single active
+    // game + enabled slots are candidates; the daemon resolves sessions).
     await db.session.updateMany({
       where: { userId: session.userId },
       data: { rpcEnabled: true, lastPresenceUpdate: new Date() },
     })
+    // Manual takeover — this game becomes the Game Auto-Rotate head (only
+    // when the GAME rotation is ON; the helper no-ops otherwise). It NEVER
+    // touches Normal RPC rotation state.
+    await takeOverGameRotation(session.userId, slug).catch(() => {})
     if (session.discordAccessToken) {
       syncPresenceDetached(session.userId)
     }
-  } else if (existing?.enabled) {
-    // Disabling one game keeps every OTHER enabled candidate running (multi-
-    // game + multi-RPC coexistence) — the master RPC flag only goes OFF when
-    // NO candidate remains.
-    const [slotsLeft, gamesLeft] = await Promise.all([
-      db.rpcConfig.count({ where: { userId: session.userId, enabled: true } }),
-      db.gameConfig.count({ where: { userId: session.userId, enabled: true, gameSlug: { not: slug } } }),
-    ])
-    await db.session.updateMany({
-      where: { userId: session.userId },
-      data: { rpcEnabled: slotsLeft + gamesLeft > 0, lastPresenceUpdate: new Date() },
-    })
+  } else if (wasEnabled) {
+    // Disabling the ACTIVE game while Game Auto-Rotate is ON advances the
+    // rotation to the next selected game (keeps exactly one game running).
+    // With rotation OFF this no-ops and the user has full manual control.
+    const advanced = await advanceGameRotation(session.userId, slug, session.userId).catch(() => null)
+    if (!advanced) {
+      // Rotation OFF (or empty pool) — no game replaces this one; the master
+      // RPC flag only goes OFF when NO candidate remains.
+      const [slotsLeft, gamesLeft] = await Promise.all([
+        db.rpcConfig.count({ where: { userId: session.userId, enabled: true } }),
+        db.gameConfig.count({ where: { userId: session.userId, enabled: true } }),
+      ])
+      await db.session.updateMany({
+        where: { userId: session.userId },
+        data: { rpcEnabled: slotsLeft + gamesLeft > 0, lastPresenceUpdate: new Date() },
+      })
+    }
     if (session.discordAccessToken) {
       syncPresenceDetached(session.userId)
     }
   }
 
-  return NextResponse.json({ ok: true, config: updated })
+  return NextResponse.json({ ok: true, config: updated.row, deactivated })
 }
 
 export async function DELETE(_req: Request, ctx: { params: Promise<{ slug: string }> }) {
@@ -192,16 +227,19 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ slug: strin
   })
 
   if (existing.enabled) {
-    // Deleting an enabled game keeps every OTHER enabled candidate running
-    // (multi-game + multi-RPC coexistence).
-    const [slotsLeft, gamesLeft] = await Promise.all([
-      db.rpcConfig.count({ where: { userId: session.userId, enabled: true } }),
-      db.gameConfig.count({ where: { userId: session.userId, enabled: true } }),
-    ])
-    await db.session.updateMany({
-      where: { userId: session.userId },
-      data: { rpcEnabled: slotsLeft + gamesLeft > 0, lastPresenceUpdate: new Date() },
-    })
+    // Deleting the ACTIVE game while Game Auto-Rotate is ON advances to the
+    // next selected game; otherwise no game replaces it (single-active).
+    const advanced = await advanceGameRotation(session.userId, existing.gameSlug, session.userId).catch(() => null)
+    if (!advanced) {
+      const [slotsLeft, gamesLeft] = await Promise.all([
+        db.rpcConfig.count({ where: { userId: session.userId, enabled: true } }),
+        db.gameConfig.count({ where: { userId: session.userId, enabled: true } }),
+      ])
+      await db.session.updateMany({
+        where: { userId: session.userId },
+        data: { rpcEnabled: slotsLeft + gamesLeft > 0, lastPresenceUpdate: new Date() },
+      })
+    }
     if (session.discordAccessToken) {
       syncPresenceDetached(session.userId)
     }

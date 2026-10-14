@@ -218,6 +218,21 @@ export interface GameListItem {
   appId?: string | null
 }
 
+/** Task 95 — GAME Auto-Rotate settings (fully independent from the Normal
+ *  RPC Auto-Rotate — separate columns, anchor, counter and endpoints). */
+export interface GameRotateSettings {
+  enabled: boolean
+  secs: number
+  order: 'forward' | 'reverse' | 'shuffle'
+  skip: number
+  /** Selected rotation pool (game slugs). null = every game rotates. */
+  slots: string[] | null
+  /** Slug currently published by the rotation. */
+  current: string | null
+  /** Clock anchor (ms epoch). */
+  anchorAt: number | null
+}
+
 /** Game/app candidate from /api/games/discover — trending-games ranking plus
  * the full 24,600+ Discord detectable-games catalog, so every query shows ALL
  * real-game results. */
@@ -693,12 +708,19 @@ export const api = {
       `/api/games/discover?q=${encodeURIComponent(q)}&limit=${limit}`
     ),
   gameConfig: (slug: string) => fetchJson<{ preset: GamePreset; config: GameConfig | null }>(`/api/games/${slug}`),
-  gameSave: (slug: string, data: Partial<GameConfig>) => fetchJson<{ ok: boolean; config: GameConfig }>(
+  gameSave: (slug: string, data: Partial<GameConfig>) => fetchJson<{ ok: boolean; config: GameConfig; deactivated?: string[] }>(
     `/api/games/${slug}`, { method: 'POST', body: JSON.stringify(data) }
   ),
   gameCustomCreate: (data: { appId: string; name?: string; details?: string; iconUrl?: string }) =>
     fetchJson<{ ok: boolean; config: GameConfig & { gameSlug: string; gameName: string }; existing?: boolean }>('/api/games/custom', { method: 'POST', body: JSON.stringify(data) }),
   gameDelete: (slug: string) => fetchJson<{ ok: boolean }>(`/api/games/${slug}`, { method: 'DELETE' }),
+  gamesRotateGet: () => fetchJson<{ ok: boolean; gameRotate: GameRotateSettings }>('/api/games/rotate'),
+  gamesRotateSave: (data: Partial<Pick<GameRotateSettings, 'enabled' | 'secs' | 'order' | 'slots'>>) =>
+    fetchJson<{ ok: boolean; gameRotate: GameRotateSettings; message?: string }>('/api/games/rotate', {
+      method: 'POST', body: JSON.stringify(data),
+    }),
+  gamesRotateSkip: () =>
+    fetchJson<{ ok: boolean; gameRotate: GameRotateSettings; message?: string }>('/api/games/rotate/skip', { method: 'POST' }),
   appLookup: (appId: string) =>
     fetchJson<{ ok: boolean; name: string; iconUrl: string | null }>(`/api/games/app-lookup?appId=${encodeURIComponent(appId)}`),
 

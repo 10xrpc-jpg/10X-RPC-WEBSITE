@@ -29,6 +29,7 @@ import { sanitizeActivities } from './discord-assets'
 import { discordAuthValue } from './discord-auth'
 import { buildIdentify } from './gateway-platform'
 import { normalizeRotateOrder, type RotateOrder } from './rotation'
+import { decideGameRotation } from './game-rotation'
 
 // ─── Subscription gate (raw SQL — Orihost-safe) ─────────────────────────────
 // Access = plan/status lifecycle: free trial (status "trialing", ends
@@ -251,6 +252,154 @@ async function fetchRpcRotateSettings(userId: string): Promise<RpcRotateSettings
       console.warn(`[10X RPC Daemon] rotate settings read failed for ${userId} (rotation OFF):`, rotateErr instanceof Error ? rotateErr.message : rotateErr)
     }
     return ROTATE_DEFAULTS
+  }
+}
+
+// ─── Task 95 — GAME Auto-Rotate (raw SQL — Orihost-safe) ────────────────────
+// The GAME rotation system is FULLY INDEPENDENT from the Normal RPC rotation
+// above: separate columns (gameRotate*), separate clock anchor, separate skip
+// counter, separate pool. The Normal rotation NEVER reads gameRotate* state
+// and this reconcile NEVER reads rpcAutoRotate* state. Each tick decides —
+// via the pure game-rotation lib — which ONE game is active, then persists
+// rotation state + enabled flags. GameConfig.enabled is the ONLY game field
+// this ever writes; saved game configs are 100% read-only to rotation.
+
+interface GameRotateSettingsRaw {
+  enabled: boolean
+  secs: number
+  order: RotateOrder
+  skip: number
+  appliedSkip: number
+  slots: string[] | null
+  current: string | null
+  anchorMs: number | null
+}
+
+const GAME_ROTATE_OFF: GameRotateSettingsRaw = {
+  enabled: false,
+  secs: 60,
+  order: 'forward',
+  skip: 0,
+  appliedSkip: 0,
+  slots: null,
+  current: null,
+  anchorMs: null,
+}
+
+async function fetchGameRotateSettings(userId: string): Promise<GameRotateSettingsRaw> {
+  try {
+    const rows = await db.$queryRaw<Array<{
+      gameRotateEnabled: boolean | number
+      gameRotateSecs: number | null
+      gameRotateOrder: string | null
+      gameRotateSkip: number | null
+      gameRotateAppliedSkip: number | null
+      gameRotateSlots: string | null
+      gameRotateCurrent: string | null
+      gameRotateAnchorAt: Date | string | null
+    }>>`
+      SELECT "gameRotateEnabled", "gameRotateSecs", "gameRotateOrder", "gameRotateSkip",
+             "gameRotateAppliedSkip", "gameRotateSlots", "gameRotateCurrent", "gameRotateAnchorAt"
+      FROM "GlobalConfig" WHERE "userId" = ${userId} LIMIT 1`
+    const r = rows?.[0]
+    if (!r) return GAME_ROTATE_OFF
+    const en = r.gameRotateEnabled
+    return {
+      enabled: en === true || (en as unknown) === 1,
+      secs: Math.max(15, Math.min(3600, Number(r.gameRotateSecs ?? 60) || 60)),
+      order: normalizeRotateOrder(r.gameRotateOrder),
+      skip: Math.max(0, Math.min(1_000_000_000, Math.floor(Number(r.gameRotateSkip) || 0))),
+      appliedSkip: Math.max(0, Math.min(1_000_000_000, Math.floor(Number(r.gameRotateAppliedSkip) || 0))),
+      slots: parseRotateSlots(r.gameRotateSlots),
+      current: typeof r.gameRotateCurrent === 'string' && r.gameRotateCurrent ? r.gameRotateCurrent : null,
+      anchorMs: r.gameRotateAnchorAt ? new Date(r.gameRotateAnchorAt).getTime() : null,
+    }
+  } catch (e) {
+    // Missing columns (pre-Task-95 DB) or no row → rotation OFF. Never fatal.
+    if (process.env.NODE_ENV !== 'production') {
+      console.warn(`[10X RPC Daemon] game rotate settings read failed for ${userId} (rotation OFF):`, e instanceof Error ? e.message : e)
+    }
+    return GAME_ROTATE_OFF
+  }
+}
+
+/** Persist rotation STATE via raw SQL — updatedAt (the NORMAL rotation's
+ *  clock anchor) must never move. Creates the row if missing. Returns false
+ *  when the write failed (columns not migrated yet) — rotation skips a tick. */
+async function persistGameRotationStateRaw(
+  userId: string,
+  state: { current: string | null; anchorMs: number | null; appliedSkip: number },
+): Promise<boolean> {
+  try {
+    const n = await db.$executeRaw`
+      UPDATE "GlobalConfig"
+      SET "gameRotateCurrent" = ${state.current},
+          "gameRotateAnchorAt" = ${state.anchorMs !== null && Number.isFinite(state.anchorMs) ? new Date(state.anchorMs) : null},
+          "gameRotateAppliedSkip" = ${state.appliedSkip}
+      WHERE "userId" = ${userId}`
+    if (n === 0) {
+      await db.globalConfig.create({ data: { userId } })
+      await db.$executeRaw`
+        UPDATE "GlobalConfig"
+        SET "gameRotateCurrent" = ${state.current},
+            "gameRotateAnchorAt" = ${state.anchorMs !== null && Number.isFinite(state.anchorMs) ? new Date(state.anchorMs) : null},
+            "gameRotateAppliedSkip" = ${state.appliedSkip}
+        WHERE "userId" = ${userId}`
+    }
+    return true
+  } catch (e) {
+    console.warn(`[10X RPC Daemon] game rotation state persist failed for ${userId}:`, e instanceof Error ? e.message : e)
+    return false
+  }
+}
+
+/** Flip GameConfig.enabled so EXACTLY keepSlug is enabled (single-active). */
+async function applySingleActiveGame(userId: string, keepSlug: string | null): Promise<boolean> {
+  const off = await db.gameConfig.updateMany({
+    where: keepSlug
+      ? { userId, enabled: true, gameSlug: { not: keepSlug } }
+      : { userId, enabled: true },
+    data: { enabled: false },
+  })
+  if (keepSlug) {
+    await db.gameConfig.updateMany({ where: { userId, gameSlug: keepSlug }, data: { enabled: true } })
+  }
+  return off.count > 0
+}
+
+/**
+ * Per-user GAME rotation reconcile (Task 95). Runs BEFORE the presence
+ * selection in every syncAllUsers pass so the SAME tick publishes the
+ * reconciled state. Decides (pure lib) → persists (raw SQL, updatedAt
+ * untouched) → mutates the in-memory rows so this tick's candidate list
+ * already matches the DB (no refetch).
+ */
+async function reconcileGameRotationForUser(
+  userId: string,
+  gameRows: Array<{ gameSlug: string; enabled: boolean; createdAt: Date | string }>,
+): Promise<void> {
+  const settings = await fetchGameRotateSettings(userId)
+  const allGames = gameRows.map(g => ({
+    gameSlug: g.gameSlug,
+    enabled: g.enabled,
+    createdAtMs: new Date(g.createdAt).getTime(),
+  }))
+  const decision = decideGameRotation(settings, allGames, Date.now())
+  if (decision.stateDirty) {
+    await persistGameRotationStateRaw(userId, {
+      current: decision.current,
+      anchorMs: decision.anchorMs,
+      appliedSkip: decision.appliedSkip,
+    })
+  }
+  if (decision.flagsDirty) {
+    await applySingleActiveGame(userId, decision.desiredCurrent)
+  }
+  // Mutate the in-memory rows so the rest of this tick sees the reconciled
+  // enabled set.
+  for (const g of gameRows) {
+    const want = decision.desiredCurrent !== null && g.gameSlug === decision.desiredCurrent
+    if (g.enabled !== want) g.enabled = want
   }
 }
 
@@ -694,13 +843,26 @@ export class RpcDaemon {
         continue
       }
 
+      // Task 95 — GAME Auto-Rotate reconcile (FULLY independent from the
+      // Normal RPC Auto-Rotate below): decide the single active game, persist
+      // rotation state + enabled flags, then let THIS tick publish them.
+      const allGameRows = session.user.gameConfigs ?? []
+      if (allGameRows.length > 0) {
+        try {
+          await reconcileGameRotationForUser(session.userId, allGameRows)
+        } catch (grErr) {
+          console.warn(`[10X RPC Daemon] game rotation reconcile failed for ${session.userId} (skipped this tick):`, grErr instanceof Error ? grErr.message : grErr)
+        }
+      }
+
       const rpcConfigs = (session.user.rpcConfigs ?? []) as Array<RpcCandidate & { enabled: boolean }>
-      // Task 89 — MULTI-GAME: every enabled game is a candidate (array form),
-      // so several Gamer RPCs run at the same time alongside the slots.
-      // Task 92 — deterministic createdAt order (the relation include has no
-      // orderBy; the display-type orchestration requires BOTH daemons to see
-      // the SAME candidate order).
-      const enabledGames = (session.user.gameConfigs ?? [])
+      // Task 89/95 — SINGLE-ACTIVE GAME: exactly ONE enabled game is a
+      // candidate (the game-rotation reconcile above enforces this — manual
+      // enables collapse it, Game Auto-Rotate cycles it). Task 92 —
+      // deterministic createdAt order (the relation include has no orderBy;
+      // the display-type orchestration requires BOTH daemons to see the SAME
+      // candidate order).
+      const enabledGames = allGameRows
         .filter(g => g.enabled)
         .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
       // MULTI-RPC: every enabled slot (each with its own flag) + every enabled
@@ -1430,11 +1592,15 @@ export class RpcDaemon {
     // work.
     // Task 89b — "only the RPCs I select participate in the Auto Rotator":
     // the rotation POOL takes turns in the MAIN session, and every ENABLED
-    // candidate the user left OUT of the pool (games AND slots) keeps its own
-    // always-visible extra session. This one rule also reproduces the legacy
-    // Task-87 behavior when no explicit selection is stored:
-    //   • includeGame=true  → pool = everything → nothing left out (no extras)
-    //   • includeGame=false → pool = slots      → the games stay visible
+    // candidate the user left OUT of the pool keeps its own always-visible
+    // extra session.
+    // Task 95 — GAME AUTO-ROTATE INDEPENDENCE: games NEVER join the Normal
+    // rotation pool anymore (rotationPoolCandidates filters them out), so the
+    // enabled game is ALWAYS a pinned extra session here while the slots
+    // rotate in the main session. The game's own lifecycle (single-active +
+    // interval switches) is managed exclusively by the reconcileGameRotation
+    // step at the top of syncAllUsers — the two systems never touch each
+    // other's state.
     const rotatePoolKeySet = new Set(runtime.rotatePoolKeys ?? [])
     const rotateGameExtras: RpcCandidate[] = isRpcActive && runtime.runtimeMode === 'rotate'
       ? fullSelection.candidates.filter(c => !rotatePoolKeySet.has(rpcCandidateKey(c)))

@@ -15,7 +15,9 @@ import { toast } from 'sonner'
 import { api, type GameListItem, type DiscoveredApp } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { BackButton } from './ui'
-import { Gamepad2, Search, ChevronRight, ChevronDown, Plus, X, CheckCircle2, BadgeCheck, Loader2, Hash, TriangleAlert, Info } from 'lucide-react'
+import { Gamepad2, Search, ChevronRight, ChevronDown, Plus, X, CheckCircle2, BadgeCheck, Loader2, Hash, TriangleAlert, Info, RefreshCcw } from 'lucide-react'
+import { GameRotateCard } from './GameRotateCard'
+import type { GameRotateSettings } from '@/lib/api-client'
 
 /** Once an icon <img> loads, hide the letter fallback behind it — some game
  * icons are transparent PNGs, which would otherwise ghost the initials. */
@@ -30,6 +32,9 @@ export function GamesPage() {
   const [loading, setLoading] = useState(true)
   const [query, setQuery] = useState('')
   const [addOpen, setAddOpen] = useState(false)
+  // Task 95 — GAME Auto-Rotate state (for the header pill; the card owns the
+  // editing UI and reports every change back through onRotateChange).
+  const [rotateView, setRotateView] = useState<GameRotateSettings | null>(null)
   // Discord App Directory search (Task: search + auto-config)
   const [discordResults, setDiscordResults] = useState<DiscoveredApp[]>([])
   const [discordSearching, setDiscordSearching] = useState(false)
@@ -49,6 +54,9 @@ export function GamesPage() {
 
   useEffect(() => {
     refresh()
+    api.gamesRotateGet()
+      .then(r => setRotateView(r.gameRotate))
+      .catch(() => {})
   }, [])
 
   // Debounced trending-games search — reuses the SAME search box, layout untouched.
@@ -97,8 +105,9 @@ export function GamesPage() {
       //    icon) is fetched from Discord automatically.
       const created = await api.gameCustomCreate({ appId: app.appId })
       // 2. Apply it as the live Game RPC — POST /api/games/[slug] with
-      //    enabled=true flips the master flag + pushes the daemon. Multiple
-      //    games can be live at once (Task 89 multi-game).
+      //    enabled=true flips the master flag + pushes the daemon. Only ONE
+      //    game is live at a time (Task 95 single-active): enabling this one
+      //    automatically pauses the previously active game.
       await api.gameSave(created.config.gameSlug, { enabled: true })
       toast.success(`${created.config.gameName} added — Application ID auto-filled, set as Game RPC`, { duration: 3000 })
       await refresh()
@@ -137,6 +146,8 @@ export function GamesPage() {
   )
   const activeCount = games.filter(g => g.enabled).length
   const showDiscordSection = !loading && query.trim().length >= 2
+  const rotating = !!rotateView?.enabled
+  const rotateCurrentName = games.find(g => g.slug === rotateView?.current)?.name ?? null
 
   /** Shared row for a discovered app — one click adds it with its official
    * Application ID (works for trending games and directory results alike). */
@@ -218,7 +229,15 @@ export function GamesPage() {
           <h1 className="text-2xl font-bold text-white tracking-tight">Games</h1>
         </div>
         <div className="min-w-[90px] flex justify-end">
-          {activeCount > 0 && (
+          {rotating ? (
+            <span
+              className="text-xs font-semibold px-2.5 py-1 rounded-full bg-purple-500/15 text-white/90 border border-purple-500/30 inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm"
+              data-testid="game-rotate-pill"
+            >
+              <RefreshCcw className="w-3 h-3 text-purple-300" aria-hidden />
+              <span className="max-w-[130px] truncate">Rotating{rotateCurrentName ? ` · ${rotateCurrentName}` : ''}</span>
+            </span>
+          ) : activeCount > 0 && (
             <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-purple-500/15 text-white/90 border border-purple-500/30 inline-flex items-center gap-1.5 whitespace-nowrap shadow-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-purple-400 animate-pulse" />
               <span>{activeCount} active</span>
@@ -245,14 +264,22 @@ export function GamesPage() {
             />
           </div>
 
-          {/* Multi-game hint (Task 89) — every enabled game runs at once */}
+          {/* Single-active hint (Task 95) — one Game RPC at a time */}
           <p className="flex items-start gap-1.5 text-[11px] leading-relaxed text-white/45 px-1">
             <Info className="w-3.5 h-3.5 shrink-0 mt-0.5" />
             <span>
-              Run as many Game RPCs as you like — every enabled game gets its own Discord card at
-              the same time, alongside your Normal RPC slots.
+              One Game RPC runs at a time — enabling a game automatically pauses the previous one.
+              Turn on Auto-Rotate below to cycle through your selected games automatically; your
+              Normal RPC slots are never affected.
             </span>
           </p>
+
+          {/* Task 95 — GAME Auto-Rotate card (fully independent rotation) */}
+          <GameRotateCard
+            games={games}
+            onGamesChanged={refresh}
+            onRotateChange={setRotateView}
+          />
 
           {/* Games List */}
           <div className="space-y-2">

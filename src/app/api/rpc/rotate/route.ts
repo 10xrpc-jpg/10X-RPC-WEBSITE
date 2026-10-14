@@ -88,7 +88,7 @@ export async function POST(req: Request) {
 
     const view = rotateSettingsView(updated)
     const message = enabled
-      ? `Auto Rotate ON — your enabled RPCs switch every ${rotateSecsLabel(view.secs)} (${view.order === 'shuffle' ? 'shuffled order' : `${view.order} order`}${view.includeGame ? '' : ', game stays visible in its own session'})`
+      ? `Auto Rotate ON — your enabled RPC slots switch every ${rotateSecsLabel(view.secs)} (${view.order === 'shuffle' ? 'shuffled order' : `${view.order} order`}; games run in their own sessions with their own Game Auto-Rotate)`
       : 'Auto Rotate OFF — all enabled RPCs are sent together'
 
     return NextResponse.json({ ok: true, autoRotate: view, message })

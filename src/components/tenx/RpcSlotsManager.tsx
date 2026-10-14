@@ -12,15 +12,16 @@
 //     (src/lib/rotation.ts) — the preview always matches Discord.
 //   • Rotation ORDER: forward / reverse / shuffle (deterministic shuffle that
 //     remixes every full cycle).
-//   • "Keep Game RPC always visible": the game can opt OUT of the rotation
-//     and stay on its own session while the slots rotate.
 //   • SKIP NOW: advance to the next RPC immediately.
 //   • More intervals: 15s … 30 minutes.
-// Task 89 — MULTI-GAME + ROTATION SELECTION:
-//   • Every enabled game is a first-class RPC in the chain (multi-Gamer-RPC:
-//     all Gamer RPCs + Normal RPCs run at the same time in Multi-Session).
+// Task 89 — ROTATION SELECTION:
 //   • "ROTATION RPCS" chips: the user picks EXACTLY which RPCs take turns —
 //     only the highlighted ones participate in the Auto Rotator.
+// Task 95 — GAME AUTO-ROTATE INDEPENDENCE:
+//   • The enabled Game RPC NEVER joins this rotation pool — it has its own
+//     fully independent rotation (Games page → Auto-Rotate Game RPC). This
+//     card rotates RPC SLOTS only; changing anything here cannot affect the
+//     game and vice versa.
 'use client'
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
@@ -95,23 +96,25 @@ export function RpcSlotsManager({
   const [nowMs, setNowMs] = useState(() => Date.now())
 
   const enabledSlots = slots.filter(s => s.enabled)
-  // Task 89 — MULTI-GAME: every enabled game is its own RPC in the chain.
+  // Task 95 — the enabled Game RPC is NOT a rotation candidate here anymore:
+  // it lives in its own session and cycles through its OWN Game Auto-Rotate
+  // system (Games page). Only RPC SLOTS rotate in this card.
   const enabledGames = (me.activeGames?.length
     ? me.activeGames
     : (me.activeGame?.enabled ? [me.activeGame] : []))
     .filter(g => g.enabled)
-  // Every rotate-able candidate (slots first, then games) with its stable key.
-  const rotateCandidates = useMemo(() => [
-    ...enabledSlots.filter(s => s.id).map(s => ({ key: s.id!, label: `RPC ${s.slot ?? '?'}`, game: false })),
-    ...enabledGames.map(g => ({ key: `game:${g.slug}`, label: g.name, game: true })),
-  ], [enabledSlots.map(s => s.id).join(','), enabledGames.map(g => g.slug).join(',')])
+  // Rotate-able candidates — SLOTS ONLY with their stable keys.
+  const rotateCandidates = useMemo(() =>
+    enabledSlots.filter(s => s.id).map(s => ({ key: s.id!, label: `RPC ${s.slot ?? '?'}`, game: false })),
+  [enabledSlots.map(s => s.id).join(',')])
+  const hasGame = enabledGames.length > 0
   const allKeys = rotateCandidates.map(c => c.key)
-  // Effective selection — the explicit pick, or the legacy includeGame rule
-  // when the user never touched the chips (games deselected → they sit out).
+  // Effective selection — the explicit pick (slot keys only; any legacy
+  // "game:<slug>" entries are ignored — Task 95) or every slot when unset.
   const effectiveSelection = useMemo(() => {
     if (rotateSlots !== null) return rotateSlots.filter(k => allKeys.includes(k))
-    return rotateIncludeGame ? allKeys : allKeys.filter(k => !k.startsWith('game:'))
-  }, [rotateSlots, rotateIncludeGame, allKeys.join(',')])
+    return allKeys
+  }, [rotateSlots, allKeys.join(',')])
   // Full chain (slots + games) — used by the Multi-Session status texts.
   const rotationChain = rotateCandidates.map(c => c.label)
   // Rotation POOL — matches the daemon EXACTLY (shared rule: explicit
@@ -201,9 +204,9 @@ export function RpcSlotsManager({
       return
     }
     if (next.length === allKeys.length) {
-      // Everything selected — store the canonical "every enabled RPC rotates".
+      // Everything selected — store the canonical "every enabled slot rotates".
       setRotateSlots(null)
-      saveRotate({ slots: null, includeGame: true })
+      saveRotate({ slots: null })
       return
     }
     setRotateSlots(next)
@@ -400,12 +403,13 @@ export function RpcSlotsManager({
                 <Layers className="w-4.5 h-4.5 text-emerald-400 shrink-0 mt-0.5" aria-hidden />
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-emerald-200 leading-relaxed">
-                    Multi-Session is ON — all {rotationChain.length} RPCs are running at the same time ({rotationChain.join(', ')}).
+                    Multi-Session is ON — {hasGame ? <>all {rotationChain.length} RPC slots{rotationChain.length > 0 ? ` (${rotationChain.join(', ')})` : ''} plus your active Game RPC are running at the same time.</> : <>all {rotationChain.length} RPCs are running at the same time ({rotationChain.join(', ')}).</>}
                   </p>
                   <p className="mt-1 text-[11px] text-white/55 leading-relaxed">
-                    Each RPC — every slot AND every enabled game — runs as its own Discord session
-                    with its own device identity (desktop, phone, console, VR…), so Discord shows all
-                    of them side by side. Auto Rotate stays off — nothing cycles.
+                    Each RPC slot runs as its own Discord session with its own device identity
+                    (desktop, phone, console, VR…), so Discord shows all of them side by side.
+                    {hasGame ? ' Your Game RPC runs in its own session and cycles independently via Auto-Rotate Game RPC (Games page).' : ''}{' '}
+                    Auto Rotate stays off — nothing cycles.
                   </p>
                 </div>
               </div>

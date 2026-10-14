@@ -8,6 +8,9 @@ export interface RotateSettingsView {
   enabled: boolean
   secs: number
   order: RotateOrder
+  /** Task 95 — RETIRED: games NEVER join the Normal rotation pool anymore
+   *  (they have their own independent Game Auto-Rotate system). Always false;
+   *  kept for response-shape compatibility. */
   includeGame: boolean
   /** Manual advance counter ("Skip to next RPC"). */
   skip: number
@@ -15,8 +18,8 @@ export interface RotateSettingsView {
   refMs: number | null
   /**
    * Task 89 — explicit rotation pool (candidate keys: RpcConfig ids or
-   * "game:<slug>"). null = not set → every enabled RPC rotates per the
-   * legacy includeGame rule; an array = ONLY those candidates rotate.
+   * "game:<slug>"). null = not set → every enabled SLOT rotates; an array =
+   * ONLY those candidates rotate (game:<slug> keys are ignored — Task 95).
    */
   slots: string[] | null
 }
@@ -56,7 +59,8 @@ export function rotateSettingsView(row: GlobalConfigRotateRow): RotateSettingsVi
     enabled: !!row?.rpcAutoRotate,
     secs: normalizeRotateSecs(row?.rpcRotateSecs ?? 30),
     order: normalizeRotateOrder(row?.rpcRotateOrder),
-    includeGame: row?.rpcRotateIncludeGame !== false,
+    // Task 95 — games NEVER join the Normal rotation pool anymore.
+    includeGame: false,
     skip: Math.max(0, Math.min(1_000_000_000, Math.floor(Number(row?.rpcRotateSkip) || 0))),
     refMs: row?.updatedAt ? new Date(row.updatedAt).getTime() : null,
     slots: parseRotateSlots(row?.rpcRotateSlots),

@@ -371,27 +371,36 @@ export interface RuntimeCandidateResult extends MultiRpcSelection {
  * Task 89 — the ROTATION POOL for a selection. Shared by the daemon, /api/me
  * and the dashboard so every surface agrees on which candidates rotate.
  *
+ * Task 95 — GAME AUTO-ROTATE INDEPENDENCE: Game RPCs now have their OWN
+ * rotation system (/api/games/rotate + the daemon's gameRotate* reconcile).
+ * Games therefore NEVER join the Normal RPC rotation pool — not via the
+ * legacy includeGame flag and not via "game:<slug>" keys in the explicit
+ * selection. The Normal rotation cycles through RPC SLOTS only; every
+ * enabled game keeps its own always-visible session managed exclusively by
+ * the game-rotation reconcile. The two systems share no state and no timers.
+ *
  * `rotateSlotKeys` (Task 89 — the user's explicit "which RPCs rotate" pick):
  *   • array (even empty) → ONLY the candidates whose key is in the list join
- *     the pool — "only the RPCs I select participate in the Auto Rotator".
- *   • null/undefined    → legacy rule: every enabled candidate, minus the
- *     Game RPCs when `includeGame` is false (games keep their own sessions).
+ *     the pool (game keys filtered out).
+ *   • null/undefined    → every enabled SLOT (games excluded).
  */
 export function rotationPoolCandidates(
   sel: MultiRpcSelection,
   o: { rotateSlotKeys?: string[] | null; includeGame?: boolean | null }
 ): RpcCandidate[] {
+  void o // includeGame is retired — games NEVER join the Normal pool (Task 95)
   const keys = Array.isArray(o.rotateSlotKeys)
-    ? o.rotateSlotKeys.filter((k): k is string => typeof k === 'string' && k.length > 0)
+    ? o.rotateSlotKeys.filter((k): k is string => typeof k === 'string' && k.length > 0 && !k.startsWith('game:'))
     : null
+  const slotOnly = sel.candidates.filter(c => !c.gameSlug)
   if (keys) {
     const set = new Set(keys)
-    const pool = sel.candidates.filter(c => set.has(rpcCandidateKey(c)))
-    // Empty explicit selection must never blank the profile — fall back to all.
-    return pool.length > 0 ? pool : sel.candidates
+    const pool = slotOnly.filter(c => set.has(rpcCandidateKey(c)))
+    // Empty explicit selection must never blank the profile — fall back to
+    // the enabled SLOTS (never games — Task 95 independence).
+    return pool.length > 0 ? pool : slotOnly
   }
-  const includeGame = o.includeGame !== false
-  return includeGame ? sel.candidates : sel.candidates.filter(c => !c.gameSlug)
+  return slotOnly
 }
 
 /**
@@ -400,10 +409,10 @@ export function rotationPoolCandidates(
  * Auto Rotate (optional): picks exactly ONE candidate from the ROTATION POOL,
  * deterministically, by elapsed time from a stable reference — the index comes
  * from the shared pure math in rotation.ts (forward / reverse / shuffle, plus
- * the manual "Skip" counter). The pool is the enabled candidates EXCLUDING the
- * Game RPC when `rotateIncludeGame` is false — in that case the game keeps its
- * own always-visible session (the daemon opens it as a separate extra).
- * Task 89 — `rotateSlotKeys` narrows the pool to exactly the RPCs the user
+ * the manual "Skip" counter). Task 95 — the pool is ALWAYS the enabled SLOTS:
+ * games never join the Normal rotation (they run their own always-visible
+ * extra sessions managed exclusively by the Game Auto-Rotate system).
+ * Task 89 — `rotateSlotKeys` narrows the pool to exactly the slots the user
  * selected (see rotationPoolCandidates).
  * Stateless across daemon restarts/multi-instance (same inputs → same index).
  * Auto Rotate is a RUNTIME-ONLY overlay: it never writes configs, never flips
