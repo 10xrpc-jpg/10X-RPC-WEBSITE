@@ -1397,23 +1397,24 @@ export class RpcDaemon {
     userSock.platform = targetPlatform
 
     // The GAME candidates (isolated Game RPCs) may each carry a custom
-    // Application ID ("Add Games") — spoof that application. In rotate mode
-    // with games EXCLUDED from the pool (Task 87 includeGame=false, or the
-    // Task 89 selection) those games are not in runtime.candidates — resolve
-    // their app ids from the FULL list so their pinned extra sessions work.
-    // Task 89 — pinned games while rotating:
-    //   • explicit selection (rotate.slots) → the games the user left OUT of
-    //     the rotation are NOT pinned — "only the RPCs I select participate".
-    //   • legacy includeGame=false (no selection) → every game stays visible
-    //     in its own always-on session while the slots rotate.
+    // Application ID ("Add Games") — spoof that application. While rotating,
+    // candidates EXCLUDED from the active pool are not in runtime.candidates —
+    // resolve their app ids from the FULL list so their pinned extra sessions
+    // work.
+    // Task 89b — "only the RPCs I select participate in the Auto Rotator":
+    // the rotation POOL takes turns in the MAIN session, and every ENABLED
+    // candidate the user left OUT of the pool (games AND slots) keeps its own
+    // always-visible extra session. This one rule also reproduces the legacy
+    // Task-87 behavior when no explicit selection is stored:
+    //   • includeGame=true  → pool = everything → nothing left out (no extras)
+    //   • includeGame=false → pool = slots      → the games stay visible
+    const rotatePoolKeySet = new Set(runtime.rotatePoolKeys ?? [])
     const rotateGameExtras: RpcCandidate[] = isRpcActive && runtime.runtimeMode === 'rotate'
-      ? (Array.isArray(rotate.slots)
-        ? []
-        : (rotate.includeGame ? [] : fullSelection.candidates.filter(c => c.gameSlug)))
+      ? fullSelection.candidates.filter(c => !rotatePoolKeySet.has(rpcCandidateKey(c)))
       : []
     const gameCandidates = [...runtime.candidates.filter(c => c.gameSlug), ...rotateGameExtras]
     for (const gc of gameCandidates) {
-      if (!gc.gameAppId) {
+      if (gc.gameSlug && !gc.gameAppId) {
         gc.gameAppId = await fetchGameAppId(userId, gc.gameSlug)
       }
     }
@@ -1433,9 +1434,10 @@ export class RpcDaemon {
     const multiSessionActive = isRpcActive
       && runtime.runtimeMode === 'simultaneous'
       && runtime.candidates.length >= 2
-    // Task 87/89 — rotate mode with games EXCLUDED from the pool (legacy
-    // includeGame=false; the explicit selection pins nothing): every excluded
-    // game keeps its own always-visible extra session while the pool rotates.
+    // Task 87/89 — rotate mode with candidates EXCLUDED from the pool (the
+    // explicit selection, or legacy includeGame=false): every excluded
+    // candidate keeps its own always-visible extra session while the pool
+    // rotates in the main session.
     const rotateGameExtraActive = isRpcActive
       && runtime.runtimeMode === 'rotate'
       && rotateGameExtras.length > 0
@@ -1615,8 +1617,8 @@ export class RpcDaemon {
 
     if (isRpcActive && runtime.runtimeMode === 'rotate' && runtime.rotateIndex != null) {
       const poolNote = Array.isArray(rotate.slots)
-        ? `, selection: ${runtime.rotatePoolLength} of ${fullSelection.candidates.length} RPCs`
-        : `${rotate.includeGame ? '' : ', game pinned to its own session'}`
+        ? `, selection: ${runtime.rotatePoolLength} of ${fullSelection.candidates.length} RPCs${rotateGameExtraActive ? `, ${rotateGameExtras.length} left-out RPC(s) stay visible` : ''}`
+        : `${rotate.includeGame ? '' : ', excluded games pinned to their own sessions'}`
       console.log(`[10X RPC Daemon] Auto Rotate for user ${userId}: candidate ${runtime.rotateIndex + 1}/${runtime.rotatePoolLength ?? fullSelection.candidates.length} (${runtime.candidates[0]?.name ?? '?'}) every ${rotate.secs}s, order=${rotate.order}${rotate.skip > 0 ? `, skip+${rotate.skip}` : ''}${poolNote}`)
     }
 

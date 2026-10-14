@@ -379,9 +379,10 @@ export function RpcSlotsManager({
         {rotationChain.length >= 2 ? (
           rotateEnabled ? (
             <p className="relative z-10 text-xs text-white/45 leading-relaxed mb-4 px-0.5">
-              Auto Rotate is ON — your {rotationChain.length} RPCs take turns on your profile every{' '}
-              {secsLabel} ({rotateOrder === 'shuffle' ? 'shuffled' : rotateOrder} order).{' '}
-              Turn it off to run all of them at the same time.
+              {poolLen < rotationChain.length
+                ? <>Auto Rotate is ON — your <span className="text-white/75 font-semibold">{poolLen} selected RPCs</span> take turns on your profile every {secsLabel} ({rotateOrder === 'shuffle' ? 'shuffled' : rotateOrder} order). RPCs you left out stay visible as usual.</>
+                : <>Auto Rotate is ON — your {rotationChain.length} RPCs take turns on your profile every{' '}{secsLabel} ({rotateOrder === 'shuffle' ? 'shuffled' : rotateOrder} order).{' '}</>}
+              {' '}Turn it off to run all of them at the same time.
             </p>
           ) : (
             <div className="relative z-10 mb-4 rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.07] p-4" role="status">
@@ -541,7 +542,7 @@ export function RpcSlotsManager({
               </div>
               <p className="mt-1.5 text-[11px] text-white/45 px-0.5">
                 Only the highlighted RPCs take turns in the Auto Rotator — tap to include or remove
-                them. RPCs left out simply wait; nothing is ever deleted or reset.
+                them. RPCs left out stay visible as usual; nothing is ever deleted or reset.
               </p>
             </div>
           )}
