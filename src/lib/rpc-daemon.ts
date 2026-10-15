@@ -912,7 +912,12 @@ export class RpcDaemon {
         : (session.statusPlatform || 'mobile')
     }
     if (DAEMON_ROLE === 'rpc') {
-      return selection.candidates.find(c => !c.gameSlug)?.platform || 'desktop'
+      // Task 105 — mirror planRolePresencePlatforms: the main session carries
+      // slot cards, so it anchors to the collision-safe 'ps4' class (a
+      // 'desktop' main card is wiped by the user's real desktop client's
+      // label group); a Meta Quest slot keeps meta_quest.
+      const first = selection.candidates.find(c => !c.gameSlug)?.platform
+      return first ? (first === 'meta_quest' ? 'meta_quest' : 'ps4') : 'desktop'
     }
     if (DAEMON_ROLE === 'game') return 'embedded'
     return selection.candidates[0]?.platform || 'desktop'
@@ -2157,10 +2162,24 @@ export class RpcDaemon {
           configuredType: appRpcRow.type,
         }] : []),
       ]
+      // Task 105 — GAME CANDIDATES FIRST for the rpc role. The client prune
+      // keeps exactly ONE PLAYING activity GLOBALLY (Task 92 bundle
+      // verification: display = prune(uniqBy(type:app:name))), and the Task 93
+      // pin makes every enabled game PLAYING. With the previous slots-first
+      // input order the first PLAYING slot consumed the assignment before the
+      // pinned game was seen → slot PLAYING + game PLAYING → the client pruned
+      // one of the two cards every time (the visible "RPC2 not showing" /
+      // "game not showing" flip-flop). Games first → the pinned game(s) take
+      // PLAYING and EVERY slot deterministically yields to a substitute type.
+      const orderedTypeInputs: DisplayTypeCandidate[] = DAEMON_ROLE === 'rpc'
+        ? [...globalTypeInputs].sort(
+            (a, b) => (a.kind === 'game' ? 0 : 1) - (b.kind === 'game' ? 0 : 1)
+          )
+        : globalTypeInputs
       if (DAEMON_ROLE === 'rpc') {
         // Role view — apply over the rpc role's own candidates only.
         if (multiSessionRpc) {
-          const displayTypes = assignDisplayTypes(globalTypeInputs)
+          const displayTypes = assignDisplayTypes(orderedTypeInputs)
           for (const c of roleSlotCandidates) {
             const t = displayTypes.get(rpcCandidateKey(c))
             if (t && t !== c.type) c.type = t
@@ -2174,8 +2193,18 @@ export class RpcDaemon {
             rotateGameExtras.filter(c => !c.gameSlug).map(c => rpcCandidateKey(c))
           )
           if (appRpcRow) neverPlaying.add('app_rpc')
-          const displayTypes = assignDisplayTypes(globalTypeInputs, neverPlaying)
+          const displayTypes = assignDisplayTypes(orderedTypeInputs, neverPlaying)
           for (const c of rotateGameExtras) {
+            const t = displayTypes.get(rpcCandidateKey(c))
+            if (t && t !== c.type) c.type = t
+          }
+        } else if (isRpcActive && runtime.runtimeMode === 'simultaneous') {
+          // Task 105 — SINGLE-SLOT simultaneous mode MUST run the same
+          // assignment. Skipping it here is what made RPC2 invisible whenever
+          // it was the only enabled slot: the lone slot kept PLAYING and the
+          // client pruned it against the game role's pinned PLAYING card.
+          const displayTypes = assignDisplayTypes(orderedTypeInputs)
+          for (const c of roleSlotCandidates) {
             const t = displayTypes.get(rpcCandidateKey(c))
             if (t && t !== c.type) c.type = t
           }
@@ -2452,6 +2481,17 @@ export class RpcDaemon {
     // real clients — the game card can never be wiped by a desktop push.
     if (DAEMON_ROLE === 'game' && safeActivities.length > 0 && isValidActivityPlatform(plan.gameMainLabel)) {
       safeActivities[0].platform = plan.gameMainLabel
+    }
+    // RPC role — SAME doctrine (Task 105, the "RPC1/RPC2 card invisible" fix):
+    // the builder stamps the main card with the slot's CONFIGURED platform —
+    // overwhelmingly 'desktop' — and the desktop label group is occupied by
+    // the user's REAL desktop client, which wipes the card (live-verified,
+    // Task 91). The main session now identifies the collision-safe anchor
+    // class (ps4, or meta_quest for a Quest slot — see daemon-roles.ts) and
+    // the card is stamped to MATCH, exactly like the game role above. Without
+    // this stamp a lone enabled slot could never render its card.
+    if (DAEMON_ROLE === 'rpc' && safeActivities.length > 0 && isValidActivityPlatform(targetPlatform)) {
+      safeActivities[0].platform = targetPlatform
     }
 
     // OP 3 status field per role. Discord IGNORES this field for OAuth/sdk

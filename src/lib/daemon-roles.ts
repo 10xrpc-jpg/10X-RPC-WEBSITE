@@ -25,9 +25,11 @@
 //
 //   status role → IDENTIFY exactly the user's chosen statusPlatform
 //                 (mobile | desktop(None) | meta_quest) — the badge session.
-//   rpc role    → main session desktop when Status owns the badge, else the
-//                 first slot's own platform (the exact pre-split behavior);
-//                 extras from the Task 91 pool (ps4/xbox/android/ios).
+//   rpc role    → main session anchored to the collision-safe 'ps4' console
+//                 class (meta_quest only for a Meta Quest slot — Task 105:
+//                 a desktop-class main card is wiped by the user's real
+//                 desktop client's label group); extras from the Task 91
+//                 pool minus the anchor (xbox/android/ios).
 //   game role   → main session 'embedded' + activity label 'embedded'
 //                 (console class — labels no real client and no other role
 //                 emits), extras from [ps5, samsung, ios].
@@ -124,15 +126,23 @@ export function planRolePresencePlatforms(input: {
   }
 
   // ── RPC role main session ────────────────────────────────────────────────
-  // Status ON  → the status role owns the badge session, so the rpc main is
-  //               a plain desktop class (card labels keep slots distinct).
-  // Status OFF → EXACTLY the pre-split rule: the main session follows the
-  //               first slot's own platform (desktop / ps4 / xbox /
-  //               meta_quest — including the VR badge a Meta Quest slot
-  //               legitimately owns when Status is off).
+  // Task 105 — the main session CARRIES SLOT CARDS whenever Normal RPC is
+  // active (it is the first slot's own session), so its class must never be
+  // a label group a REAL client occupies. Two live-verified failure modes
+  // made the first slot's card invisible whenever it ran here:
+  //   1. The activity builder stamps the card with the slot's CONFIGURED
+  //      platform — overwhelmingly 'desktop' — and the desktop label group
+  //      is occupied/wiped by the user's real desktop client (Task 91).
+  //   2. Meta/mobile classes collide with the user's real phone session.
+  // The main therefore anchors to the collision-safe 'ps4' console class
+  // (labels no real client emits; the daemon stamps it onto the card with
+  // the game-role pattern). A Meta Quest slot keeps its legitimate
+  // meta_quest class+label (verified rendering side by side with the game's
+  // embedded card). When no slot is active the class is irrelevant (no
+  // cards) and stays 'desktop'.
   let rpcMainPlatform = 'desktop'
-  if (!statusEnabled) {
-    rpcMainPlatform = firstSlotPlatform || 'desktop'
+  if (firstSlotPlatform) {
+    rpcMainPlatform = firstSlotPlatform === 'meta_quest' ? 'meta_quest' : 'ps4'
   }
 
   // ── GAME role main session: always the embedded console class ───────────
