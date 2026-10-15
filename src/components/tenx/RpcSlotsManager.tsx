@@ -104,26 +104,32 @@ export function RpcSlotsManager({
     : (me.activeGame?.enabled ? [me.activeGame] : []))
     .filter(g => g.enabled)
   // Rotate-able candidates — SLOTS ONLY with their stable keys.
+  // (Dep keys are precomputed strings — the join() anti-churn trick, made
+  // lint-simple per react-hooks/use-memo's simple-expression rule.)
+  const enabledSlotIdsKey = enabledSlots.map(s => s.id).join(',')
   const rotateCandidates = useMemo(() =>
     enabledSlots.filter(s => s.id).map(s => ({ key: s.id!, label: `RPC ${s.slot ?? '?'}`, game: false })),
-  [enabledSlots.map(s => s.id).join(',')])
+  [enabledSlotIdsKey])
   const hasGame = enabledGames.length > 0
   const allKeys = rotateCandidates.map(c => c.key)
   // Effective selection — the explicit pick (slot keys only; any legacy
   // "game:<slug>" entries are ignored — Task 95) or every slot when unset.
+  const allKeysKey = allKeys.join(',')
   const effectiveSelection = useMemo(() => {
     if (rotateSlots !== null) return rotateSlots.filter(k => allKeys.includes(k))
     return allKeys
-  }, [rotateSlots, allKeys.join(',')])
+  }, [rotateSlots, allKeysKey])
   // Full chain (slots + games) — used by the Multi-Session status texts.
   const rotationChain = rotateCandidates.map(c => c.label)
   // Rotation POOL — matches the daemon EXACTLY (shared rule: explicit
   // selection, fallback to everything when the selection is empty).
+  const effectiveKey = effectiveSelection.join(',')
+  const candidateKeysKey = rotateCandidates.map(c => c.key).join(',')
   const pool = useMemo(() => {
     const sel = new Set(effectiveSelection)
     const p = rotateCandidates.filter(c => sel.has(c.key))
     return p.length > 0 ? p : rotateCandidates
-  }, [effectiveSelection.join(','), rotateCandidates.map(c => c.key).join(',')])
+  }, [effectiveKey, candidateKeysKey])
   const poolLen = pool.length
   const masterOn = !!me.session?.rpcEnabled
   const rotating = rotateEnabled && poolLen >= 2 && masterOn

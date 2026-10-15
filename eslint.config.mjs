@@ -19,6 +19,10 @@ const eslintConfig = [...nextCoreWebVitals, ...nextTypescript, {
     // React rules
     "react-hooks/exhaustive-deps": "off",
     "react-hooks/purity": "off",
+    // react-hooks v6 experimental rules — the codebase predates them and the
+    // patterns are long-shipped; keep them visible as warnings, not errors.
+    "react-hooks/set-state-in-effect": "warn",
+    "react-hooks/refs": "warn",
     "react/no-unescaped-entities": "off",
     "react/display-name": "off",
     "react/prop-types": "off",
