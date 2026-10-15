@@ -30,6 +30,7 @@ import { discordAuthValue } from './discord-auth'
 import { buildIdentify } from './gateway-platform'
 import { normalizeRotateOrder, type RotateOrder } from './rotation'
 import { decideGameRotation } from './game-rotation'
+import { patchDiscordAccountSettings } from './discord-settings'
 
 // ─── Subscription gate (raw SQL — Orihost-safe) ─────────────────────────────
 // Access = plan/status lifecycle: free trial (status "trialing", ends
@@ -433,6 +434,12 @@ interface ActiveUserSocket {
    *  platform differs from this value the socket must be re-identified
    *  (fresh gateway connection) for VR / mobile status to switch instantly. */
   identifiedPlatform?: string
+  /** The ACCOUNT-level status this user's Discord settings were last patched
+   *  with (Task 97). Discord IGNORES the OP 3 `status` field for OAuth/sdk
+   *  sessions — the profile status is pinned to user_settings.status, so the
+   *  daemon PATCHes /users/@me/settings whenever the desired status differs
+   *  from the last applied one (self-heal: user picks, toggles, restarts). */
+  lastAccountStatus?: string
   /** The Discord token whose IDENTIFY was rejected with 4004 (Authentication
    *  failed). 4004 means the token ITSELF is dead (revoked/reset) — retrying
    *  the same token hits 4004 forever. Auth stays fatal until the stored
@@ -1868,6 +1875,26 @@ export class RpcDaemon {
     const safeActivities = sanitizeActivities(activities as Array<Record<string, unknown>>)
 
     const status = isStatusActive ? (session.userStatus || 'online') : (isRpcActive ? 'online' : 'invisible')
+
+    // ── ACCOUNT-STATUS SELF-HEAL (Task 97 — the "status not working" fix) ──
+    // Discord IGNORES the `status` field of OP 3 presence updates for
+    // OAuth/sdk sessions (live-verified 2026-10-15 on both gateways — the
+    // activities in the SAME OP 3 still apply, the status does not). The
+    // profile status is pinned to the ACCOUNT-level user_settings.status and
+    // the honored write path is REST PATCH /users/@me/settings — exactly what
+    // the real client does. Whenever the desired status differs from the
+    // account status we last applied, PATCH it. Idempotent: fires on a real
+    // change (user pick / toggle / first push after restart) — never per tick.
+    // The website's /api/status/update also patches instantly; this loop is
+    // the self-healing authority (covers drift, daemon restarts, toggles).
+    if (userSock.lastAccountStatus !== status && session.discordAccessToken) {
+      const patched = await patchDiscordAccountSettings(session.discordAccessToken, { status })
+      if (patched.ok) {
+        userSock.lastAccountStatus = status
+      } else {
+        console.warn(`[10X RPC Daemon] Account status patch failed for user ${userId} (${status}): ${patched.error} — will retry next tick`)
+      }
+    }
     const activitiesHash = JSON.stringify({ status, activities: safeActivities })
 
     // MULTI-SESSION maintenance — extras carry their own hash guards, so this

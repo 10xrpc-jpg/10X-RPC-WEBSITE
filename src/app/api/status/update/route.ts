@@ -5,6 +5,7 @@ import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
 import { BADGE_PLATFORMS } from '@/lib/constants'
+import { patchDiscordAccountSettings } from '@/lib/discord-settings'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 15
@@ -120,6 +121,35 @@ export async function POST(req: Request) {
       sync = { ok: !!presence?.ok, message: presence?.message || '' }
     }
 
+    // ── ACCOUNT-STATUS PATCH (the "Online/Idle/DND not working" fix) ──────
+    // Live-verified 2026-10-15: Discord's gateways IGNORE the `status` field
+    // of OP 3 presence updates for OAuth/sdk sessions — the profile status is
+    // pinned to the ACCOUNT-level user_settings.status. The honored path is
+    // REST PATCH /users/@me/settings (what the real client does), which our
+    // OAuth token is authorized for. Without this, the first Idle/DND pick
+    // sticks forever and every later pick silently does nothing (and the
+    // Mobile/VR badges stay hidden because Discord hides them while the
+    // account status is idle/dnd).
+    // Runs whenever Status is enabled and we hold a Discord token — right
+    // after the save, BEFORE the daemon notify (the daemon self-heals too,
+    // but this makes the change instant).
+    // The custom status text/emoji lives in the same account settings
+    // (user_settings.custom_status) — patch it whenever this update carries
+    // one, so the Custom Msg + emoji feature actually renders on Discord.
+    let accountSync: { ok: boolean; error?: string } | null = null
+    if (isStatusEnabled && session.discordAccessToken && currentSession) {
+      const patchBody: Parameters<typeof patchDiscordAccountSettings>[1] = {
+        status: currentSession.userStatus || 'online',
+      }
+      if (body.customStatus !== undefined || body.customStatusEmoji !== undefined) {
+        const text = currentSession.customStatus
+        const emoji = currentSession.customStatusEmoji
+        patchBody.custom_status = text || emoji ? { text: text || '', emoji_name: emoji || null } : null
+      }
+      const patched = await patchDiscordAccountSettings(session.discordAccessToken, patchBody)
+      accountSync = { ok: patched.ok, error: patched.error }
+    }
+
     // Flags for the UI toasts:
     // autoNone  — Idle/DND asserted with a Mobile/VR badge active → icon saved as None.
     // autoOnline — badge platform asserted while Idle/DND stored → status switched to online.
@@ -132,20 +162,23 @@ export async function POST(req: Request) {
       statusPlatform: currentSession?.statusPlatform || 'mobile',
       autoOnline,
       autoNone,
+      accountSync,
       sync,
       message: !isStatusEnabled
         ? 'Status configuration saved (Status is OFF)'
-        : sync?.ok
-          ? (autoNone
-              ? 'Idle/DND hides the VR/Mobile badge — icon saved as None & synced'
-              : autoOnline
-                ? 'Mobile/VR badge needs Online — status switched to Online & synced'
-                : 'Status updated & synced to Discord')
-          : (autoNone
-              ? 'Idle/DND hides the VR/Mobile badge — icon saved as None'
-              : autoOnline
-                ? 'Mobile/VR badge needs Online — status switched to Online'
-                : 'Status saved — Discord sync will retry within 30s'),
+        : accountSync && !accountSync.ok
+          ? 'Status saved — Discord account sync will retry within 30s'
+          : sync?.ok
+            ? (autoNone
+                ? 'Idle/DND hides the VR/Mobile badge — icon saved as None & synced'
+                : autoOnline
+                  ? 'Mobile/VR badge needs Online — status switched to Online & synced'
+                  : 'Status updated & synced to Discord')
+            : (autoNone
+                ? 'Idle/DND hides the VR/Mobile badge — icon saved as None'
+                : autoOnline
+                  ? 'Mobile/VR badge needs Online — status switched to Online'
+                  : 'Status saved — Discord sync will retry within 30s'),
     })
   } catch (e: any) {
     console.error('Error in /api/status/update:', e)
