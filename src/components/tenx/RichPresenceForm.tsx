@@ -38,6 +38,17 @@ const DEFAULT_CONFIG: RpcConfig = {
 // Discord Application IDs are snowflakes — 15-21 digits (same rule the server enforces).
 const APP_ID_RE = /^\d{15,21}$/
 
+// ── Task 96 — "APPLICATION ID (OPTIONAL)" field is HIDDEN from the UI ──────
+// The user asked for this field to be removed from the Normal RPC form.
+// UI-ONLY HIDE — the backend keeps FULL support (Task 86 semantics intact):
+//   • cfg.appId is still saved by /api/rpc/* whenever it holds a value
+//     (imports/backups/legacy accounts keep working untouched)
+//   • the daemon + presence builder still honor a stored custom Application
+//     ID (the presence still presents under that app for accounts that
+//     already set one — default remains the 10X RPC application)
+// To restore the field, flip this flag back to true.
+const SHOW_APPLICATION_ID_FIELD = false
+
 type AppLookupState =
   | { status: 'idle' }
   | { status: 'invalid' }
@@ -426,7 +437,10 @@ export function RichPresenceForm({
             />
           </FormField>
 
-          {/* 6. APPLICATION ID (OPTIONAL) — present the presence as the user's own Discord application */}
+          {/* 6. APPLICATION ID (OPTIONAL) — UI HIDDEN (Task 96, see
+              SHOW_APPLICATION_ID_FIELD above): the field is removed from the
+              form but the backend keeps saving/honoring cfg.appId. */}
+          {SHOW_APPLICATION_ID_FIELD && (
           <FormField label="APPLICATION ID (OPTIONAL)">
             <input
               type="text"
@@ -494,6 +508,7 @@ export function RichPresenceForm({
               </p>
             )}
           </FormField>
+          )}
 
           {/* 7. LARGE IMAGE (URL OR ID) */}
           <FormField label="LARGE IMAGE (URL OR ID)">

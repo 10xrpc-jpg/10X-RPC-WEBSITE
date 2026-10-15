@@ -25,8 +25,10 @@
 import fs from 'fs'
 import http from 'http'
 import path from 'path'
-import { getRpcDaemon } from '../src/lib/rpc-daemon'
+import { getDaemonRole, getRpcDaemon } from '../src/lib/rpc-daemon'
 import { getApplicationRpcDaemon } from '../src/lib/application-rpc-daemon'
+
+const ROLE = getDaemonRole()
 
 const HEARTBEAT_FILE = path.join(process.cwd(), '.daemon-heartbeat')
 const SYNC_PORT = parseInt(process.env.DAEMON_SYNC_PORT || '3100', 10)
@@ -40,6 +42,7 @@ function writeHeartbeat(): void {
       ts: Date.now(),
       iso: new Date().toISOString(),
       pid: process.pid,
+      role: ROLE,
       status: daemon.getStatus(),
       application: getApplicationRpcDaemon().getStatus(),
     }
@@ -58,7 +61,7 @@ process.on('uncaughtException', (err) => {
   console.error('[10X RPC Standalone Daemon] Uncaught exception (daemon stays alive):', err)
 })
 
-console.log('[10X RPC Standalone Daemon] Booting standalone background daemon process...')
+console.log(`[10X RPC Standalone Daemon] Booting standalone background daemon process... (role=${ROLE.toUpperCase()})`)
 
 const daemon = getRpcDaemon()
 writeHeartbeat()
@@ -183,6 +186,7 @@ const syncServer = http.createServer((req, res) => {
     sendJson(res, 200, {
       status: 'ok',
       service: '10x-rpc-standalone-daemon',
+      role: ROLE,
       uptime: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
       daemon: daemon.getStatus(),
@@ -203,7 +207,7 @@ try {
 }
 
 daemon.start().then(() => {
-  console.log('[10X RPC Standalone Daemon] Running 24/7. Press Ctrl+C to stop.')
+  console.log(`[10X RPC Standalone Daemon] Running 24/7 (role=${ROLE.toUpperCase()}). Press Ctrl+C to stop.`)
   writeHeartbeat()
 }).catch(err => {
   console.error('[10X RPC Standalone Daemon] Fatal error on startup:', err)

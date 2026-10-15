@@ -31,6 +31,30 @@ import { buildIdentify } from './gateway-platform'
 import { normalizeRotateOrder, type RotateOrder } from './rotation'
 import { decideGameRotation } from './game-rotation'
 import { patchDiscordAccountSettings } from './discord-settings'
+import {
+  accountStatusPatchOwner,
+  daemonRoleFromEnv,
+  planRolePresencePlatforms,
+  roleWantsGame,
+  roleWantsRpc,
+  roleWantsStatus,
+  tokenRefreshWindowMinutes,
+  GAME_EXTRA_PLATFORM_POOL,
+  type DaemonRole,
+} from './daemon-roles'
+
+// ─── Daemon role split (NODE 1 = STATUS / NODE 2 = RPC / NODE 3 = GAME RPC) ─
+// DAEMON_ROLE unset / 'all' = the classic combined daemon — every role gate
+// below short-circuits to the EXACT pre-split behavior (sandbox, local dev,
+// and the deployment transition window). 'status' | 'rpc' | 'game' run the
+// role-gated pillar. See daemon-roles.ts for the cross-daemon platform-class
+// contract that keeps the three nodes' Discord sessions collision-free.
+const DAEMON_ROLE: DaemonRole = daemonRoleFromEnv()
+
+/** The daemon role this process runs ('all' = combined pre-split behavior). */
+export function getDaemonRole(): DaemonRole {
+  return DAEMON_ROLE
+}
 
 // ─── Subscription gate (raw SQL — Orihost-safe) ─────────────────────────────
 // Access = plan/status lifecycle: free trial (status "trialing", ends
@@ -698,8 +722,12 @@ export class RpcDaemon {
           continue
         }
 
-        // Check token expiration (refresh if < 30 mins left)
-        if (session.discordTokenExpiresAt && session.discordTokenExpiresAt.getTime() - now.getTime() < 30 * 60 * 1000) {
+        // Check token expiration (refresh if < 30 mins left). Role daemons
+        // use STAGGERED windows (tokenRefreshWindowMinutes) so the three
+        // nodes never race Discord's rotating refresh grants — after one
+        // refresh the expiry jumps ~7 days out and the tighter windows of
+        // the other roles never fire.
+        if (session.discordTokenExpiresAt && session.discordTokenExpiresAt.getTime() - now.getTime() < tokenRefreshWindowMinutes(DAEMON_ROLE) * 60 * 1000) {
           if (session.discordRefreshToken) {
             console.log(`[10X RPC Daemon] Refreshing Discord token for user ${userId}...`)
             const refreshed = await refreshDiscordToken(session.discordRefreshToken)
@@ -734,8 +762,9 @@ export class RpcDaemon {
           }
         }
 
-        // Check status rotator
-        if (session.user.globalConfig?.rotatorEnabled) {
+        // Check status rotator — a STATUS-pillar concern (it drives the
+        // custom status text). Role daemons other than status/all skip it.
+        if ((DAEMON_ROLE === 'all' || DAEMON_ROLE === 'status') && session.user.globalConfig?.rotatorEnabled) {
           const presets = session.user.rotatorPresets.filter(p => p.enabled)
           if (presets.length > 0) {
             const totalDurationSecs = presets.reduce((sum, p) => sum + Math.max(1, p.durationMins * 60), 0)
@@ -775,6 +804,25 @@ export class RpcDaemon {
         console.error(`[10X RPC Daemon] Error in tick for user ${userId}:`, userTickErr)
       }
     }
+  }
+
+  /** Initial socket platform for a NEW socket record, per daemon role. The
+   *  authoritative value is recomputed in connectUserSocket — this only
+   *  seeds the record so /status shows a sane platform immediately. */
+  private roleSeedPlatform(
+    session: { statusPlatform?: string | null; vrStatusActive?: boolean | null },
+    selection: { candidates: Array<{ platform?: string | null; gameSlug?: string | null }> }
+  ): string {
+    if (DAEMON_ROLE === 'status') {
+      return session.vrStatusActive || session.statusPlatform === 'meta_quest'
+        ? 'meta_quest'
+        : (session.statusPlatform || 'mobile')
+    }
+    if (DAEMON_ROLE === 'rpc') {
+      return selection.candidates.find(c => !c.gameSlug)?.platform || 'desktop'
+    }
+    if (DAEMON_ROLE === 'game') return 'embedded'
+    return selection.candidates[0]?.platform || 'desktop'
   }
 
   /**
@@ -854,7 +902,10 @@ export class RpcDaemon {
       // Normal RPC Auto-Rotate below): decide the single active game, persist
       // rotation state + enabled flags, then let THIS tick publish them.
       const allGameRows = session.user.gameConfigs ?? []
-      if (allGameRows.length > 0) {
+      // Game Auto-Rotate reconcile is GAME-pillar state — only the game role
+      // (or the combined 'all' daemon) advances it, so the three nodes never
+      // write racing enabled-flag flips.
+      if (allGameRows.length > 0 && roleWantsGame(DAEMON_ROLE)) {
         try {
           await reconcileGameRotationForUser(session.userId, allGameRows)
         } catch (grErr) {
@@ -879,8 +930,21 @@ export class RpcDaemon {
       const hasStatus = !!session.statusEnabled
       const hasRotator = !!(session.statusEnabled && session.user.globalConfig?.rotatorEnabled && session.user.rotatorPresets?.some(p => p.enabled))
 
-      // Only track if user actually has active RPC, active status, or active rotator
-      if (!hasRpc && !hasStatus && !hasRotator) {
+      // ── Role-pillar activity for THIS daemon (daemon-roles.ts) ──────────
+      // A role daemon only tracks the user while ITS pillar is active; the
+      // combined 'all' daemon keeps the pre-split combined rule.
+      const roleSlotsActive = hasRpc && selection.candidates.some(c => !c.gameSlug)
+      const roleGamesActive = hasRpc && selection.candidates.some(c => !!c.gameSlug)
+      const roleActive = DAEMON_ROLE === 'status'
+        ? (hasStatus || hasRotator)
+        : DAEMON_ROLE === 'rpc'
+          ? roleSlotsActive
+          : DAEMON_ROLE === 'game'
+            ? roleGamesActive
+            : (hasRpc || hasStatus || hasRotator)
+
+      // Only track if THIS daemon's pillar is active for the user
+      if (!roleActive) {
         continue
       }
 
@@ -894,7 +958,7 @@ export class RpcDaemon {
           ws: null,
           heartbeatAck: true,
           retryCount: 0,
-          platform: selection.candidates[0]?.platform || 'desktop',
+          platform: this.roleSeedPlatform(session, selection),
           lastStatus: session.userStatus || 'online',
           lastActivitiesHash: '',
           connected: false,
@@ -952,10 +1016,14 @@ export class RpcDaemon {
     const userSock = this.sockets.get(userId)
     const hasStatus = !!session.statusEnabled
     const hasCustomStatus = !!(session.customStatus || session.customStatusEmoji)
+    // Role view — only a status/all daemon holds the custom-status socket.
+    // A role daemon for rpc/game simply clears its own session's presence
+    // and closes (its pillar is being stopped).
+    const statusSocketRole = roleWantsStatus(DAEMON_ROLE)
 
     if (userSock && userSock.ws && userSock.ws.readyState === WebSocket.OPEN && userSock.connected) {
       const activities: Array<Record<string, unknown>> = []
-      if (hasStatus && hasCustomStatus) {
+      if (statusSocketRole && hasStatus && hasCustomStatus) {
         const customActivity = buildCustomStatusActivity(
           session.customStatus,
           session.customStatusEmoji
@@ -981,12 +1049,13 @@ export class RpcDaemon {
         console.error(`[10X RPC Daemon] Error sending clear OP 3 for user ${userId}:`, err)
       }
 
-      // If status is not active, close socket cleanly and stop all timers
-      if (!hasStatus) {
+      // If status is not active (or this daemon owns no status pillar),
+      // close socket cleanly and stop all timers
+      if (!hasStatus || !statusSocketRole) {
         this.cleanupSocket(userSock)
         this.sockets.delete(userId)
       }
-    } else if (hasStatus) {
+    } else if (statusSocketRole && hasStatus) {
       // Connect to Discord Gateway to maintain user status
       await this.connectUserSocket(userId)
     }
@@ -1051,8 +1120,21 @@ export class RpcDaemon {
     const hasStatus = !!session.statusEnabled
     const hasRotator = !!(session.statusEnabled && session.user.globalConfig?.rotatorEnabled && session.user.rotatorPresets?.some(p => p.enabled))
 
-    // If neither status, RPC, nor rotator is active: stop & clear
-    if (!hasRpc && !hasStatus && !hasRotator) {
+    // Role-pillar activity (daemon-roles.ts) — a role daemon only owns its
+    // own pillar's socket/pushes; the combined 'all' daemon keeps the
+    // combined rule.
+    const roleSlotsActive = hasRpc && selection.candidates.some(c => !c.gameSlug)
+    const roleGamesActive = hasRpc && selection.candidates.some(c => !!c.gameSlug)
+    const roleActive = DAEMON_ROLE === 'status'
+      ? (hasStatus || hasRotator)
+      : DAEMON_ROLE === 'rpc'
+        ? roleSlotsActive
+        : DAEMON_ROLE === 'game'
+          ? roleGamesActive
+          : (hasRpc || hasStatus || hasRotator)
+
+    // If THIS daemon's pillar is not active for the user: stop & clear
+    if (!roleActive) {
       await this.stopUserRpc(userId)
       return {
         ok: true,
@@ -1069,7 +1151,7 @@ export class RpcDaemon {
         ws: null,
         heartbeatAck: true,
         retryCount: 0,
-        platform: selection.candidates[0]?.platform || 'desktop',
+        platform: this.roleSeedPlatform(session, selection),
         lastStatus: session.userStatus || 'online',
         lastActivitiesHash: '',
         connected: false,
@@ -1143,7 +1225,9 @@ export class RpcDaemon {
       // Check if token is expired and refresh before connecting
       let accessToken = session.discordAccessToken
       const now = new Date()
-      if (session.discordTokenExpiresAt && session.discordTokenExpiresAt < now) {
+      // Role-staggered refresh window (see tokenRefreshWindowMinutes) — the
+      // three nodes must never race Discord's rotating refresh grants.
+      if (session.discordTokenExpiresAt && session.discordTokenExpiresAt.getTime() - now.getTime() < tokenRefreshWindowMinutes(DAEMON_ROLE) * 60 * 1000) {
         if (session.discordRefreshToken) {
           const refreshed = await refreshDiscordToken(session.discordRefreshToken)
           if (refreshed.ok && refreshed.access_token) {
@@ -1214,12 +1298,42 @@ export class RpcDaemon {
       const isRpcActive = selection.active
       const isStatusActive = !!session.statusEnabled
 
-      const activePlatform = isStatusActive
-        ? (session.statusPlatform || 'mobile')
-        : (isRpcActive ? (selection.candidates[0]?.platform || 'desktop') : (session.statusPlatform || 'mobile'))
+      // Role-gated IDENTIFY platform (daemon-roles.ts contract — the three
+      // nodes must never IDENTIFY the same platform class for one user):
+      //   status → the user's chosen badge platform (mobile / None / VR)
+      //   rpc    → pre-split rule (first slot's platform) when Status is off;
+      //            plain desktop when the status role owns the badge session
+      //   game   → always the embedded console class
+      //   all    → the exact pre-split precedence
+      let targetPlatform: string
+      if (DAEMON_ROLE === 'status') {
+        targetPlatform = session.vrStatusActive || session.statusPlatform === 'meta_quest'
+          ? 'meta_quest'
+          : (session.statusPlatform || 'mobile')
+      } else if (DAEMON_ROLE === 'rpc') {
+        targetPlatform = planRolePresencePlatforms({
+          statusEnabled: isStatusActive,
+          statusPlatform: session.statusPlatform,
+          vrActive: !!session.vrStatusActive,
+          firstSlotPlatform: selection.candidates.find(c => !c.gameSlug)?.platform || null,
+          rpcEnabled: session.rpcEnabled,
+        }).rpcMainPlatform
+      } else if (DAEMON_ROLE === 'game') {
+        targetPlatform = planRolePresencePlatforms({
+          statusEnabled: isStatusActive,
+          statusPlatform: session.statusPlatform,
+          vrActive: !!session.vrStatusActive,
+          firstSlotPlatform: null,
+          rpcEnabled: session.rpcEnabled,
+        }).gameMainPlatform
+      } else {
+        const activePlatform = isStatusActive
+          ? (session.statusPlatform || 'mobile')
+          : (isRpcActive ? (selection.candidates[0]?.platform || 'desktop') : (session.statusPlatform || 'mobile'))
 
-      const isQuest = activePlatform === 'meta_quest' || (isStatusActive && session.vrStatusActive)
-      const targetPlatform = isQuest ? 'meta_quest' : activePlatform
+        const isQuest = activePlatform === 'meta_quest' || (isStatusActive && session.vrStatusActive)
+        targetPlatform = isQuest ? 'meta_quest' : activePlatform
+      }
       userSock.platform = targetPlatform
       userSock.identifiedPlatform = targetPlatform
 
@@ -1554,16 +1668,44 @@ export class RpcDaemon {
     const isRpcActive = runtime.active
     const isStatusActive = !!session.statusEnabled
 
-    // Socket platform follows the FIRST full-list candidate (rotate-invariant:
-    // rotating between slots must never flip the IDENTIFY badge or churn the
-    // socket). Status-active keeps its existing precedence.
-    const activePlatform = isStatusActive
-      ? (session.statusPlatform || 'mobile')
-      : (isRpcActive ? (fullSelection.candidates[0]?.platform || 'desktop') : (session.statusPlatform || 'mobile'))
-    // Same VR/platform unification as connectUserSocket — the IDENTIFY
-    // properties and the OP 3 payload must always agree.
-    const isQuest = activePlatform === 'meta_quest' || (isStatusActive && session.vrStatusActive)
-    const targetPlatform = isQuest ? 'meta_quest' : activePlatform
+    // ── Role view (daemon-roles.ts) — what THIS daemon pushes for the user ─
+    const wantsStatusPillar = roleWantsStatus(DAEMON_ROLE)
+    const wantsRpcPillar = roleWantsRpc(DAEMON_ROLE)
+    const wantsGamePillar = roleWantsGame(DAEMON_ROLE)
+    const plan = planRolePresencePlatforms({
+      statusEnabled: isStatusActive,
+      statusPlatform: session.statusPlatform,
+      vrActive: !!session.vrStatusActive,
+      firstSlotPlatform: fullSelection.candidates.find(c => !c.gameSlug)?.platform || null,
+      rpcEnabled: session.rpcEnabled,
+    })
+    // Pillar activity from the FULL candidate list (rotation-independent):
+    const fullSlots = fullSelection.candidates.filter(c => !c.gameSlug)
+    const fullGames = fullSelection.candidates.filter(c => !!c.gameSlug)
+    const pillarsActive = {
+      status: isStatusActive,
+      rpc: isRpcActive && fullSlots.length > 0,
+      game: isRpcActive && fullGames.length > 0,
+    }
+
+    // Socket IDENTIFY platform — role-gated (see connectUserSocket); the
+    // 'all' daemon keeps the exact pre-split precedence.
+    let targetPlatform: string
+    if (DAEMON_ROLE === 'status') {
+      targetPlatform = plan.statusSessionPlatform
+    } else if (DAEMON_ROLE === 'rpc') {
+      targetPlatform = plan.rpcMainPlatform
+    } else if (DAEMON_ROLE === 'game') {
+      targetPlatform = plan.gameMainPlatform
+    } else {
+      const activePlatform = isStatusActive
+        ? (session.statusPlatform || 'mobile')
+        : (isRpcActive ? (fullSelection.candidates[0]?.platform || 'desktop') : (session.statusPlatform || 'mobile'))
+      // Same VR/platform unification as connectUserSocket — the IDENTIFY
+      // properties and the OP 3 payload must always agree.
+      const isQuest = activePlatform === 'meta_quest' || (isStatusActive && session.vrStatusActive)
+      targetPlatform = isQuest ? 'meta_quest' : activePlatform
+    }
 
     // ════════════════════════════════════════════════════════════════════
     // PLATFORM-INSTANT-UPDATE FIX (the "VR / mobile status not updating"
@@ -1609,10 +1751,23 @@ export class RpcDaemon {
     // step at the top of syncAllUsers — the two systems never touch each
     // other's state.
     const rotatePoolKeySet = new Set(runtime.rotatePoolKeys ?? [])
-    const rotateGameExtras: RpcCandidate[] = isRpcActive && runtime.runtimeMode === 'rotate'
-      ? fullSelection.candidates.filter(c => !rotatePoolKeySet.has(rpcCandidateKey(c)))
-      : []
-    const gameCandidates = [...runtime.candidates.filter(c => c.gameSlug), ...rotateGameExtras]
+    // Role-gated pinned extras: 'all' keeps the pre-split list (games AND
+    // left-out slots); the rpc role only pins NON-game candidates it left out
+    // of its rotation pool (games belong to the game role); the game role has
+    // no rotate-pinned extras (it pushes every enabled game directly).
+    const rotateGameExtras: RpcCandidate[] = !wantsRpcPillar || !isRpcActive || runtime.runtimeMode !== 'rotate'
+      ? []
+      : DAEMON_ROLE === 'rpc'
+        ? fullSelection.candidates.filter(c => !rotatePoolKeySet.has(rpcCandidateKey(c)) && !c.gameSlug)
+        : fullSelection.candidates.filter(c => !rotatePoolKeySet.has(rpcCandidateKey(c)))
+    // Game candidates this daemon resolves app ids for: 'all' keeps the
+    // pre-split list; the game role resolves for every enabled game; the
+    // rpc/status roles never push games.
+    const gameCandidates: RpcCandidate[] = DAEMON_ROLE === 'all'
+      ? [...runtime.candidates.filter(c => c.gameSlug), ...rotateGameExtras]
+      : wantsGamePillar
+        ? [...fullGames]
+        : []
     for (const gc of gameCandidates) {
       if (gc.gameSlug && !gc.gameAppId) {
         gc.gameAppId = await fetchGameAppId(userId, gc.gameSlug)
@@ -1641,6 +1796,20 @@ export class RpcDaemon {
     const rotateGameExtraActive = isRpcActive
       && runtime.runtimeMode === 'rotate'
       && rotateGameExtras.length > 0
+    // Role flags — the rpc role multi-sessions its SLOTS (games excluded —
+    // they render on the game role); the game role multi-sessions its games.
+    const roleSlotCandidates = wantsRpcPillar && DAEMON_ROLE !== 'all'
+      ? runtime.candidates.filter(c => !c.gameSlug)
+      : []
+    const multiSessionRpc = DAEMON_ROLE === 'rpc' && isRpcActive
+      && runtime.runtimeMode === 'simultaneous'
+      && roleSlotCandidates.length >= 2
+    const rotatePinnedRpc = DAEMON_ROLE === 'rpc' && rotateGameExtraActive
+    const roleGameCandidates = DAEMON_ROLE === 'game'
+      ? fullGames
+      : []
+    const multiSessionGame = DAEMON_ROLE === 'game' && isRpcActive
+      && roleGameCandidates.length >= 2
 
     // ── Task 92 — GLOBAL DISPLAY-TYPE ORCHESTRATION (the "only one RPC
     // shows" fix) ────────────────────────────────────────────────────────────
@@ -1651,12 +1820,17 @@ export class RpcDaemon {
     // systems (slots + games + Application RPC) so every simultaneous card
     // survives the client-side prune. Deterministic from saved configs → both
     // daemons independently reach the same assignment.
-    if (isRpcActive) {
+    if (isRpcActive && (DAEMON_ROLE === 'all' || DAEMON_ROLE === 'rpc')) {
       const appRpcRow = await fetchAppRpcTypeRow(userId)
+      // Task 92 — the display-type assignment is GLOBAL across slots + games
+      // + the Application RPC. The rpc role still feeds the GAME candidates
+      // into the inputs (pinned PLAYING, Task 93) so its slot types come out
+      // IDENTICAL to the combined daemon's — the game cards live on the game
+      // role, but the at-most-one-non-game-PLAYING rule sees them.
       const globalTypeInputs: DisplayTypeCandidate[] = [
         ...fullSelection.candidates.map(c => ({
           key: rpcCandidateKey(c),
-          name: c.name,
+          name: c.name ?? '',
           appId: c.gameSlug ? null : (c.appId ?? null),
           configuredType: c.type ?? null,
           // Task 93 — Game RPC candidates are PINNED to PLAYING (they never
@@ -1670,7 +1844,30 @@ export class RpcDaemon {
           configuredType: appRpcRow.type,
         }] : []),
       ]
-      if (multiSessionActive) {
+      if (DAEMON_ROLE === 'rpc') {
+        // Role view — apply over the rpc role's own candidates only.
+        if (multiSessionRpc) {
+          const displayTypes = assignDisplayTypes(globalTypeInputs)
+          for (const c of roleSlotCandidates) {
+            const t = displayTypes.get(rpcCandidateKey(c))
+            if (t && t !== c.type) c.type = t
+          }
+        } else if (rotatePinnedRpc) {
+          // Rotate mode: the rotating main session owns the single PLAYING
+          // card among the NON-game candidates; pinned slot extras and the
+          // Application RPC never present as PLAYING. (Games are exempt by
+          // definition — Task 93 — and live on the game role anyway.)
+          const neverPlaying = new Set<string>(
+            rotateGameExtras.filter(c => !c.gameSlug).map(c => rpcCandidateKey(c))
+          )
+          if (appRpcRow) neverPlaying.add('app_rpc')
+          const displayTypes = assignDisplayTypes(globalTypeInputs, neverPlaying)
+          for (const c of rotateGameExtras) {
+            const t = displayTypes.get(rpcCandidateKey(c))
+            if (t && t !== c.type) c.type = t
+          }
+        }
+      } else if (multiSessionActive) {
         const displayTypes = assignDisplayTypes(globalTypeInputs)
         for (const c of runtime.candidates) {
           const t = displayTypes.get(rpcCandidateKey(c))
@@ -1730,37 +1927,67 @@ export class RpcDaemon {
     // pinned game candidates — they stay visible in their own sessions while
     // the pool rotates in the main session.
     interface ExtraSource { cand: RpcCandidate; hint: number }
-    const extrasSource: ExtraSource[] = multiSessionActive
-      ? runtime.candidates.slice(1, 5).map(cand => ({ cand, hint: stableHintOf(cand) }))
-      : rotateGameExtraActive
-        ? rotateGameExtras.slice(0, 4).map(cand => ({ cand, hint: stableHintOf(cand) }))
-        : []
+    const extrasSource: ExtraSource[] =
+      DAEMON_ROLE === 'all'
+        ? (multiSessionActive
+            // Simultaneous mode: every candidate beyond the first (existing
+            // Task 84 behavior — slots AND games).
+            ? runtime.candidates.slice(1, 5).map(cand => ({ cand, hint: stableHintOf(cand) }))
+            : rotateGameExtraActive
+              // Rotate mode: exactly the pinned game candidates — they stay
+              // visible in their own sessions while the pool rotates.
+              ? rotateGameExtras.slice(0, 4).map(cand => ({ cand, hint: stableHintOf(cand) }))
+              : [])
+        : DAEMON_ROLE === 'rpc'
+          ? (multiSessionRpc
+              ? roleSlotCandidates.slice(1, 5).map(cand => ({ cand, hint: stableHintOf(cand) }))
+              : rotatePinnedRpc
+                ? rotateGameExtras.slice(0, 4).map(cand => ({ cand, hint: stableHintOf(cand) }))
+                : [])
+          : DAEMON_ROLE === 'game'
+            ? (multiSessionGame
+                ? roleGameCandidates.slice(1, 5).map((cand, gi) => ({ cand, hint: gi }))
+                : [])
+            : []
     if (extrasSource.length > 0) {
-      const globalVr = (isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive)) || (isRpcActive && fullSelection.candidates[0]?.platform === 'meta_quest')
-      const globalPlatform = isRpcActive ? (fullSelection.candidates[0]?.platform || 'desktop') : targetPlatform
+      // VR stamping belongs to the status role's badge session; role daemons
+      // other than 'all' never mark extras meta_quest (label collision-safe).
+      const globalVr = DAEMON_ROLE === 'all'
+        ? ((isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive)) || (isRpcActive && fullSelection.candidates[0]?.platform === 'meta_quest'))
+        : false
+      const globalPlatform = DAEMON_ROLE === 'all'
+        ? (isRpcActive ? (fullSelection.candidates[0]?.platform || 'desktop') : targetPlatform)
+        : targetPlatform
       // Task 84c/84d — every extra session gets a DISTINCT platform class (the
       // merge key Discord uses for concurrent sessions; two sessions of the
       // same class overwrite each other and only one card renders). The pool
       // (web → ps4 → android → desktop) avoids classes the user's REAL clients
       // occupy (phone = mobile, desktop app = desktop).
       // 5 classes total = main + 4 extras max.
-      const platformAssignments = assignSessionPlatforms(
-        targetPlatform,
-        extrasSource.map(e => e.cand.platform),
-        // Task 84d — STABLE per-candidate hints (see allConfigIndex above):
-        // toggling a middle slot never reshuffles the others (no reopen
-        // churn / zombie sessions / card flicker).
-        extrasSource.map(e => e.hint)
-      )
+      // GAME role — its own collision-safe pool instead (its main session
+      // already occupies 'embedded'): labels no other role emits.
+      const platformAssignments: Array<string | null> = DAEMON_ROLE === 'game'
+        ? []
+        : assignSessionPlatforms(
+            targetPlatform,
+            extrasSource.map(e => e.cand.platform),
+            // Task 84d — STABLE per-candidate hints (see allConfigIndex above):
+            // toggling a middle slot never reshuffles the others (no reopen
+            // churn / zombie sessions / card flicker).
+            extrasSource.map(e => e.hint)
+          )
       for (let i = 0; i < extrasSource.length && extras.length < 4; i++) {
         const cand = extrasSource[i].cand
-        const assignedPlatform = platformAssignments[i]
+        const assignedPlatform = DAEMON_ROLE === 'game'
+          ? (GAME_EXTRA_PLATFORM_POOL[i] ?? null)
+          : platformAssignments[i]
         if (!assignedPlatform) {
           // No free platform class — in simultaneous mode fold back into the
           // main push so the candidate never vanishes. In rotate+game-pinned
           // mode there is no fold-back (the game is intentionally NOT in the
           // main rotation push) — it just waits for the next tick's retry.
-          if (multiSessionActive) mainFallback.push(cand)
+          const foldBack = DAEMON_ROLE === 'all' ? multiSessionActive : multiSessionRpc
+          if (foldBack) mainFallback.push(cand)
           continue
         }
         try {
@@ -1775,7 +2002,8 @@ export class RpcDaemon {
           })
           const safe = sanitizeActivities(built as Array<Record<string, unknown>>)
           if (safe.length === 0) {
-            if (multiSessionActive) mainFallback.push(cand)
+            const foldBack = DAEMON_ROLE === 'all' ? multiSessionActive : multiSessionRpc
+            if (foldBack) mainFallback.push(cand)
           }
           if (safe.length > 0) {
             // Task 84d — CRITICAL: do NOT set a `platform` field inside the
@@ -1826,7 +2054,7 @@ export class RpcDaemon {
               safe[0].platform = assignedPlatform
             }
             extras.push({
-              idx: multiSessionActive ? i + 1 : 0,
+              idx: (DAEMON_ROLE === 'all' ? multiSessionActive : (multiSessionRpc || multiSessionGame)) ? i + 1 : 0,
               key: rpcCandidateKey(cand) || `slot${i + 1}`,
               label: String((safe[0] as { name?: string }).name ?? cand.name ?? `RPC ${i + 1}`),
               platform: assignedPlatform,
@@ -1852,16 +2080,48 @@ export class RpcDaemon {
     // Therefore the main session now pushes EXACTLY candidate #1; every
     // further candidate renders exclusively through its own extra session.
 
-    const mainPushCandidates = isRpcActive
-      ? (multiSessionActive ? [runtime.candidates[0], ...mainFallback] : runtime.candidates)
-      : []
+    // Main-session payload — role-gated:
+    //   status → ONLY the custom status activity (the badge session carries
+    //            no cards; cards belong to the rpc/game roles)
+    //   rpc    → the role's slot candidates (rotate: the rotating slot)
+    //   game   → the first enabled game (extras carry the rest)
+    //   all    → the exact pre-split payload
+    let mainPushCandidates: RpcCandidate[] = []
+    if (DAEMON_ROLE === 'status') {
+      mainPushCandidates = []
+    } else if (DAEMON_ROLE === 'rpc') {
+      mainPushCandidates = !isRpcActive
+        ? []
+        : multiSessionRpc
+          ? [roleSlotCandidates[0], ...mainFallback]
+          : roleSlotCandidates
+    } else if (DAEMON_ROLE === 'game') {
+      mainPushCandidates = isRpcActive ? roleGameCandidates.slice(0, 1) : []
+    } else {
+      mainPushCandidates = isRpcActive
+        ? (multiSessionActive ? [runtime.candidates[0], ...mainFallback] : runtime.candidates)
+        : []
+    }
+    const mainCustomStatus = DAEMON_ROLE === 'all'
+      ? (isStatusActive ? session.customStatus : null)
+      : (wantsStatusPillar && isStatusActive ? session.customStatus : null)
+    const mainCustomStatusEmoji = DAEMON_ROLE === 'all'
+      ? (isStatusActive ? session.customStatusEmoji : null)
+      : (wantsStatusPillar && isStatusActive ? session.customStatusEmoji : null)
+    const mainVrStatusActive = DAEMON_ROLE === 'all'
+      ? ((isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive)) || (isRpcActive && fullSelection.candidates[0]?.platform === 'meta_quest'))
+      : DAEMON_ROLE === 'status'
+        ? (isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive))
+        : false
     const activities = await buildPresenceActivities({
       rpcConfigs: mainPushCandidates,
-      customStatus: isStatusActive ? session.customStatus : null,
-      customStatusEmoji: isStatusActive ? session.customStatusEmoji : null,
+      customStatus: mainCustomStatus,
+      customStatusEmoji: mainCustomStatusEmoji,
       placeholderCtx,
-      vrStatusActive: (isStatusActive && (session.statusPlatform === 'meta_quest' || session.vrStatusActive)) || (isRpcActive && fullSelection.candidates[0]?.platform === 'meta_quest'),
-      platform: isRpcActive ? (fullSelection.candidates[0]?.platform || 'desktop') : targetPlatform,
+      vrStatusActive: mainVrStatusActive,
+      platform: DAEMON_ROLE === 'all'
+        ? (isRpcActive ? (fullSelection.candidates[0]?.platform || 'desktop') : targetPlatform)
+        : targetPlatform,
       // User OAuth token — required to resolve image URLs into animated-capable
       // mp:external asset references via Discord's external-assets endpoint.
       userAccessToken: session.discordAccessToken,
@@ -1873,8 +2133,20 @@ export class RpcDaemon {
     // Discord. Strip them so a failed asset resolution can never make the RPC
     // image disappear (the "image not showing" bug).
     const safeActivities = sanitizeActivities(activities as Array<Record<string, unknown>>)
+    // GAME role — stamp the main card's activity-level platform label (Task 91
+    // doctrine: the label is the card merge key). 'embedded' is a valid enum
+    // value and collides with neither the rpc role's cards nor the user's
+    // real clients — the game card can never be wiped by a desktop push.
+    if (DAEMON_ROLE === 'game' && safeActivities.length > 0 && isValidActivityPlatform(plan.gameMainLabel)) {
+      safeActivities[0].platform = plan.gameMainLabel
+    }
 
-    const status = isStatusActive ? (session.userStatus || 'online') : (isRpcActive ? 'online' : 'invisible')
+    // OP 3 status field per role. Discord IGNORES this field for OAuth/sdk
+    // sessions (Task 97) — the account-level REST patch below is what renders
+    // — but the values stay consistent with the pre-split ones.
+    const status = DAEMON_ROLE === 'all'
+      ? (isStatusActive ? (session.userStatus || 'online') : (isRpcActive ? 'online' : 'invisible'))
+      : (isStatusActive ? (session.userStatus || 'online') : 'online')
 
     // ── ACCOUNT-STATUS SELF-HEAL (Task 97 — the "status not working" fix) ──
     // Discord IGNORES the `status` field of OP 3 presence updates for
@@ -1887,7 +2159,18 @@ export class RpcDaemon {
     // change (user pick / toggle / first push after restart) — never per tick.
     // The website's /api/status/update also patches instantly; this loop is
     // the self-healing authority (covers drift, daemon restarts, toggles).
-    if (userSock.lastAccountStatus !== status && session.discordAccessToken) {
+    // Exactly ONE daemon patches the account status for a user (Task 97 + the
+    // NODE 1/2/3 split): Status enabled → the status role; else Normal slots
+    // active → the rpc role; else Game RPC → the game role. The combined 'all'
+    // daemon keeps the unconditional pre-split behavior (transition-safe: its
+    // values agree with the owners').
+    const iPatchAccountStatus = accountStatusPatchOwner({
+      role: DAEMON_ROLE,
+      statusEnabled: isStatusActive,
+      slotsActive: pillarsActive.rpc,
+      gamesActive: pillarsActive.game,
+    })
+    if (iPatchAccountStatus && userSock.lastAccountStatus !== status && session.discordAccessToken) {
       const patched = await patchDiscordAccountSettings(session.discordAccessToken, { status })
       if (patched.ok) {
         userSock.lastAccountStatus = status
@@ -1901,14 +2184,21 @@ export class RpcDaemon {
     // is cheap every tick and recovers dead sessions even when the main push
     // is unchanged. Auto Rotate (game included) / single-candidate / RPC-off
     // → closes extras. Rotate with the game PINNED keeps its extra alive.
-    this.maintainSlotSessions(userId, session.discordAccessToken ?? '', status, extras, multiSessionActive || rotateGameExtraActive)
+    const extrasActive = DAEMON_ROLE === 'all'
+      ? (multiSessionActive || rotateGameExtraActive)
+      : DAEMON_ROLE === 'rpc'
+        ? (multiSessionRpc || rotatePinnedRpc)
+        : DAEMON_ROLE === 'game'
+          ? multiSessionGame
+          : false
+    this.maintainSlotSessions(userId, session.discordAccessToken ?? '', status, extras, extrasActive)
 
     // Avoid spamming identical OP 3 payloads unless forced (prevents rate limits)
     if (!force && userSock.lastActivitiesHash === activitiesHash && userSock.lastStatus === status) {
       return
     }
 
-    if (isRpcActive && runtime.runtimeMode === 'rotate' && runtime.rotateIndex != null) {
+    if ((DAEMON_ROLE === 'all' || DAEMON_ROLE === 'rpc') && isRpcActive && runtime.runtimeMode === 'rotate' && runtime.rotateIndex != null) {
       const poolNote = Array.isArray(rotate.slots)
         ? `, selection: ${runtime.rotatePoolLength} of ${fullSelection.candidates.length} RPCs${rotateGameExtraActive ? `, ${rotateGameExtras.length} left-out RPC(s) stay visible` : ''}`
         : `${rotate.includeGame ? '' : ', excluded games pinned to their own sessions'}`
@@ -2332,6 +2622,7 @@ export class RpcDaemon {
   public getStatus() {
     return {
       running: this.isRunning,
+      role: DAEMON_ROLE,
       uptimeSeconds: Math.floor((Date.now() - this.startTime) / 1000),
       lastTickAt: this.lastTickAt,
       activeConnections: Array.from(this.sockets.values()).filter(s => s.connected).length,

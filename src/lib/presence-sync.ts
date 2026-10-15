@@ -20,8 +20,24 @@ import type { PresenceResult } from '@/lib/rpc-manager'
 
 export type SyncMode = 'sync' | 'stop'
 
+/**
+ * The 24/7 daemon base URLs (production). Supports a COMMA-SEPARATED list —
+ * one per Orihost node, one product pillar each:
+ *   NODE 1 = STATUS, NODE 2 = RPC, NODE 3 = GAME RPC.
+ * Every save/toggle is broadcast to ALL nodes; each node's daemon applies
+ * only its own pillar (role-gated) and ignores the rest, so a single
+ * notification reaches whichever pillar the change touches.
+ */
+function orihostDaemonBases(): string[] {
+  const raw = process.env.ORIHOST_DAEMON_URL || ''
+  return raw
+    .split(',')
+    .map(s => s.trim().replace(/\/+$/, ''))
+    .filter(Boolean)
+}
+
 export function orihostDaemonConfigured(): boolean {
-  return !!process.env.ORIHOST_DAEMON_URL
+  return orihostDaemonBases().length > 0
 }
 
 /**
@@ -38,32 +54,41 @@ export async function notifyOrihostSync(
   userId: string,
   mode: SyncMode = 'sync'
 ): Promise<boolean> {
-  const base = process.env.ORIHOST_DAEMON_URL
-  if (!base) return false
+  const bases = orihostDaemonBases()
+  if (bases.length === 0) return false
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 8000)
   try {
-    const dispatched = fetch(`${base.replace(/\/+$/, '')}/sync`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(process.env.ORIHOST_SYNC_SECRET
-          ? { 'x-sync-secret': process.env.ORIHOST_SYNC_SECRET }
-          : {}),
-      },
-      body: JSON.stringify({ userId, mode }),
-      signal: controller.signal,
-    })
-      .then(res => res.ok)
-      .catch(() => false)
+    let hardFailures = 0
+    const dispatch = (base: string) =>
+      fetch(`${base}/sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(process.env.ORIHOST_SYNC_SECRET
+            ? { 'x-sync-secret': process.env.ORIHOST_SYNC_SECRET }
+            : {}),
+        },
+        body: JSON.stringify({ userId, mode }),
+        signal: controller.signal,
+      })
+        .then(res => res.ok)
+        .catch(() => {
+          hardFailures++
+          return false
+        })
 
-    // Connection confirmation window — resolve early on hard failure
-    // (ECONNREFUSED / DNS) and otherwise after CONFIRM_WINDOW_MS.
+    const dispatched = Promise.all(bases.map(dispatch))
+
+    // Connection confirmation window — resolve early when EVERY node hard-
+    // failed (ECONNREFUSED / DNS); otherwise after CONFIRM_WINDOW_MS report
+    // optimistically and let the pushes finish in the background (the daemon
+    // completes each sync server-side even if this client stops waiting).
     const CONFIRM_WINDOW_MS = 1500
     return await new Promise<boolean>((resolve) => {
-      const t = setTimeout(() => resolve(true), CONFIRM_WINDOW_MS)
+      const t = setTimeout(() => resolve(hardFailures < bases.length), CONFIRM_WINDOW_MS)
       dispatched.then(
-        ok => { clearTimeout(t); resolve(ok) },
+        (oks) => { clearTimeout(t); resolve(oks.every(Boolean)) },
         () => { clearTimeout(t); resolve(false) }
       )
     })
