@@ -93,7 +93,13 @@ export function GameConfigPage({ slug }: { slug: string }) {
     }
     setSaving(true)
     try {
-      const res = await api.gameSave(slug, { ...cfg, enabled })
+      // The Application ID field is hidden (user request) — this page never
+      // sends appId. The API keeps the stored value whenever the body omits
+      // it (see /api/games/[slug]: "body.appId undefined → keep the stored
+      // value"), so a custom game keeps presenting under its saved identity.
+      const payload: Partial<GameConfig> = { ...cfg, enabled }
+      delete payload.appId
+      const res = await api.gameSave(slug, payload)
       const deactivated = res.deactivated
       if (enabled && deactivated && deactivated.length > 0) {
         toast.success(`${preset?.name} is now live — paused: ${deactivated.slice(0, 3).join(', ')}${deactivated.length > 3 ? ` +${deactivated.length - 3} more` : ''}`, { duration: 3500 })
@@ -208,23 +214,14 @@ export function GameConfigPage({ slug }: { slug: string }) {
             />
           </FormField>
 
-          {/* Application ID (custom games only) */}
-          {isCustom && (
-            <FormField label="APPLICATION ID (OPTIONAL)">
-              <input
-                type="text"
-                value={cfg.appId || ''}
-                onChange={e => set('appId', e.target.value)}
-                placeholder="Discord Application ID — e.g. 1402418491272986635"
-                inputMode="numeric"
-                className="w-full h-12 bg-[#12131a] border border-white/10 hover:border-white/20 focus:border-purple-500/50 rounded-xl px-4 text-sm text-white placeholder:text-white/35 outline-none transition-colors"
-              />
-              <p className="text-[11px] text-white/40 px-1">
-                Paste a Discord Application ID and this game is presented as that application
-                (official name + icon are fetched automatically). Leave empty to use the 10X identity.
-              </p>
-            </FormField>
-          )}
+          {/* The per-game "APPLICATION ID (OPTIONAL)" field is intentionally
+              HIDDEN from the Game Config page (user request). The Application
+              ID system itself remains fully intact: custom games keep their
+              stored Discord Application ID (handleSave omits appId and the API
+              preserves the stored value when the body omits it), the daemon
+              still spoofs that application, and the Games page "add by
+              Application ID" flow still sets the identity at creation time.
+              Re-show by rendering the FormField for custom games again. */}
 
           {/* Start Time */}
           <FormField label="START TIME (MINS AGO)">
