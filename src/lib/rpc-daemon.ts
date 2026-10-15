@@ -1117,6 +1117,18 @@ export class RpcDaemon {
    * - Prevents background restarts
    */
   public async stopUserRpc(userId: string): Promise<void> {
+    // MULTI-SESSION LEAK FIX (the "every enabled RPC must show / nothing may
+    // linger" contract): the role-inactive path used to clear + close ONLY
+    // the MAIN socket here — the per-slot EXTRA sessions (and the game
+    // role's pinned extras) stayed connected with their heartbeats and kept
+    // pushing their cards FOREVER, because an untracked user is no longer
+    // tick-maintained. Rapid disable/enable testing then also stacked
+    // zombie sessions against Discord's concurrent-session budget until new
+    // extras failed to identify — cards "missing" or replacing each other.
+    // Clear every extra's card instantly, then close (same contract as
+    // disconnectUser; the clear-first close also survives the Discord-side
+    // teardown grace window).
+    this.closeAllSlotSessions(userId)
     const session = await db.session.findFirst({
       where: { userId, expiresAt: { gt: new Date() }, discordAccessToken: { not: null } },
       orderBy: { createdAt: 'desc' },
