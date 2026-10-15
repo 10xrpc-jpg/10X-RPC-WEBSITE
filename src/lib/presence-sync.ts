@@ -54,8 +54,21 @@ export async function notifyOrihostSync(
   userId: string,
   mode: SyncMode = 'sync'
 ): Promise<boolean> {
+  const detailed = await notifyOrihostSyncDetailed(userId, mode)
+  return detailed.dispatched
+}
+
+/**
+ * Task 99 — same broadcast as notifyOrihostSync, but aggregates the nodes'
+ * per-node `applied` confirmation from the /sync response body. The node that
+ * OWNS the changed pillar answers applied:true/false; the other roles no-op.
+ */
+export async function notifyOrihostSyncDetailed(
+  userId: string,
+  mode: SyncMode = 'sync'
+): Promise<{ dispatched: boolean; applied?: boolean }> {
   const bases = orihostDaemonBases()
-  if (bases.length === 0) return false
+  if (bases.length === 0) return { dispatched: false }
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 8000)
   try {
@@ -72,7 +85,18 @@ export async function notifyOrihostSync(
         body: JSON.stringify({ userId, mode }),
         signal: controller.signal,
       })
-        .then(res => res.ok)
+        .then(async (res) => {
+          if (!res.ok) return false
+          // Best-effort parse of { ok, applied, queued } — older daemons
+          // without the applied field just yield undefined (treated as
+          // "dispatched, confirmation pending").
+          try {
+            const body = (await res.json()) as { applied?: boolean }
+            return body
+          } catch {
+            return true
+          }
+        })
         .catch(() => {
           hardFailures++
           return false
@@ -85,15 +109,27 @@ export async function notifyOrihostSync(
     // optimistically and let the pushes finish in the background (the daemon
     // completes each sync server-side even if this client stops waiting).
     const CONFIRM_WINDOW_MS = 1500
-    return await new Promise<boolean>((resolve) => {
-      const t = setTimeout(() => resolve(hardFailures < bases.length), CONFIRM_WINDOW_MS)
+    return await new Promise<{ dispatched: boolean; applied?: boolean }>((resolve) => {
+      const t = setTimeout(() => resolve({ dispatched: hardFailures < bases.length }), CONFIRM_WINDOW_MS)
       dispatched.then(
-        (oks) => { clearTimeout(t); resolve(oks.every(Boolean)) },
-        () => { clearTimeout(t); resolve(false) }
+        (results) => {
+          clearTimeout(t)
+          const flags = results.filter((r): r is boolean | { applied?: boolean } => r !== false)
+          const appliedFlags = flags
+            .map((r) => (typeof r === 'object' && r !== null ? (r as { applied?: boolean }).applied : undefined))
+            .filter((a): a is boolean => a === true)
+          resolve({
+            dispatched: flags.length > 0,
+            // true only if at least one owning node CONFIRMED the apply;
+            // undefined when confirmations are still in flight.
+            applied: appliedFlags.length > 0 ? true : (flags.length > 0 ? undefined : false),
+          })
+        },
+        () => { clearTimeout(t); resolve({ dispatched: false }) }
       )
     })
   } catch {
-    return false
+    return { dispatched: false }
   } finally {
     clearTimeout(timer)
   }
@@ -117,11 +153,36 @@ export async function syncPresence(userId: string): Promise<PresenceResult> {
       method: ok ? 'gateway' : 'none',
       message: ok
         ? 'Presence synced instantly via 24/7 daemon'
-        : '24/7 daemon sync failed — daemon tick will retry within 30s',
+        : '24/7 daemon sync failed — the daemon retries automatically until applied',
     }
   }
   const daemon = ensureDaemonRunning()
   return daemon.syncUser(userId)
+}
+
+/**
+ * Task 99 — like syncPresence, but ALSO returns whether the owning node
+ * CONFIRMED the apply (running state verified against the saved config).
+ * `applied: undefined` = the daemon is still applying (re-identify handshake
+ * in flight) and its verify-retry chain will land it automatically.
+ */
+export async function syncPresenceVerified(userId: string): Promise<PresenceResult & { applied?: boolean }> {
+  if (orihostDaemonConfigured()) {
+    const result = await notifyOrihostSyncDetailed(userId, 'sync')
+    return {
+      ok: result.dispatched,
+      method: result.dispatched ? 'gateway' : 'none',
+      applied: result.applied,
+      message: !result.dispatched
+        ? '24/7 daemon unreachable — the daemon retry chain and 10s tick will apply the change automatically'
+        : result.applied === true
+          ? 'Applied & verified — Discord now shows the saved configuration'
+          : 'Applying now — the daemon verifies and retries automatically until Discord confirms',
+    }
+  }
+  const daemon = ensureDaemonRunning()
+  const local = await daemon.syncUser(userId)
+  return { ...local, applied: (local as { applied?: boolean }).applied }
 }
 
 /**

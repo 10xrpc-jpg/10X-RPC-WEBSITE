@@ -469,6 +469,99 @@ interface ActiveUserSocket {
    *  the same token hits 4004 forever. Auth stays fatal until the stored
    *  token CHANGES (re-login / new token), which auto-unblocks the user. */
   failedAuthToken?: string | null
+  // ── Task 99 — APPLY-VERIFY-RETRY ("instant & reliable status updates") ──
+  /** Fingerprint of the saved config this socket last SUCCESSFULLY applied
+   *  (OP 3 send completed without throwing, or the post-READY forced push
+   *  after a platform re-identify completed). Compared against the desired
+   *  fingerprint on every sync AND every tick; mismatch = the running state
+   *  does NOT match the saved configuration → re-apply until it does. */
+  lastAppliedFingerprint?: string
+  /** The desired fingerprint computed from the latest DB read (set before
+   *  the apply attempt so a successful send can stamp it atomically). */
+  desiredFingerprint?: string
+  /** Pending apply-retry timer (the intelligent backoff chain armed when an
+   *  apply could not be confirmed). Single-flight per user. */
+  applyRetryTimer?: NodeJS.Timeout
+  applyRetryCount?: number
+}
+
+/**
+ * Task 99 — SAVED-CONFIG FINGERPRINT for one user, scoped to THIS daemon's
+ * role. A pure function of the DB rows — identical on all nodes; each node
+ * compares it against ITS socket's lastAppliedFingerprint to answer the only
+ * question that matters for reliability: "does the running presence match
+ * the saved configuration?".
+ *
+ * Field choice per role (drift on a foreign role's fields must NEVER make
+ * this node re-push — its pushes cannot express that change):
+ *   status role → the Session status fields (userStatus, custom msg+emoji,
+ *                 statusPlatform, vrStatusActive, statusEnabled, rotator)
+ *   rpc role    → rpcEnabled + every RpcConfig row's identity/enabled/updatedAt
+ *   game role   → rpcEnabled + every enabled GameConfig row's identity/updatedAt
+ *   all         → everything (combined pre-split daemon)
+ *
+ * updatedAt is INCLUDED: a save bumps it even when values are identical, and
+ * the user's requirement is "every configuration change must trigger an
+ * immediate update". The resulting extra verify pass is harmless — the
+ * activities hash guard turns a no-op save into zero OP 3 traffic.
+ */
+function presenceConfigFingerprint(
+  session: {
+    statusEnabled?: boolean | null
+    rpcEnabled?: boolean | null
+    userStatus?: string | null
+    customStatus?: string | null
+    customStatusEmoji?: string | null
+    statusPlatform?: string | null
+    vrStatusActive?: boolean | null
+    sleepTimerActive?: boolean | null
+  },
+  rpcConfigs: Array<{ id?: string | null; enabled?: boolean | null; updatedAt?: Date | string | null }>,
+  enabledGames: Array<{ gameSlug?: string | null; updatedAt?: Date | string | null }>,
+  rotatorEnabled?: boolean | null
+): string {
+  const ts = (d?: Date | string | null) => (d ? new Date(d).getTime() : 0)
+  if (DAEMON_ROLE === 'status') {
+    return JSON.stringify({
+      r: 'status',
+      se: session.statusEnabled ? 1 : 0,
+      st: session.userStatus || 'online',
+      cs: session.customStatus ?? null,
+      ce: session.customStatusEmoji ?? null,
+      sp: session.statusPlatform || 'mobile',
+      vr: session.vrStatusActive ? 1 : 0,
+      rot: rotatorEnabled ? 1 : 0,
+      sleep: session.sleepTimerActive ? 1 : 0,
+    })
+  }
+  if (DAEMON_ROLE === 'rpc') {
+    return JSON.stringify({
+      r: 'rpc',
+      re: session.rpcEnabled ? 1 : 0,
+      slots: rpcConfigs.map(c => `${c.id ?? ''}:${c.enabled ? 1 : 0}:${ts(c.updatedAt)}`),
+    })
+  }
+  if (DAEMON_ROLE === 'game') {
+    return JSON.stringify({
+      r: 'game',
+      re: session.rpcEnabled ? 1 : 0,
+      games: enabledGames.map(g => `${g.gameSlug ?? ''}:${ts(g.updatedAt)}`),
+    })
+  }
+  return JSON.stringify({
+    r: 'all',
+    se: session.statusEnabled ? 1 : 0,
+    st: session.userStatus || 'online',
+    cs: session.customStatus ?? null,
+    ce: session.customStatusEmoji ?? null,
+    sp: session.statusPlatform || 'mobile',
+    vr: session.vrStatusActive ? 1 : 0,
+    re: session.rpcEnabled ? 1 : 0,
+    slots: rpcConfigs.map(c => `${c.id ?? ''}:${c.enabled ? 1 : 0}:${ts(c.updatedAt)}`),
+    games: enabledGames.map(g => `${g.gameSlug ?? ''}:${ts(g.updatedAt)}`),
+    rot: rotatorEnabled ? 1 : 0,
+    sleep: session.sleepTimerActive ? 1 : 0,
+  })
 }
 
 // ─── MULTI-SESSION RUNTIME (Task 84 — “3 RPCs at the same time”) ───────────
@@ -987,7 +1080,24 @@ export class RpcDaemon {
         }
         this.connectUserSocket(session.userId)
       } else if (userSock.connected) {
-        void this.pushPresenceForUser(session.userId, session, false).catch(() => {})
+        // Task 99 — TICK DRIFT-CHECK (the infinite safety net): compare the
+        // saved-config fingerprint against what this socket last applied.
+        // Any drift (a lost /sync, a push that died on a transient Neon
+        // outage, a change made mid-reconnect) is force-re-applied here via
+        // syncUser — which also arms its own verify-retry chain. Identical
+        // state stays on the cheap hash-guarded push (zero OP 3 traffic).
+        const driftFp = presenceConfigFingerprint(
+          session,
+          rpcConfigs,
+          allGameRows.filter(g => g.enabled),
+          session.user.globalConfig?.rotatorEnabled,
+        )
+        userSock.desiredFingerprint = driftFp
+        if (userSock.lastAppliedFingerprint !== driftFp) {
+          void this.syncUser(session.userId).catch(() => {})
+        } else {
+          void this.pushPresenceForUser(session.userId, session, false).catch(() => {})
+        }
       }
     }
 
@@ -1160,14 +1270,74 @@ export class RpcDaemon {
       this.sockets.set(userId, userSock)
     }
 
-    // INSTANT-UPDATE FIX (VR / mobile status not applying right away):
-    // an explicit user action must never be silently dropped. Previously:
-    //   • a socket stuck "connecting" (or waiting on a retry backoff timer)
-    //     made syncUser a no-op — the save waited for the next tick or the
-    //     backoff (up to 60s);
-    //   • a socket flagged connected but half-open/closed silently swallowed
-    //     the push (pushPresenceForUser returns on non-OPEN readyState).
-    if (!userSock.connected || !userSock.ws || userSock.ws.readyState !== WebSocket.OPEN) {
+    // ── Task 99 — desired fingerprint + EARLY platform-class restart ──────
+    // Compute the saved-config fingerprint BEFORE any heavy work: if it was
+    // already applied and nothing changed, this sync is a cheap no-op.
+    const desiredFp = presenceConfigFingerprint(
+      session,
+      rpcConfigs,
+      enabledGames,
+      session.user.globalConfig?.rotatorEnabled,
+    )
+    userSock.desiredFingerprint = desiredFp
+
+    // EARLY PLATFORM RESTART (the "OFF→ON the changed status automatically"
+    // requirement): Discord derives the Mobile/VR/Desktop badge from the
+    // IDENTIFY properties — an OP 3 can NOT change it, so a platform change
+    // while the status is already running needs a FRESH gateway session.
+    // Detect it HERE, before pushPresenceForUser's DB reads: a transient
+    // Neon flake mid-path must never swallow the restart (the user's exact
+    // reported bug). This is exactly the manual OFF→ON the user used to do,
+    // now automatic and verified.
+    const knownPlatform = userSock.identifiedPlatform ?? (userSock.connected ? userSock.platform : undefined)
+    const earlyTarget = DAEMON_ROLE === 'status'
+      ? planRolePresencePlatforms({
+          statusEnabled: hasStatus,
+          statusPlatform: session.statusPlatform,
+          vrActive: !!session.vrStatusActive,
+          firstSlotPlatform: selection.candidates.find(c => !c.gameSlug)?.platform || null,
+          rpcEnabled: session.rpcEnabled,
+        }).statusSessionPlatform
+      : DAEMON_ROLE === 'rpc'
+        ? planRolePresencePlatforms({
+            statusEnabled: hasStatus,
+            statusPlatform: session.statusPlatform,
+            vrActive: !!session.vrStatusActive,
+            firstSlotPlatform: selection.candidates.find(c => !c.gameSlug)?.platform || null,
+            rpcEnabled: session.rpcEnabled,
+          }).rpcMainPlatform
+        : DAEMON_ROLE === 'game'
+          ? 'embedded'
+          : (hasStatus
+              ? (session.statusPlatform || 'mobile')
+              : (hasRpc ? (selection.candidates[0]?.platform || 'desktop') : (session.statusPlatform || 'mobile')))
+    // 'all' mirrors pushPresenceForUser's combined rule: a Meta Quest slot /
+    // active VR status identifies as meta_quest.
+    const effectiveTarget = DAEMON_ROLE === 'all'
+      ? ((earlyTarget === 'meta_quest' || (hasStatus && session.vrStatusActive)) ? 'meta_quest' : earlyTarget)
+      : earlyTarget
+
+    let applied = false
+    if (userSock.connected && knownPlatform && knownPlatform !== effectiveTarget) {
+      // PLATFORM CHANGE while running → automatic OFF→ON restart of THIS
+      // pillar's session. The post-READY forced push applies the latest
+      // saved config on the fresh IDENTIFY — the badge flips as fast as
+      // Discord's handshake allows (~1-6s) with zero user action.
+      console.log(`[10X RPC Daemon] syncUser: platform change ${knownPlatform} -> ${effectiveTarget} for user ${userId} — auto-restarting the session (OFF→ON) to apply the new configuration`)
+      this.closeAllSlotSessions(userId)
+      this.cleanupSocket(userSock)
+      userSock.retryCount = 0
+      userSock.identifiedPlatform = undefined
+      userSock.lastAppliedFingerprint = undefined // not applied until the new session pushes
+      this.clearApplyRetry(userSock)
+      if (userSock.retryTimer) {
+        clearTimeout(userSock.retryTimer)
+        userSock.retryTimer = undefined
+      }
+      if (!userSock.isConnecting) await this.connectUserSocket(userId)
+      // The READY handler pushes the fresh state and stamps the fingerprint;
+      // if the handshake stalls, the retry chain below re-verifies.
+    } else if (!userSock.connected || !userSock.ws || userSock.ws.readyState !== WebSocket.OPEN) {
       // Half-open / closed / connecting — force a clean reconnect path.
       if (userSock.connected || userSock.ws) this.cleanupSocket(userSock)
       // The user just acted: supersede any scheduled backoff retry.
@@ -1175,16 +1345,43 @@ export class RpcDaemon {
         clearTimeout(userSock.retryTimer)
         userSock.retryTimer = undefined
       }
+      userSock.lastAppliedFingerprint = undefined
       if (!userSock.isConnecting) await this.connectUserSocket(userId)
+      // READY pushes fresh state; fingerprint stamps there.
+    } else if (userSock.lastAppliedFingerprint === desiredFp) {
+      // Everything the user saved is ALREADY the running state (a no-op save
+      // or a re-fired sync). Verify cheaply — the hash-guarded push sends
+      // nothing unless content actually differs.
+      await this.pushPresenceForUser(userId, session, false)
+      applied = userSock.lastAppliedFingerprint === desiredFp
     } else {
+      // Config changed (or a previous apply never confirmed) → force the
+      // apply NOW. pushPresenceForUser stamps the fingerprint on a successful
+      // send; platform mismatches inside it re-identify as a fallback.
       await this.pushPresenceForUser(userId, session, true)
+      applied = userSock.lastAppliedFingerprint === desiredFp
+    }
+
+    // Honest confirmation + intelligent retry: if the apply could not be
+    // confirmed yet (handshake in flight / send failed / DB flake), arm the
+    // verify chain — it retries with backoff until the running state MATCHES
+    // the saved configuration. Recoverable errors only; auth-fatal parks.
+    if (!applied) {
+      this.scheduleApplyVerify(userId, 'pending apply confirmation')
+    } else {
+      this.clearApplyRetry(userSock)
     }
 
     return {
       ok: true,
       method: 'gateway',
-      message: 'Presence synced to 24/7 Gateway',
-    }
+      applied,
+      message: applied
+        ? 'Presence applied & verified — running state matches saved configuration'
+        : (userSock.connected
+          ? 'Presence applying — verification retry armed until Discord confirms'
+          : 'Status session restarting (OFF→ON) — will verify and retry until applied'),
+    } as PresenceResult
   }
 
   /**
@@ -1579,6 +1776,86 @@ export class RpcDaemon {
     }
   }
 
+  // ── Task 99 — APPLY-VERIFY-RETRY chain ─────────────────────────────────
+  // Users with an apply-verify pass currently executing (single-flight for
+  // the RETRY chain and the tick drift-check; direct /sync user actions are
+  // never blocked — they are the highest-priority signal).
+  private verifyingUsers = new Set<string>()
+
+  /**
+   * Arm the intelligent retry chain for a user whose apply could not be
+   * confirmed. Backoff 1s → 2s → 4s → 8s → 16s (cap 15s), max 6 attempts per
+   * trigger — then the 10s tick's fingerprint drift-check takes over as the
+   * infinite safety net. Prevents duplicate chains (single-flight) and never
+   * rapid-loops. Auth-fatal users are skipped (unblocked by a new token).
+   */
+  private scheduleApplyVerify(userId: string, reason: string): void {
+    const userSock = this.sockets.get(userId)
+    if (!userSock) return
+    if (userSock.failedAuthToken) return // parked until the token changes
+    if (userSock.applyRetryTimer) return // chain already armed — single-flight
+    const attempt = (userSock.applyRetryCount ?? 0) + 1
+    if (attempt > 6) {
+      // Bounded chain exhausted — reset the counter so the NEXT trigger (the
+      // 10s tick's drift-check re-runs syncUser) starts a fresh chain. No
+      // infinite rapid loops: the tick paces retries at ≥10s forever.
+      userSock.applyRetryCount = 0
+      console.warn(`[10X RPC Daemon] Apply verify for user ${userId}: retry chain exhausted (${reason}) — re-arming on the next tick drift-check`)
+      return
+    }
+    const delay = Math.min(15000, 1000 * Math.pow(2, attempt - 1))
+    console.log(`[10X RPC Daemon] Apply NOT confirmed for user ${userId} (${reason}) — retry #${attempt} in ${delay}ms`)
+    userSock.applyRetryCount = attempt
+    userSock.applyRetryTimer = setTimeout(() => {
+      const sock = this.sockets.get(userId)
+      if (sock) sock.applyRetryTimer = undefined
+      void this.runApplyVerify(userId)
+    }, delay)
+  }
+
+  /** One apply-verify attempt: re-run syncUser (fresh DB read + force apply +
+   *  honest confirmation) unless a verify is already executing for the user. */
+  private async runApplyVerify(userId: string): Promise<void> {
+    if (this.verifyingUsers.has(userId)) {
+      // A verify is in flight — it will arm the next attempt itself if needed.
+      const sock = this.sockets.get(userId)
+      if (sock && !sock.applyRetryTimer) this.scheduleApplyVerify(userId, 'rescheduled while verify in flight')
+      return
+    }
+    this.verifyingUsers.add(userId)
+    try {
+      const result = await this.syncUser(userId)
+      if (!result?.ok) {
+        // syncUser reports failure (no session / suspended / DB error) — keep
+        // the chain alive for recoverable errors; auth-fatal parks itself.
+        const sock = this.sockets.get(userId)
+        if (!sock || !sock.failedAuthToken) this.scheduleApplyVerify(userId, result?.message || 'sync failed')
+      } else if (!(result as { applied?: boolean }).applied) {
+        // Dispatched but not yet confirmed (e.g. re-identify handshake in
+        // flight) — keep verifying until the fingerprint stamps.
+        this.scheduleApplyVerify(userId, 'apply not confirmed yet')
+      } else {
+        const sock = this.sockets.get(userId)
+        if (sock) sock.applyRetryCount = 0
+        console.log(`[10X RPC Daemon] Apply VERIFIED for user ${userId} — running state matches saved configuration`)
+      }
+    } catch (err) {
+      console.warn(`[10X RPC Daemon] Apply verify attempt failed for user ${userId}:`, err instanceof Error ? err.message : err)
+      this.scheduleApplyVerify(userId, 'verify attempt threw')
+    } finally {
+      this.verifyingUsers.delete(userId)
+    }
+  }
+
+  /** Clear any pending apply-retry state (on verified apply / disconnect). */
+  private clearApplyRetry(userSock: ActiveUserSocket): void {
+    if (userSock.applyRetryTimer) {
+      clearTimeout(userSock.applyRetryTimer)
+      userSock.applyRetryTimer = undefined
+    }
+    userSock.applyRetryCount = 0
+  }
+
   /**
    * Schedule reconnection with exponential backoff.
    */
@@ -1600,7 +1877,12 @@ export class RpcDaemon {
    */
   private async pushPresenceForUser(userId: string, session: any, force: boolean = false): Promise<void> {
     const userSock = this.sockets.get(userId)
-    if (!userSock || !userSock.ws || userSock.ws.readyState !== WebSocket.OPEN) return
+    if (!userSock || !userSock.ws || userSock.ws.readyState !== WebSocket.OPEN) {
+      // Task 99 — never silent: a connected-flagged socket with a non-OPEN ws
+      // is exactly the stale state that made updates vanish undiagnosed.
+      if (userSock?.connected) console.warn(`[10X RPC Daemon] pushPresenceForUser for user ${userId}: socket flagged connected but ws readyState=${userSock.ws?.readyState ?? 'null'} — treating as disconnected`)
+      return
+    }
     // Authenticated-only guard: pushing OP 3 into an OPEN-but-not-yet-READY
     // socket (still identifying, or stuck under a Discord OP 9 flag) makes
     // Discord close it with 4003 "Not authenticated" — which used to feed a
@@ -1633,6 +1915,16 @@ export class RpcDaemon {
       console.warn(`[10X RPC Daemon] Transient DB error in pushPresenceForUser for user ${userId}:`, dbErr)
       return
     }
+
+    // Task 99 — the desired saved-config fingerprint (role-scoped). Stamped
+    // as lastAppliedFingerprint ONLY after a successful OP 3 send below, so
+    // "fingerprint applied" always means "Discord-facing push completed".
+    userSock.desiredFingerprint = presenceConfigFingerprint(
+      session,
+      rpcConfigs,
+      enabledGames.filter((g): g is NonNullable<typeof g> => !!g),
+      (globalConfig as { rotatorEnabled?: boolean | null } | null)?.rotatorEnabled,
+    )
 
     // AUTO ROTATE settings (raw SQL — Orihost-safe, missing columns → OFF).
     const rotate = await fetchRpcRotateSettings(userId)
@@ -1719,12 +2011,21 @@ export class RpcDaemon {
     // IDENTIFY carries the new platform properties and the READY push lands
     // the current presence — the badge flips in ~1s, instantly.
     // ════════════════════════════════════════════════════════════════════
-    if (userSock.connected && userSock.identifiedPlatform && userSock.identifiedPlatform !== targetPlatform) {
-      console.log(`[10X RPC Daemon] Platform change for user ${userId}: ${userSock.identifiedPlatform} -> ${targetPlatform} — re-identifying gateway session`)
+    // Task 99 — the comparison falls back to the seeded/last-known platform
+    // when identifiedPlatform is undefined (a connected socket of unknown
+    // identify must not silently skip the restart), and the restart resets
+    // the applied fingerprint (nothing counts as "applied" until the fresh
+    // session's post-READY push completes).
+    const knownPlatform = userSock.identifiedPlatform ?? userSock.platform
+    if (userSock.connected && knownPlatform && knownPlatform !== targetPlatform) {
+      console.log(`[10X RPC Daemon] Platform change for user ${userId}: ${knownPlatform} -> ${targetPlatform} — re-identifying gateway session`)
       // Extras re-identify on the next maintenance pass too.
       this.closeAllSlotSessions(userId)
       this.cleanupSocket(userSock)
       userSock.retryCount = 0
+      userSock.identifiedPlatform = undefined
+      userSock.lastAppliedFingerprint = undefined
+      this.clearApplyRetry(userSock)
       if (userSock.retryTimer) {
         clearTimeout(userSock.retryTimer)
         userSock.retryTimer = undefined
@@ -2205,8 +2506,14 @@ export class RpcDaemon {
       console.log(`[10X RPC Daemon] Auto Rotate for user ${userId}: candidate ${runtime.rotateIndex + 1}/${runtime.rotatePoolLength ?? fullSelection.candidates.length} (${runtime.candidates[0]?.name ?? '?'}) every ${rotate.secs}s, order=${rotate.order}${rotate.skip > 0 ? `, skip+${rotate.skip}` : ''}${poolNote}`)
     }
 
-    // If socket is open and payload is ready, send OP 3
-    if (!userSock.ws || userSock.ws.readyState !== WebSocket.OPEN) return
+    // If socket is open and payload is ready, send OP 3 — Task 99: never
+    // silent. A non-OPEN socket at this point (after passing the connected
+    // gate above) means the connection died mid-build; log it so the retry
+    // chain's reason is diagnosable.
+    if (!userSock.ws || userSock.ws.readyState !== WebSocket.OPEN) {
+      console.warn(`[10X RPC Daemon] OP 3 for user ${userId} aborted: socket closed while building payload (readyState=${userSock.ws?.readyState ?? 'null'})`)
+      return
+    }
 
     // Zombie push guard — SLOW-UPDATE FIX: if our last heartbeat went
     // unanswered for >15s the TCP connection is half-dead; an OP 3 sent now
@@ -2238,8 +2545,19 @@ export class RpcDaemon {
       userSock.lastStatus = status
       userSock.lastActivitiesHash = activitiesHash
       userSock.lastPushAt = Date.now()
+      // Task 99 — the send completed without throwing: the running state now
+      // MATCHES the saved configuration. Stamp the verified fingerprint so
+      // the sync/tick drift-checks see consistency (and clear any retry
+      // backoff counter — the next verify pass will confirm and clean up).
+      if (userSock.desiredFingerprint) {
+        userSock.lastAppliedFingerprint = userSock.desiredFingerprint
+        userSock.applyRetryCount = 0
+        console.log(`[10X RPC Daemon] Fingerprint applied & verified for user ${userId} (running state matches saved configuration)`)
+      }
     } catch (err) {
       console.error(`[10X RPC Daemon] Failed to send OP 3 for user ${userId}:`, err)
+      // Task 99 — deliberately NO fingerprint stamp on failure: the retry
+      // chain keeps re-applying until the push actually lands.
     }
   }
 
@@ -2251,6 +2569,10 @@ export class RpcDaemon {
     this.closeAllSlotSessions(userId)
     const userSock = this.sockets.get(userId)
     if (!userSock) return
+
+    // Task 99 — the user is fully gone: no retry chain may outlive them.
+    this.clearApplyRetry(userSock)
+    this.verifyingUsers.delete(userId)
 
     this.cleanupSocket(userSock)
     this.sockets.delete(userId)

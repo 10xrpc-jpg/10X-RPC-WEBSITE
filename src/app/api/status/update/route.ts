@@ -3,7 +3,7 @@
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
-import { syncPresence } from '@/lib/presence-sync'
+import { syncPresenceVerified } from '@/lib/presence-sync'
 import { BADGE_PLATFORMS } from '@/lib/constants'
 import { patchDiscordAccountSettings } from '@/lib/discord-settings'
 
@@ -115,10 +115,13 @@ export async function POST(req: Request) {
     // ── STATUS-NOT-UPDATING FIX: propagate the daemon sync result so the UI
     // can be honest — previously a failed daemon notify (or a lost push) was
     // reported to the user as "Status updated & synced to Discord".
-    let sync: { ok: boolean; message: string } | null = null
+    let sync: { ok: boolean; applied?: boolean; message: string } | null = null
     if (isStatusEnabled && session.discordAccessToken) {
-      const presence = await syncPresence(session.userId)
-      sync = { ok: !!presence?.ok, message: presence?.message || '' }
+      // Task 99 — verified sync: the daemon confirms whether the running
+      // state now MATCHES the saved configuration (and retries itself until
+      // it does when a re-identify handshake is still in flight).
+      const presence = await syncPresenceVerified(session.userId)
+      sync = { ok: !!presence?.ok, applied: presence?.applied, message: presence?.message || '' }
     }
 
     // ── ACCOUNT-STATUS PATCH (the "Online/Idle/DND not working" fix) ──────
@@ -169,16 +172,18 @@ export async function POST(req: Request) {
         : accountSync && !accountSync.ok
           ? 'Status saved — Discord account sync will retry within 30s'
           : sync?.ok
-            ? (autoNone
-                ? 'Idle/DND hides the VR/Mobile badge — icon saved as None & synced'
-                : autoOnline
-                  ? 'Mobile/VR badge needs Online — status switched to Online & synced'
-                  : 'Status updated & synced to Discord')
+            ? (sync.applied === false
+                ? 'Saved — applying to Discord now (auto-retries until confirmed)'
+                : autoNone
+                  ? 'Idle/DND hides the VR/Mobile badge — icon saved as None & synced'
+                  : autoOnline
+                    ? 'Mobile/VR badge needs Online — status switched to Online & synced'
+                    : 'Status updated & synced to Discord')
             : (autoNone
                 ? 'Idle/DND hides the VR/Mobile badge — icon saved as None'
                 : autoOnline
                   ? 'Mobile/VR badge needs Online — status switched to Online'
-                  : 'Status saved — Discord sync will retry within 30s'),
+                  : 'Status saved — Discord sync will retry automatically'),
     })
   } catch (e: any) {
     console.error('Error in /api/status/update:', e)

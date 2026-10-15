@@ -92,7 +92,7 @@ function sendJson(res: http.ServerResponse, status: number, payload: unknown): v
   res.end(JSON.stringify(payload))
 }
 
-async function runSync(userId: string, mode: string): Promise<{ ok: boolean; message: string }> {
+async function runSync(userId: string, mode: string): Promise<{ ok: boolean; applied?: boolean; message: string }> {
   try {
     if (mode === 'stop') {
       await daemon.stopUserRpc(userId)
@@ -105,8 +105,14 @@ async function runSync(userId: string, mode: string): Promise<{ ok: boolean; mes
     const result = await daemon.syncUser(userId)
     const appResult = await getApplicationRpcDaemon().syncUser(userId)
     const ok = !!result?.ok && appResult.ok
+    // Task 99 — honest apply confirmation: `applied` is true only when the
+    // daemon verified the running state now MATCHES the saved configuration
+    // (OP 3 completed / fresh session already pushed). false = dispatched,
+    // verify-retry chain armed — the website reports "applying" instead of
+    // a blind "synced".
+    const applied = !!(result as { applied?: boolean } | null)?.applied
     const message = result?.message || appResult.message || 'Presence synced via instant sync'
-    return { ok, message }
+    return { ok, applied, message }
   } catch (err) {
     return {
       ok: false,
@@ -115,7 +121,7 @@ async function runSync(userId: string, mode: string): Promise<{ ok: boolean; mes
   }
 }
 
-async function handleSync(userId: string, mode: string): Promise<{ ok: boolean; queued: boolean; message: string }> {
+async function handleSync(userId: string, mode: string): Promise<{ ok: boolean; applied?: boolean; queued: boolean; message: string }> {
   const now = Date.now()
   const last = lastSyncAt.get(userId) ?? 0
   const waitMs = SYNC_MIN_INTERVAL_MS - (now - last)

@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
-import { syncPresence } from '@/lib/presence-sync'
+import { syncPresenceVerified } from '@/lib/presence-sync'
 import { normalizeStatusForPlatform } from '@/lib/constants'
 
 export const dynamic = 'force-dynamic'
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
     // If Status is enabled and user has Discord token, sync Status to gateway
     let presenceResult: any = null
     if (session.statusEnabled && session.discordAccessToken) {
-      presenceResult = await syncPresence(session.userId)
+      presenceResult = await syncPresenceVerified(session.userId)
     }
 
     return NextResponse.json({
