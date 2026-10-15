@@ -103,6 +103,10 @@ interface AppRpcSocket {
   lastFailAt?: number
   lastEchoSig?: string
   lastPushAt?: number
+  /** Status (online/idle/dnd) last pushed with the activity — reused for the
+   *  instant card-clear OP 3 on close so the empty push keeps the same
+   *  account status instead of flipping it. */
+  lastPushedStatus?: string
 }
 
 const CONNECT_TIMEOUT_MS = 15000
@@ -406,6 +410,7 @@ export class ApplicationRpcDaemon {
           d: { status, activities: [activity], afk: false, since: null },
         }))
         sock.lastPushAt = Date.now()
+        sock.lastPushedStatus = status
         await this.transitionRunState(row, 'running', null)
       } catch (err) {
         console.error(`[10X RPC AppDaemon] OP 3 send failed for user ${userId}:`, err)
@@ -798,13 +803,37 @@ export class ApplicationRpcDaemon {
     return sock
   }
 
-  private closeSocket(sock: AppRpcSocket): void {
+  private closeSocket(sock: AppRpcSocket, clearPresenceFirst: boolean = false): void {
     if (sock.heartbeatTimer) {
       clearInterval(sock.heartbeatTimer)
       sock.heartbeatTimer = undefined
     }
     if (sock.ws) {
       const ws = sock.ws
+      // INSTANT CARD CLEAR (multi-RPC reliability, mirrors rpc-daemon): a
+      // disabled Application RPC session used to vanish only after Discord's
+      // ~1-2 min closed-session grace, leaving the card (or a stale ghost)
+      // visible. Push an empty OP 3 first, close after a short flush.
+      if (clearPresenceFirst && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({
+            op: 3,
+            d: { status: sock.lastPushedStatus || 'online', activities: [], afk: false, since: null },
+          }))
+        } catch {}
+        try { ws.removeAllListeners() } catch {}
+        try { ws.on('error', () => {}) } catch {}
+        setTimeout(() => {
+          try {
+            if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.terminate()
+            else ws.close()
+          } catch {}
+        }, 350)
+        sock.ws = null
+        sock.connected = false
+        sock.isConnecting = false
+        return
+      }
       // Never leave the socket listener-less (a close during CONNECTING emits
       // 'error' asynchronously) and never close() a CONNECTING socket.
       try { ws.removeAllListeners() } catch {}
@@ -828,7 +857,7 @@ export class ApplicationRpcDaemon {
     }
     sock.connectingSince = undefined
     sock.lastHeartbeatSentAt = undefined
-    this.closeSocket(sock)
+    this.closeSocket(sock, true)
   }
 
   private ensureSocketClosed(userId: string): void {

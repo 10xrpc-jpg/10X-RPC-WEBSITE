@@ -2634,7 +2634,7 @@ export class RpcDaemon {
     return n
   }
 
-  private closeSlotSession(sess: SlotSession): void {
+  private closeSlotSession(sess: SlotSession, clearPresenceFirst: boolean = false): void {
     sess.aborted = true
     if (sess.heartbeatTimer) {
       clearInterval(sess.heartbeatTimer)
@@ -2642,6 +2642,37 @@ export class RpcDaemon {
     }
     if (sess.ws) {
       const ws = sess.ws
+      // INSTANT CARD CLEAR (multi-RPC reliability): a removed extra session
+      // used to just close, and Discord kept the closed session's last card
+      // in the user's aggregated presence for its ~1-2 min teardown grace —
+      // the disabled slot looked "still on", a stale ghost could sit next to
+      // a re-opened session, and rapid toggling piled up zombie sessions
+      // against Discord's concurrent-session budget until new extras failed
+      // to identify. Pushing an empty OP 3 BEFORE the close makes Discord
+      // drop the card immediately; the socket then closes after a short
+      // flush window. Used ONLY when the session is being REMOVED — the
+      // openSlotSession replacement path keeps the plain close (an immediate
+      // clear there would flicker the card off/on on every config edit).
+      if (clearPresenceFirst && ws.readyState === WebSocket.OPEN) {
+        try {
+          ws.send(JSON.stringify({
+            op: 3,
+            d: { status: sess.lastPushedStatus || 'online', activities: [], afk: false, since: null },
+          }))
+        } catch {}
+        try { ws.removeAllListeners() } catch {}
+        try { ws.on('error', () => {}) } catch {}
+        setTimeout(() => {
+          try {
+            if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) ws.terminate()
+            else ws.close()
+          } catch {}
+        }, 350)
+        sess.ws = null
+        sess.connected = false
+        sess.isConnecting = false
+        return
+      }
       // Removing all listeners first leaves the socket without an 'error'
       // handler — a close() during CONNECTING aborts the handshake and emits
       // 'error' asynchronously → uncaughtException. Re-attach a no-op handler
@@ -2662,11 +2693,12 @@ export class RpcDaemon {
   }
 
   /** Close every extra session of a user (rotate on, RPC off, platform or
-   *  token changed, user disconnected). Next multi-session tick re-opens. */
+   *  token changed, user disconnected). Next multi-session tick re-opens.
+   *  Always clears the card first — removal, never replacement. */
   closeAllSlotSessions(userId: string): void {
     const m = this.slotSessions.get(userId)
     if (!m) return
-    for (const sess of m.values()) this.closeSlotSession(sess)
+    for (const sess of m.values()) this.closeSlotSession(sess, true)
     this.slotSessions.delete(userId)
     this.slotSessionsToken.delete(userId)
   }
@@ -2878,7 +2910,9 @@ export class RpcDaemon {
     const wanted = new Set(extras.map(e => e.key))
     for (const [key, sess] of map) {
       if (!wanted.has(key)) {
-        this.closeSlotSession(sess)
+        // Slot disabled / no longer an extra — clear its card instantly, then
+        // close (the close alone left the card in Discord's teardown grace).
+        this.closeSlotSession(sess, true)
         map.delete(key)
       }
     }
