@@ -10,6 +10,7 @@ import { rotateSettingsView } from '@/lib/rpc-rotate-settings'
 import { sweepSubscription, subscriptionView } from '@/lib/subscription'
 import { getTrialConfig } from '@/lib/trial-config'
 import { enforceRpcSlotExclusivity, recallHealForUi, serializeSlot } from '@/lib/rpc-slots'
+import { ensureConfiguredBackfill, ensureRpcConfiguredColumn, visibleRpcRows } from '@/lib/rpc-configured'
 
 export const dynamic = 'force-dynamic'
 
@@ -60,7 +61,16 @@ export async function GET() {
 
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        [trial, globalConfig, rpcSlots, enabledGames, rotatorPresets] = await Promise.all([
+        // Task 111 — the generated client knows RpcConfig.configured; the
+        // column must exist BEFORE the first RpcConfig query of this process.
+        await ensureRpcConfiguredColumn()
+        // Task 111 — one-time heal: stamp configured=true on legacy rows that
+        // carry real user-entered configuration. Auto-created default
+        // placeholder rows stay configured=false — they are NEVER returned to
+        // the UI and NEVER auto-created here anymore (root cause of the
+        // "unconfigured RPC cards / ghost 10X RPC presence" bug).
+        await ensureConfiguredBackfill(session.userId)
+        ;[trial, globalConfig, rpcSlots, enabledGames, rotatorPresets] = await Promise.all([
           db.trial.findUnique({ where: { userId: session.userId } }),
           db.globalConfig.findUnique({ where: { userId: session.userId } }),
           db.rpcConfig.findMany({
@@ -77,36 +87,8 @@ export async function GET() {
             orderBy: { order: 'asc' },
           }),
         ])
-        if (rpcSlots.length === 0) {
-          rpcSlots = [
-            await db.rpcConfig.create({
-              data: {
-                userId: session.userId,
-                slot: 1,
-                name: '10X RPC',
-                type: 'PLAYING',
-                platform: 'desktop',
-                state: null,
-                details: null,
-                largeImage: null,
-                largeText: null,
-                smallImage: null,
-                smallText: null,
-                button1Label: null,
-                button1Url: null,
-                button2Label: null,
-                button2Url: null,
-                partyCurrent: null,
-                partyMax: null,
-                partyId: null,
-                partySecret: null,
-                startMinsAgo: 0,
-                endTotalMins: null,
-                enabled: false,
-              },
-            }),
-          ]
-        }
+        // Task 111 — ONLY explicitly configured slots exist for the UI.
+        rpcSlots = visibleRpcRows(rpcSlots)
         break
       } catch (dbErr) {
         if (attempt < 2) {

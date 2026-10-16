@@ -10,6 +10,16 @@
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
+    // Task 111 — guarantee RpcConfig.configured exists before ANY server code
+    // touches the table (the generated Prisma client selects the column on
+    // every read). Memoized + non-fatal; routes additionally guard themselves.
+    try {
+      const { ensureRpcConfiguredColumn } = await import('@/lib/rpc-configured')
+      await ensureRpcConfiguredColumn()
+    } catch (err) {
+      console.error('[Instrumentation] RpcConfig.configured guard failed:', err)
+    }
+
     if (process.env.ORIHOST_DAEMON_URL) {
       console.log('[Instrumentation] ORIHOST_DAEMON_URL set — presence owned by remote 24/7 daemon, skipping local daemon.')
       return

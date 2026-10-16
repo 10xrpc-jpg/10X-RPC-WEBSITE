@@ -80,7 +80,17 @@ export function RpcSlotsManager({
 }) {
   const slots = me.rpcSlots ?? (me.rpcConfig ? [me.rpcConfig] : [])
   const rotate: AutoRotate = me.autoRotate ?? DEFAULT_ROTATE
-  const atCap = slots.length >= 3
+  // ── Task 111 — CONFIGURED-ONLY VISIBILITY ─────────────────────────────
+  // `me.rpcSlots` contains ONLY explicitly configured & saved slots (the
+  // backend filters every unconfigured legacy/auto-generated row out and no
+  // longer auto-creates a default RPC). A freshly added slot ("+ Add RPC")
+  // exists server-side but is NOT configured yet — it lives here as a local
+  // DRAFT card so the user can fill it in and save. Saving (or enabling)
+  // flips the server-side configured flag and the next refresh turns the
+  // draft into an authoritative card; leaving without saving discards it —
+  // nothing default, empty or auto-generated is ever displayed.
+  const [drafts, setDrafts] = useState<RpcConfig[]>([])
+  const atCap = slots.length + drafts.length >= 3
 
   const [adding, setAdding] = useState(false)
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -107,6 +117,17 @@ export function RpcSlotsManager({
   const [slotOverrides, setSlotOverrides] = useState<Record<string, boolean>>({})
   const slotsStateKey = slots.map(s => `${s.id ?? s.slot}:${s.enabled ? 1 : 0}`).join('|')
   useEffect(() => { setSlotOverrides({}) }, [slotsStateKey])
+  // Task 111 — a draft that became authoritative (saved/enabled → present in
+  // the configured slot list) is no longer a draft.
+  const configuredIdsKey = slots.map(s => s.id ?? '').join(',')
+  useEffect(() => {
+    setDrafts(prev => {
+      if (prev.length === 0) return prev
+      const configured = new Set(configuredIdsKey.split(',').filter(Boolean))
+      const next = prev.filter(d => d.id && !configured.has(d.id))
+      return next.length === prev.length ? prev : next
+    })
+  }, [configuredIdsKey])
   const effSlots = useMemo(
     () => slots.map(s =>
       (s.id && slotOverrides[s.id] !== undefined)
@@ -296,6 +317,12 @@ export function RpcSlotsManager({
       const res = await api.rpcSlotCreate()
       if (res.ok) {
         toast.success(`RPC ${res.slot} created`, { duration: 2200 })
+        // Task 111 — the new slot is an UNCONFIGURED draft: keep it as a
+        // local card (the backend list excludes it until the user saves).
+        if (res.rpcConfig?.id) {
+          const created = res.rpcConfig
+          setDrafts(prev => [...prev.filter(d => d.id !== created.id), created])
+        }
         onRefresh()
       } else {
         toast.error(res.message || 'Could not add another RPC (max 3)')
@@ -315,6 +342,8 @@ export function RpcSlotsManager({
       const res = await api.rpcSlotDelete(id)
       if (res.ok) {
         toast.success(res.message || 'RPC deleted', { duration: 2500 })
+        // Task 111 — a deleted draft disappears immediately.
+        setDrafts(prev => prev.filter(d => d.id !== id))
         onRefresh()
       } else {
         toast.error('Failed to delete RPC')
@@ -376,22 +405,31 @@ export function RpcSlotsManager({
   const secsLabel = rotateSecs < 60 ? `${rotateSecs} seconds` : `${Math.round(rotateSecs / 60)} minute${rotateSecs >= 120 ? 's' : ''}`
   const orderHint = ORDER_OPTIONS.find(o => o.value === rotateOrder)?.hint
 
+  // Task 111 — configured cards first, then the unsaved draft card(s).
+  // Dedupe against effSlots: in the render right after a save the slot can
+  // appear in BOTH lists (before the cleanup effect below commits) — without
+  // the dedupe React sees duplicate keys and may drop/duplicate a card.
+  const configuredIdSet = new Set(effSlots.map(s => s.id).filter(Boolean) as string[])
+  const pendingDrafts = drafts.filter(d => d.id && !configuredIdSet.has(d.id))
+  const draftIds = new Set(pendingDrafts.map(d => d.id).filter(Boolean) as string[])
+  const renderSlots = [...effSlots, ...pendingDrafts]
+
   return (
     <div className="space-y-4">
-      {/* ── One independent card per created slot (mutually exclusive ON/OFF) ── */}
-      {effSlots.map((slot, i) => (
+      {/* ── One independent card per CONFIGURED slot + unsaved drafts (mutually exclusive ON/OFF) ── */}
+      {renderSlots.map((slot, i) => (
         <RichPresenceForm
           key={slot.id ?? slot.slot ?? i}
           initial={slot}
           slotId={slot.id}
           slotNumber={slot.slot ?? i + 1}
           collapsible
-          defaultOpen={i === 0}
+          defaultOpen={i === 0 || (!!slot.id && draftIds.has(slot.id))}
           rpcMode={me.session?.rpcMode ?? null}
           activeGameName={me.activeGame?.name ?? null}
           onDelete={slot.id ? () => handleDelete(slot.id!) : undefined}
           deleting={deletingId === slot.id}
-          onDuplicate={slot.id ? () => handleDuplicate(slot) : undefined}
+          onDuplicate={slot.id && !draftIds.has(slot.id) ? () => handleDuplicate(slot) : undefined}
           duplicating={duplicatingId === slot.id || (duplicatingId !== null && atCap)}
           onChange={cfg => onDraftChange?.({ ...cfg, id: slot.id, slot: slot.slot })}
           onSaved={onRefresh}

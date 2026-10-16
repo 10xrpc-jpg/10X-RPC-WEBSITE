@@ -1782,13 +1782,16 @@ export async function applyPresence(
   let enabledGame: (RpcConfig & { gameSlug?: string; gameName?: string }) | null = null
   try {
     const { db } = await import('./db')
+    const { ensureRpcConfiguredColumn, visibleRpcRows } = await import('./rpc-configured')
+    await ensureRpcConfiguredColumn().catch(() => false)
     const [rows, game] = await Promise.all([
       // createdAt order only — never orderBy `slot` (this file also runs on
       // the standalone Orihost daemon, whose Prisma client may predate it).
       db.rpcConfig.findMany({ where: { userId: session.userId }, orderBy: { createdAt: 'asc' } }) as unknown as Promise<Array<RpcConfig & { slot?: number }>>,
       db.gameConfig.findFirst({ where: { userId: session.userId, enabled: true } }),
     ])
-    rpcConfigs = rows ?? []
+    // Task 111 — unconfigured placeholder rows never reach the runtime.
+    rpcConfigs = visibleRpcRows(rows ?? [])
     enabledGame = game
   } catch {
     // DB hiccup: fall back to the passed-in single config (legacy behavior).

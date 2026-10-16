@@ -11,6 +11,7 @@ import { db } from '@/lib/db'
 import { syncPresence, syncPresenceVerified, stopPresence } from '@/lib/presence-sync'
 import { requireSubscriptionAccess } from '@/lib/subscription'
 import { enableSlotExclusively, rotationCoversAnySlot, serializeSlot } from '@/lib/rpc-slots'
+import { ensureRpcConfiguredColumn, visibleRpcRows } from '@/lib/rpc-configured'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -25,6 +26,10 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
 
     const body = await req.json() as { enabled?: boolean }
     const enabled = !!body.enabled
+
+    // Task 111 — the column must exist BEFORE the first RpcConfig query of
+    // this process (the generated client selects configured on every read).
+    await ensureRpcConfiguredColumn()
 
     // Scoped to THIS user AND THIS row — no cross-slot writes, ever.
     const slot = await db.rpcConfig.findFirst({ where: { id, userId: session.userId } })
@@ -83,11 +88,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         applied = sync.applied
       }
 
-      // 5. Authoritative slot list for an instant UI sync.
-      const allSlots = await db.rpcConfig.findMany({
+      // 5. Authoritative slot list for an instant UI sync (Task 111 —
+      //    configured slots only; unsaved drafts are never synced here).
+      const allSlots = visibleRpcRows(await db.rpcConfig.findMany({
         where: { userId: session.userId },
         orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
-      })
+      }))
 
       const offNames = result.disabledSlots.filter(s => s > 0).map(s => `RPC ${s}`)
       const offText = offNames.length

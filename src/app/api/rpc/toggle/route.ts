@@ -11,6 +11,7 @@ import { db } from '@/lib/db'
 import { syncPresence, syncPresenceVerified, stopPresence } from '@/lib/presence-sync'
 import { requireSubscriptionAccess } from '@/lib/subscription'
 import { enableSlotExclusively, normalizeRpcSlots } from '@/lib/rpc-slots'
+import { ensureConfiguredBackfill, ensureRpcConfiguredColumn } from '@/lib/rpc-configured'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -31,7 +32,12 @@ export async function POST(req: Request) {
     let disabledSlots: number[] = []
 
     // The primary slot = the user's first RpcConfig row (slot 1 after
-    // normalization; created on demand exactly like the legacy behavior).
+    // normalization).
+    // Task 111 — column guard + legacy backfill, and the on-demand creation
+    // below is REMOVED: enabling with NOTHING configured can no longer spawn
+    // a default "10X RPC" presence (the exact ghost the screenshots showed).
+    await ensureRpcConfiguredColumn()
+    await ensureConfiguredBackfill(session.userId)
     const rows = await normalizeRpcSlots(session.userId)
     let primary = rows[0] ?? null
 
@@ -69,21 +75,15 @@ export async function POST(req: Request) {
         primary = result.row
         disabledSlots = result.disabledSlots
       } else {
-        primary = await db.rpcConfig.create({
-          data: {
-            userId: session.userId,
-            slot: 1,
-            name: '10X RPC',
-            type: 'PLAYING',
-            platform: 'desktop',
-            enabled: true,
-            startMinsAgo: 0,
-          },
-        })
-        // A freshly created primary is the only possible enabled slot — no
-        // exclusivity pass needed, but run it anyway for absolute safety.
-        const healed = await enableSlotExclusively(session.userId, primary.id)
-        if (healed.ok) primary = healed.row
+        // Task 111 — there is NOTHING to enable: never fabricate a default
+        // RPC here. The user must create & save an RPC first (Add RPC →
+        // configure → Save), which is the only path that marks a slot
+        // configured and therefore visible/enabled.
+        return NextResponse.json({
+          ok: false,
+          error: 'no_rpc_configured',
+          message: 'No RPC configured yet — add an RPC, save your settings, then enable it.',
+        }, { status: 409 })
       }
 
       // 3. Master RPC gate ON.

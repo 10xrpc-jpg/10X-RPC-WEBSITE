@@ -155,6 +155,9 @@ export interface RpcConfig {
   /** Discord Application ID (user's own app) — presence is presented as that application; empty = 10X identity. */
   appId?: string | null
   enabled?: boolean
+  /** Task 111 — true ONLY for explicitly configured & saved RPCs. The backend
+   *  never returns unconfigured rows, so this mirrors the server-side rule. */
+  configured?: boolean
 }
 
 export interface RotatorPreset {

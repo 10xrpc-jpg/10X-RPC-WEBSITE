@@ -63,7 +63,9 @@ export async function POST(req: Request) {
     await db.globalConfig.create({
       data: { userId: user.id, city: 'Mumbai', timezone: 'Asia/Calcutta' }
     })
-    // Create a default RPC config
+    // Create a default RPC config (intentional demo content — Task 111: the
+    // demo preview needs a sample RPC, so it is explicitly marked configured;
+    // real users never get an auto-created row like legacy builds did).
     await db.rpcConfig.create({
       data: {
         userId: user.id,
@@ -75,6 +77,7 @@ export async function POST(req: Request) {
         largeImage: 'vscode',
         largeText: 'VS Code',
         enabled: false,
+        configured: true,
         partyCurrent: 1,
         partyMax: 5,
         startMinsAgo: 0,

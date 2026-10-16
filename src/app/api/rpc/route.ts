@@ -6,6 +6,8 @@ import { syncPresence } from '@/lib/presence-sync'
 import { resolveRpcActivityName } from '@/lib/constants'
 import { capStr, capNum, LIMIT_TEXT, LIMIT_ASSET_REF, LIMIT_URL, LIMIT_SHORT } from '@/lib/validate'
 import { DISCORD_APP_ID_RE, isGameApplicationId } from '@/lib/games'
+import { ensureRpcConfiguredColumn, visibleRpcRows } from '@/lib/rpc-configured'
+import { normalizeRpcSlots } from '@/lib/rpc-slots'
 
 export const dynamic = 'force-dynamic'
 
@@ -69,7 +71,14 @@ export async function POST(req: Request) {
     // silently flipped the DB to disabled and called stopUserRpc — turning
     // the user's RPC OFF whenever only the buttons were updated.
     // ════════════════════════════════════════════════════════════════════
-    const existing = await db.rpcConfig.findFirst({ where: { userId: session.userId } })
+    // Task 111 — the generated client selects RpcConfig.configured.
+    await ensureRpcConfiguredColumn()
+
+    // The legacy save targets the user's PRIMARY slot — the first row in the
+    // deterministic slot order (any row the user has, configured or a fresh
+    // draft: saving it is exactly what makes it configured).
+    const slotRows = await normalizeRpcSlots(session.userId)
+    const existing = slotRows[0] ?? null
     const enabled = existing?.enabled ?? false // preserved, never body-driven
 
     const platform = body.platform || existing?.platform || 'desktop'
@@ -97,6 +106,8 @@ export async function POST(req: Request) {
       endTotalMins: capNum(body.endTotalMins, 0, 10080),
       appId: normalizeAppId(body.appId),
       enabled, // ← unchanged from DB: config save cannot disable the RPC
+      // Task 111 — an explicit SAVE makes this a real, visible configuration.
+      configured: true,
     }
 
     // 1. Save full configuration to Database (Single Source of Truth)
@@ -104,7 +115,9 @@ export async function POST(req: Request) {
     if (existing) {
       rpcConfig = await db.rpcConfig.update({ where: { id: existing.id }, data })
     } else {
-      rpcConfig = await db.rpcConfig.create({ data: { userId: session.userId, ...data } })
+      // Legacy single-RPC save with no row yet — this IS an explicit save, so
+      // the created row is configured (unlike "Add RPC" drafts).
+      rpcConfig = await db.rpcConfig.create({ data: { userId: session.userId, slot: 1, ...data } })
     }
 
     // 2. Bump session timestamp only — rpcEnabled / gatewayReady / status fields
@@ -160,35 +173,12 @@ export async function GET() {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
 
-  let rpcConfig = await db.rpcConfig.findFirst({ where: { userId: session.userId } })
-  if (!rpcConfig) {
-    // Initialize in DB so database is always populated as single source of truth
-    rpcConfig = await db.rpcConfig.create({
-      data: {
-        userId: session.userId,
-        name: '10X RPC',
-        type: 'PLAYING',
-        platform: 'desktop',
-        state: null,
-        details: null,
-        largeImage: null,
-        largeText: null,
-        smallImage: null,
-        smallText: null,
-        button1Label: null,
-        button1Url: null,
-        button2Label: null,
-        button2Url: null,
-        partyCurrent: null,
-        partyMax: null,
-        partyId: null,
-        partySecret: null,
-        startMinsAgo: 0,
-        endTotalMins: null,
-        enabled: false,
-      },
-    })
-  }
+  // Task 111 — NO auto-creation: a user without a configured RPC gets null.
+  // (The legacy default-row creation here was the root cause of ghost
+  // "10X RPC" cards/presences for users who never configured anything.)
+  await ensureRpcConfiguredColumn()
+  const rows = await normalizeRpcSlots(session.userId)
+  const rpcConfig = visibleRpcRows(rows)[0] ?? null
 
   return NextResponse.json({ rpcConfig })
 }

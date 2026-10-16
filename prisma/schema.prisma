@@ -102,6 +102,12 @@ model RpcConfig {
   endTotalMins Int?
   appId        String? // Discord Application ID (user's own app) — daemon presents Normal RPC presence as this application
   enabled      Boolean  @default(false)
+  /** Task 111 — CONFIGURED-ONLY VISIBILITY. True ONLY after the user explicitly
+   *  saved this slot's configuration (or explicitly enabled it). Legacy builds
+   *  auto-created default "10X RPC" placeholder rows — those stay configured=false
+   *  and are hidden from every API response, the dashboard UI, the Auto-Rotate
+   *  pool and the runtime presence. Never flipped back to false anywhere. */
+  configured   Boolean  @default(false)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

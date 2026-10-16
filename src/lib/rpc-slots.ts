@@ -5,6 +5,7 @@
 
 import { db } from '@/lib/db'
 import { isGameApplicationId } from '@/lib/games'
+import { rowLooksConfigured } from '@/lib/rpc-configured'
 
 export const MAX_RPC_SLOTS = 3
 
@@ -70,11 +71,15 @@ export function nextFreeSlot(rows: Array<{ slot: number }>): number | null {
   return null
 }
 
-/** Serialize a slot row for the client (same shape as /api/me rpcConfig). */
+/** Serialize a slot row for the client (same shape as /api/me rpcConfig).
+ *  Task 111 — carries the persisted `configured` flag so the frontend and the
+ *  backend share the same configuration-state truth (heuristic fallback for
+ *  rows whose flag predates the column). */
 export function serializeSlot(cfg: Record<string, unknown> & { slot: number }) {
   return {
     id: cfg.id,
     slot: cfg.slot,
+    configured: (cfg as { configured?: boolean }).configured ?? rowLooksConfigured(cfg as unknown as Parameters<typeof rowLooksConfigured>[0]),
     name: cfg.name,
     type: cfg.type,
     platform: cfg.platform,
@@ -227,7 +232,9 @@ export async function enableSlotExclusively(
       }
       const updated = await tx.rpcConfig.update({
         where: { id: slotId },
-        data: { enabled: true },
+        // Task 111 — enabling is an EXPLICIT user action: the slot becomes a
+        // real, visible configuration (it runs live on Discord from here on).
+        data: { enabled: true, configured: true },
       })
       return {
         ok: true as const,

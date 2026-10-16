@@ -4,6 +4,7 @@ import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
 import { requireSubscriptionAccess } from '@/lib/subscription'
+import { ensureRpcConfiguredColumn } from '@/lib/rpc-configured'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -28,17 +29,15 @@ export async function POST() {
     }
 
     // Load RPC config from DB (Single Source of Truth)
-    let rpcConfig = await db.rpcConfig.findFirst({ where: { userId: session.userId } })
+    // Task 111 — NO auto-creation: nothing configured → nothing to push.
+    await ensureRpcConfiguredColumn()
+    const rpcConfig = await db.rpcConfig.findFirst({ where: { userId: session.userId } })
     if (!rpcConfig) {
-      rpcConfig = await db.rpcConfig.create({
-        data: {
-          userId: session.userId,
-          name: '10X RPC',
-          type: 'PLAYING',
-          platform: 'desktop',
-          enabled: false,
-          startMinsAgo: 0,
-        },
+      return NextResponse.json({
+        ok: true,
+        rpcConfig: null,
+        rpcEnabled: false,
+        message: 'No RPC configured yet — add an RPC and save your settings first.',
       })
     }
 

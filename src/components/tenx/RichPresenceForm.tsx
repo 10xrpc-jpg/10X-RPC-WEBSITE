@@ -180,12 +180,19 @@ export function RichPresenceForm({
     }
   }, [initial])
 
+  // Task 111 — BUG FIX (render-phase parent setState): `set()` used to call
+  // onChange INSIDE the setCfg updater, which made the parent's setState run
+  // while THIS component was rendering (React "Cannot update a component
+  // while rendering a different component" + tearing risk). The ref keeps the
+  // freshest draft so the parent is notified after the state update is queued.
+  const cfgRef = useRef<RpcConfig>(initial || DEFAULT_CONFIG)
+  useEffect(() => { cfgRef.current = cfg }, [cfg])
+
   const set = <K extends keyof RpcConfig>(key: K, value: RpcConfig[K]) => {
-    setCfg(prev => {
-      const next = { ...prev, [key]: value }
-      onChange?.(next)
-      return next
-    })
+    const next = { ...cfgRef.current, [key]: value }
+    cfgRef.current = next
+    setCfg(next)
+    onChange?.(next)
   }
 
   const handleSave = async () => {

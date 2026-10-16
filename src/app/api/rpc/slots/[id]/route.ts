@@ -10,6 +10,7 @@ import { resolveRpcActivityName } from '@/lib/constants'
 import { capStr, capNum, LIMIT_TEXT, LIMIT_ASSET_REF, LIMIT_URL, LIMIT_SHORT } from '@/lib/validate'
 import { DISCORD_APP_ID_RE, isGameApplicationId } from '@/lib/games'
 import { anyEnabledCandidate, rotationCoversAnySlot, serializeSlot } from '@/lib/rpc-slots'
+import { ensureRpcConfiguredColumn } from '@/lib/rpc-configured'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -32,6 +33,10 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
     const { id } = await ctx.params
     const session = await getSession()
     if (!session) return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
+
+    // Task 111 — the column must exist BEFORE the first RpcConfig query of
+    // this process (the generated client selects configured on every read).
+    await ensureRpcConfiguredColumn()
 
     // Scoped to THIS user AND THIS row — one slot can never touch another.
     const existing = await db.rpcConfig.findFirst({ where: { id, userId: session.userId } })
@@ -66,6 +71,9 @@ export async function PUT(req: Request, ctx: { params: Promise<{ id: string }> }
       endTotalMins: capNum(body.endTotalMins, 0, 10080),
       appId: normalizeAppId(body.appId),
       enabled, // ← unchanged from DB: a config save cannot enable/disable the slot
+      // Task 111 — the user explicitly saved this RPC: it is now a REAL,
+      // visible configuration (draft placeholders never reach this point).
+      configured: true,
     }
 
     const updated = await db.rpcConfig.update({ where: { id: existing.id }, data })
@@ -99,6 +107,9 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
     const { id } = await ctx.params
     const session = await getSession()
     if (!session) return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
+
+    // Task 111 — column guard before any generated-client read.
+    await ensureRpcConfiguredColumn()
 
     const existing = await db.rpcConfig.findFirst({ where: { id, userId: session.userId } })
     if (!existing) return NextResponse.json({ ok: false, error: 'slot_not_found' }, { status: 404 })

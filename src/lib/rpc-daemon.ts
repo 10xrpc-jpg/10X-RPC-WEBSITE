@@ -45,6 +45,7 @@ import {
   GAME_EXTRA_PLATFORM_POOL,
   type DaemonRole,
 } from './daemon-roles'
+import { ensureRpcConfiguredColumn, visibleRpcRows } from './rpc-configured'
 
 // ─── Daemon role split (NODE 1 = STATUS / NODE 2 = RPC / NODE 3 = GAME RPC) ─
 // DAEMON_ROLE unset / 'all' = the classic combined daemon — every role gate
@@ -1273,7 +1274,10 @@ export class RpcDaemon {
       }
     }
 
-    const rpcConfigs = (await db.rpcConfig.findMany({
+    // Task 111 — the column must exist before any generated-client read.
+    await ensureRpcConfiguredColumn().catch(() => false)
+
+    const rpcConfigs = visibleRpcRows((await db.rpcConfig.findMany({
       where: { userId },
       // NOTE: createdAt order only — NO `slot` orderBy here. The standalone
       // Orihost daemon's Prisma client may predate the slot column and an
@@ -1285,7 +1289,10 @@ export class RpcDaemon {
       // the user's primary slot alive if findMany ever fails.
       const r = await db.rpcConfig.findFirst({ where: { userId } }).catch(() => null)
       return r ? [r as RpcCandidate] : []
-    })) as Array<RpcCandidate & { enabled: boolean }>
+    })) as Array<RpcCandidate & { enabled: boolean }>)
+    // Task 111 — rows the user never configured (legacy auto-created default
+    // placeholders) are invisible to the runtime too: they can never be
+    // published, rotate or anchor a session.
     // Task 89 — MULTI-GAME: every enabled game runs as its own candidate.
     const enabledGames = await db.gameConfig.findMany({ where: { userId, enabled: true }, orderBy: { createdAt: 'asc' } })
     // MULTI-RPC: all enabled slots + ALL enabled games (no mode exclusivity).
@@ -1559,14 +1566,15 @@ export class RpcDaemon {
       // Check target platform based on the active candidates (Normal slots vs
       // Gamer RPC are no longer exclusive — the socket platform follows the
       // FIRST candidate so rotation between slots never flips the badge).
-      const rpcConfigs = (await db.rpcConfig.findMany({
+      await ensureRpcConfiguredColumn().catch(() => false)
+      const rpcConfigs = visibleRpcRows((await db.rpcConfig.findMany({
         where: { userId },
         // createdAt order only — never orderBy `slot` (old daemon clients).
         orderBy: { createdAt: 'asc' },
       }).catch(async () => {
         const r = await db.rpcConfig.findFirst({ where: { userId } }).catch(() => null)
         return r ? [r as RpcCandidate] : []
-      })) as Array<RpcCandidate & { enabled: boolean }>
+      })) as Array<RpcCandidate & { enabled: boolean }>)
       // Task 89 — MULTI-GAME: every enabled game runs as its own candidate.
       const enabledGames = await db.gameConfig.findMany({ where: { userId, enabled: true }, orderBy: { createdAt: 'asc' } }).catch(() => [])
       const selection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGames)
@@ -1977,6 +1985,8 @@ export class RpcDaemon {
     let globalConfig: GlobalCfgRow = null
     let enabledGames: GameCfgRow[] = []
     try {
+      // Task 111 — the column must exist before any generated-client read.
+      await ensureRpcConfiguredColumn().catch(() => false)
       const [rpc, glob, games] = await Promise.all([
         // createdAt order only — never orderBy `slot` (old daemon clients).
         // A DB failure here must NEVER be read as "no slots" — that would
@@ -1986,7 +1996,9 @@ export class RpcDaemon {
         // Task 89 — MULTI-GAME: every enabled game is a live candidate.
         db.gameConfig.findMany({ where: { userId, enabled: true }, orderBy: { createdAt: 'asc' } }),
       ])
-      rpcConfigs = rpc as Array<RpcCandidate & { enabled: boolean }>
+      // Task 111 — unconfigured placeholder rows are invisible to the runtime:
+      // no fingerprint input, no rotation member, no platform anchor.
+      rpcConfigs = visibleRpcRows(rpc) as Array<RpcCandidate & { enabled: boolean }>
       globalConfig = glob
       enabledGames = (games ?? []) as GameCfgRow[]
     } catch (dbErr) {
