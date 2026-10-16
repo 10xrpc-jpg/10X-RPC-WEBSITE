@@ -404,16 +404,62 @@ export function rotationPoolCandidates(
 }
 
 /**
+ * Task 106 — ALL created slots (enabled AND disabled) in stable slot order.
+ * The Auto-Rotate explicit selection is honored against this FULL list: a
+ * DISABLED slot the user picked for rotation still takes its turn. Sorting is
+ * deterministic (slot number → createdAt → id) so the website, the preview
+ * and every daemon node agree on the pool order forever.
+ */
+function allSlotCandidates(
+  rows: Array<RpcCandidate & { slot?: number }> | null | undefined
+): RpcCandidate[] {
+  const tsOf = (v: unknown): number => {
+    if (!v) return 0
+    const t = new Date(v as string | Date).getTime()
+    return Number.isFinite(t) ? t : 0
+  }
+  return (rows ?? [])
+    .filter(c => c && !c.gameSlug)
+    .slice()
+    .sort((a, b) => {
+      const sa = typeof a.slot === 'number' && a.slot >= 1 ? a.slot : 99
+      const sb = typeof b.slot === 'number' && b.slot >= 1 ? b.slot : 99
+      if (sa !== sb) return sa - sb
+      const ta = tsOf((a as { createdAt?: unknown }).createdAt)
+      const tb = tsOf((b as { createdAt?: unknown }).createdAt)
+      if (ta !== tb) return ta - tb
+      return (a.id || '').localeCompare(b.id || '')
+    })
+}
+
+/**
+ * Task 106 — a RUNTIME-ONLY publishable copy of a rotation candidate. The
+ * activity builder skips candidates whose `enabled` flag is false (that flag
+ * governs the non-rotate Multi-Session mode); a slot taking its Auto-Rotate
+ * turn is published exactly because the user SELECTED it for rotation, so the
+ * copy stamps enabled:true WITHOUT ever touching the saved config row.
+ */
+function publishableRotationCandidate(c: RpcCandidate): RpcCandidate {
+  return { ...c, enabled: true }
+}
+
+/**
  * Resolve which candidates are PUBLISHED right now.
  *
  * Auto Rotate (optional): picks exactly ONE candidate from the ROTATION POOL,
  * deterministically, by elapsed time from a stable reference — the index comes
  * from the shared pure math in rotation.ts (forward / reverse / shuffle, plus
- * the manual "Skip" counter). Task 95 — the pool is ALWAYS the enabled SLOTS:
+ * the manual "Skip" counter). Task 95 — the pool is ALWAYS slots only:
  * games never join the Normal rotation (they run their own always-visible
  * extra sessions managed exclusively by the Game Auto-Rotate system).
  * Task 89 — `rotateSlotKeys` narrows the pool to exactly the slots the user
- * selected (see rotationPoolCandidates).
+ * selected.
+ * Task 106 — ROTATION SELECTION INDEPENDENCE: when an explicit selection is
+ * stored, the pool is matched against `allRpcConfigs` (EVERY created slot,
+ * enabled or not) — a DISABLED slot the user selected still rotates and
+ * displays during its turn. The per-slot enable switch keeps governing the
+ * non-rotate Multi-Session mode only; Auto Rotate never reads it for selected
+ * slots and NEVER writes it (configs stay 100% read-only here).
  * Stateless across daemon restarts/multi-instance (same inputs → same index).
  * Auto Rotate is a RUNTIME-ONLY overlay: it never writes configs, never flips
  * enabled flags, never touches Game RPC settings, app IDs, buttons, images or
@@ -422,6 +468,10 @@ export function rotationPoolCandidates(
 export function resolveRuntimeCandidates(opts: {
   rpcEnabled: boolean | null | undefined
   rpcConfigs: Array<RpcConfig & { slot?: number }> | null | undefined
+  /** Task 106 — EVERY slot row (enabled AND disabled). Required for the
+   *  explicit-selection pool to include disabled-but-selected slots. When
+   *  omitted the pool degrades to the enabled-only legacy rule. */
+  allRpcConfigs?: Array<RpcConfig & { slot?: number }> | null
   enabledGame: EnabledGameInput | EnabledGameInput[]
   autoRotate?: boolean | null
   rotateSecs?: number | null
@@ -440,21 +490,62 @@ export function resolveRuntimeCandidates(opts: {
   nowMs?: number
 }): RuntimeCandidateResult {
   const sel = selectActiveRpcConfigs(opts.rpcEnabled, opts.rpcConfigs, opts.enabledGame)
-  if (!sel.active) {
-    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null, rotatePoolKeys: null }
-  }
-  if (sel.candidates.length === 1) {
-    return { ...sel, runtimeMode: 'single', rotateIndex: null, rotatePoolLength: null, rotatePoolKeys: null }
-  }
+
+  // ── Auto Rotate OFF — the classic Multi-Session paths (unchanged) ────────
   if (!opts.autoRotate) {
+    if (!sel.active) {
+      return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null, rotatePoolKeys: null }
+    }
+    if (sel.candidates.length === 1) {
+      return { ...sel, runtimeMode: 'single', rotateIndex: null, rotatePoolLength: null, rotatePoolKeys: null }
+    }
     return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null, rotatePoolKeys: null }
   }
-  // Rotation pool — the user's explicit selection (Task 89) or the legacy
-  // includeGame rule.
-  const pool = rotationPoolCandidates(sel, { rotateSlotKeys: opts.rotateSlotKeys, includeGame: opts.rotateIncludeGame })
+
+  // ── Auto Rotate ON — build the pool ──────────────────────────────────────
+  // Task 106 — the EXPLICIT selection matches ALL created slots (enabled AND
+  // disabled). No explicit selection → the legacy rule (every ENABLED slot).
+  const explicitKeys = Array.isArray(opts.rotateSlotKeys)
+    ? opts.rotateSlotKeys.filter((k): k is string => typeof k === 'string' && k.length > 0 && !k.startsWith('game:'))
+    : null
+  let pool: RpcCandidate[]
+  if (explicitKeys) {
+    const allSlots = allSlotCandidates(opts.allRpcConfigs ?? opts.rpcConfigs)
+    const set = new Set(explicitKeys)
+    const picked = allSlots.filter(c => (c.id ? set.has(c.id) : false))
+    // Empty explicit pick (or a legacy caller without allRpcConfigs) must
+    // never blank the profile — fall back to the enabled-slot legacy rule.
+    pool = picked.length > 0
+      ? picked
+      : rotationPoolCandidates(sel, { rotateSlotKeys: explicitKeys, includeGame: opts.rotateIncludeGame })
+  } else {
+    pool = rotationPoolCandidates(sel, { rotateSlotKeys: null, includeGame: opts.rotateIncludeGame })
+  }
+
+  // The pool can drive the presence even when NO slot is enabled: the user
+  // selected slots (some disabled) for rotation and master RPC is on.
+  const poolCanDrive = !!opts.rpcEnabled && pool.length > 0
+  if (!sel.active && !poolCanDrive) {
+    return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null, rotatePoolKeys: null }
+  }
   if (pool.length < 2) {
-    // Nothing to cycle (e.g. one slot + excluded game) — simultaneous keeps
-    // every candidate visible; the excluded game gets its own extra session.
+    // Nothing to cycle. Preserve the exact non-rotate presentation, EXCEPT
+    // the rotation-only case: the single pool member is a DISABLED slot the
+    // user explicitly selected → publish it (the selection is what keeps it
+    // visible while Auto Rotate is on).
+    if (!sel.active && pool.length === 1) {
+      return {
+        active: true,
+        candidates: [publishableRotationCandidate(pool[0])],
+        runtimeMode: 'single',
+        rotateIndex: null,
+        rotatePoolLength: null,
+        rotatePoolKeys: null,
+      }
+    }
+    if (sel.active && sel.candidates.length === 1) {
+      return { ...sel, runtimeMode: 'single', rotateIndex: null, rotatePoolLength: null, rotatePoolKeys: null }
+    }
     return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null, rotatePoolKeys: null }
   }
   const idx = rotateCycleIndex({
@@ -468,7 +559,7 @@ export function resolveRuntimeCandidates(opts: {
   })
   return {
     active: true,
-    candidates: [pool[idx]],
+    candidates: [publishableRotationCandidate(pool[idx])],
     runtimeMode: 'rotate',
     rotateIndex: idx,
     rotatePoolLength: pool.length,

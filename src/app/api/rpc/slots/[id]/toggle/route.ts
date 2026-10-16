@@ -7,7 +7,7 @@ import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { syncPresence, stopPresence } from '@/lib/presence-sync'
 import { requireSubscriptionAccess } from '@/lib/subscription'
-import { serializeSlot } from '@/lib/rpc-slots'
+import { rotationCoversAnySlot, serializeSlot } from '@/lib/rpc-slots'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -82,6 +82,11 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         || await db.gameConfig.count({
           where: { userId: session.userId, enabled: true },
         }) > 0
+        // Task 106 — Auto Rotate ON with a selection that still covers an
+        // existing slot (enabled or not): the rotator keeps cycling, so this
+        // is NOT the last live candidate. The slot's own flag stays OFF —
+        // its turns come from the selection, not from the enable switch.
+        || await rotationCoversAnySlot(session.userId)
 
       if (moreLeft) {
         // Other candidates still running — rebuild without this slot.
@@ -92,11 +97,14 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         if (session.discordAccessToken) {
           await syncPresence(session.userId)
         }
+        const stillRotates = await rotationCoversAnySlot(session.userId)
         return NextResponse.json({
           ok: true,
           enabled: false,
           rpcConfig: serializeSlot(updated),
-          message: `RPC ${updated.slot} disabled — remaining RPCs keep running`,
+          message: stillRotates
+            ? `RPC ${updated.slot} disabled — it still takes its Auto Rotate turns while selected`
+            : `RPC ${updated.slot} disabled — remaining RPCs keep running`,
         })
       }
 

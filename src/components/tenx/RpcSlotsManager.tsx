@@ -103,33 +103,47 @@ export function RpcSlotsManager({
     ? me.activeGames
     : (me.activeGame?.enabled ? [me.activeGame] : []))
     .filter(g => g.enabled)
-  // Rotate-able candidates — SLOTS ONLY with their stable keys.
+  // Rotate-able candidates — Task 106: ALL created SLOTS appear here (enabled
+  // AND disabled). The user picks any combination for Auto Rotate; a slot's
+  // own enable switch does NOT gate its rotation turns. Each entry carries
+  // `slotEnabled` so the chip can badge the disabled ones.
   // (Dep keys are precomputed strings — the join() anti-churn trick, made
   // lint-simple per react-hooks/use-memo's simple-expression rule.)
-  const enabledSlotIdsKey = enabledSlots.map(s => s.id).join(',')
+  const allSlotsKey = slots.map(s => s.id).join(',')
   const rotateCandidates = useMemo(() =>
-    enabledSlots.filter(s => s.id).map(s => ({ key: s.id!, label: `RPC ${s.slot ?? '?'}`, game: false })),
-  [enabledSlotIdsKey])
+    slots
+      .filter(s => s.id)
+      .sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99))
+      .map(s => ({ key: s.id!, label: `RPC ${s.slot ?? '?'}`, game: false, slotEnabled: !!s.enabled })),
+  [allSlotsKey])
   const hasGame = enabledGames.length > 0
   const allKeys = rotateCandidates.map(c => c.key)
   // Effective selection — the explicit pick (slot keys only; any legacy
-  // "game:<slug>" entries are ignored — Task 95) or every slot when unset.
+  // "game:<slug>" entries are ignored — Task 95) or, when unset, every
+  // ENABLED slot (the daemon's legacy rule — the chips must tell the truth).
   const allKeysKey = allKeys.join(',')
+  const enabledKeysKey = rotateCandidates.filter(c => c.slotEnabled).map(c => c.key).join(',')
   const effectiveSelection = useMemo(() => {
     if (rotateSlots !== null) return rotateSlots.filter(k => allKeys.includes(k))
-    return allKeys
-  }, [rotateSlots, allKeysKey])
+    return rotateCandidates.filter(c => c.slotEnabled).map(c => c.key)
+  }, [rotateSlots, allKeysKey, enabledKeysKey])
   // Full chain (slots + games) — used by the Multi-Session status texts.
-  const rotationChain = rotateCandidates.map(c => c.label)
-  // Rotation POOL — matches the daemon EXACTLY (shared rule: explicit
-  // selection, fallback to everything when the selection is empty).
+  // Task 106 — the ENABLED chain only: Multi-Session truly runs enabled slots
+  // side by side; disabled-but-selected slots only appear during rotation.
+  const rotationChain = rotateCandidates.filter(c => c.slotEnabled).map(c => c.label)
+  // Rotation POOL — matches the daemon EXACTLY (Task 106): the explicit
+  // selection matched against ALL slots (disabled ones included); when the
+  // effective selection is empty (stale keys of deleted slots), the daemon
+  // falls back to the enabled-slot legacy rule — the strip mirrors that.
   const effectiveKey = effectiveSelection.join(',')
   const candidateKeysKey = rotateCandidates.map(c => c.key).join(',')
+  const enabledFallbackKey = rotateCandidates.filter(c => c.slotEnabled).map(c => c.key).join(',')
   const pool = useMemo(() => {
     const sel = new Set(effectiveSelection)
     const p = rotateCandidates.filter(c => sel.has(c.key))
-    return p.length > 0 ? p : rotateCandidates
-  }, [effectiveKey, candidateKeysKey])
+    if (p.length > 0) return p
+    return rotateCandidates.filter(c => c.slotEnabled)
+  }, [effectiveKey, candidateKeysKey, enabledFallbackKey])
   const poolLen = pool.length
   const masterOn = !!me.session?.rpcEnabled
   const rotating = rotateEnabled && poolLen >= 2 && masterOn
@@ -200,7 +214,11 @@ export function RpcSlotsManager({
     }
   }
 
-  /** Task 89 — include/remove one candidate in the Auto Rotator pool. */
+  /** Task 89/106 — include/remove one candidate in the Auto Rotator pool.
+   *  ALWAYS stores the EXPLICIT key list (never collapses back to the legacy
+   *  "every enabled slot" unset state) — a DISABLED slot the user picked must
+   *  keep its turns even though its own switch is off, which only the explicit
+   *  list can express. */
   const toggleRotateCandidate = (key: string) => {
     if (savingRotate) return
     const current = effectiveSelection
@@ -209,14 +227,10 @@ export function RpcSlotsManager({
       toast.error('Keep at least one RPC in the rotation', { duration: 2200 })
       return
     }
-    if (next.length === allKeys.length) {
-      // Everything selected — store the canonical "every enabled slot rotates".
-      setRotateSlots(null)
-      saveRotate({ slots: null })
-      return
-    }
-    setRotateSlots(next)
-    saveRotate({ slots: next })
+    // Preserve chip order (RPC 1 → RPC 2 → RPC 3) for a stable chain.
+    const ordered = rotateCandidates.map(c => c.key).filter(k => next.includes(k))
+    setRotateSlots(ordered)
+    saveRotate({ slots: ordered })
   }
 
   const handleSkip = async () => {
@@ -384,8 +398,10 @@ export function RpcSlotsManager({
         </div>
 
         {/* Multi-Session status — all enabled RPCs run at once as their own
-            Discord sessions; Auto Rotate is the optional cycling mode. */}
-        {rotationChain.length >= 2 ? (
+            Discord sessions; Auto Rotate is the optional cycling mode.
+            Task 106 — rotation can also run from DISABLED-but-selected slots,
+            so the block shows whenever the pool has 2+ members. */}
+        {rotationChain.length >= 2 || poolLen >= 2 ? (
           rotateEnabled ? (
             poolLen < 2 ? (
               // The daemon falls back to simultaneous when the pool has fewer
@@ -397,10 +413,14 @@ export function RpcSlotsManager({
               </p>
             ) : (
               <p className="relative z-10 text-xs text-white/45 leading-relaxed mb-4 px-0.5">
-                {poolLen < rotationChain.length
-                  ? <>Auto Rotate is ON — your <span className="text-white/75 font-semibold">{poolLen} selected RPCs</span> take turns on your profile every {secsLabel} ({rotateOrder === 'shuffle' ? 'shuffled' : rotateOrder} order). RPCs you left out stay visible as usual.</>
-                  : <>Auto Rotate is ON — your {rotationChain.length} RPCs take turns on your profile every{' '}{secsLabel} ({rotateOrder === 'shuffle' ? 'shuffled' : rotateOrder} order).{' '}</>}
-                {' '}Turn it off to run all of them at the same time.
+                Auto Rotate is ON — your <span className="text-white/75 font-semibold">{poolLen} selected RPCs</span> take
+                turns on your profile every {secsLabel} ({rotateOrder === 'shuffle' ? 'shuffled' : rotateOrder} order).
+                {poolLen > rotationChain.length
+                  ? <> Slots whose own switch is OFF still show up on their selected turn — Auto Rotate runs them for you.</>
+                  : poolLen < rotationChain.length
+                    ? ' RPCs you left out stay visible as usual.'
+                    : null}
+                {' '}Turn it off to run the enabled ones at the same time.
               </p>
             )
           ) : (
@@ -423,7 +443,8 @@ export function RpcSlotsManager({
           )
         ) : (
           <p className="relative z-10 text-xs text-white/45 leading-relaxed mb-4 px-0.5">
-            Optional: cycle your enabled RPCs one at a time instead of running them all at once.
+            Optional: cycle your RPCs one at a time instead of running them all at once.
+            Every RPC you created can be picked below — even ones whose own switch is OFF.
             Rotation never modifies your saved configurations.
           </p>
         )}
@@ -550,7 +571,11 @@ export function RpcSlotsManager({
                       disabled={savingRotate}
                       onClick={() => toggleRotateCandidate(c.key)}
                       aria-pressed={active}
-                      title={active ? `${c.label} takes turns in the rotation — tap to remove` : `${c.label} sits out — tap to include`}
+                      title={
+                        c.slotEnabled
+                          ? (active ? `${c.label} takes turns in the rotation — tap to remove` : `${c.label} sits out — tap to include`)
+                          : (active ? `${c.label} is OFF but still takes its selected rotation turns — tap to remove` : `${c.label} is OFF — tap to include it and it will still show up on its turns`)
+                      }
                       className={`flex items-center gap-1.5 h-10 px-3.5 rounded-full border text-xs font-bold tracking-wide transition-all active:scale-[0.96] disabled:opacity-50 cursor-pointer ${
                         active
                           ? 'border-purple-400/70 bg-purple-500/25 text-white shadow-lg shadow-purple-950/40'
@@ -559,45 +584,58 @@ export function RpcSlotsManager({
                     >
                       {c.game && <Gamepad2 className="w-3.5 h-3.5 shrink-0" aria-hidden />}
                       {c.label}
+                      {!c.slotEnabled && (
+                        <span
+                          className="rounded-full bg-amber-400/15 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-amber-300"
+                          aria-label={`${c.label} is disabled — it still rotates while selected`}
+                        >
+                          Off
+                        </span>
+                      )}
                     </button>
                   )
                 })}
               </div>
               <p className="mt-1.5 text-[11px] text-white/45 px-0.5">
                 Only the highlighted RPCs take turns in the Auto Rotator — tap to include or remove
-                them (you can pick these before turning Auto Rotate on). RPCs left out stay visible
-                as usual; nothing is ever deleted or reset.
+                them (you can pick these before turning Auto Rotate on). <span className="text-amber-300/80">RPCs marked Off
+                still take their turns while selected</span> — Auto Rotate runs them automatically and
+                never flips their individual switches. RPCs left out stay visible as usual; nothing is
+                ever deleted or reset.
               </p>
             </div>
           )}
 
-          {/* Rotation order preview line */}
-          {rotateEnabled && rotationChain.length > 0 && (
+          {/* Rotation order preview line — Task 106: the chain is the POOL
+              (selected RPCs, disabled ones included), exactly what cycles. */}
+          {rotateEnabled && poolLen > 0 && (
             <p className="mt-3 text-[11px] text-white/50 px-0.5" role="status" aria-live="polite">
-              {rotateOrder === 'shuffle' ? (
-                <>Shuffled rotation over:{' '}
-                  <span className="text-white/75 font-semibold">{rotationChain.join(', ')}</span>
-                  <span className="text-white/35"> — the order remixes every full cycle.</span>
-                </>
-              ) : (
-                (() => {
-                  const chain = rotateOrder === 'reverse' ? [...rotationChain].reverse() : rotationChain
+              {(() => {
+                const poolChain = pool.map(c => `${c.label}${c.slotEnabled ? '' : ' (Off)'}`)
+                if (rotateOrder === 'shuffle') {
                   return (
-                    <>Rotation order:{' '}
-                      <span className="text-white/75 font-semibold">{chain.join(' → ')}</span>
-                      {chain.length > 1 && <span className="text-white/35"> → {chain[0]} → …</span>}
+                    <>Shuffled rotation over:{' '}
+                      <span className="text-white/75 font-semibold">{poolChain.join(', ')}</span>
+                      <span className="text-white/35"> — the order remixes every full cycle.</span>
                     </>
                   )
-                })()
-              )}
+                }
+                const chain = rotateOrder === 'reverse' ? [...poolChain].reverse() : poolChain
+                return (
+                  <>Rotation order:{' '}
+                    <span className="text-white/75 font-semibold">{chain.join(' → ')}</span>
+                    {chain.length > 1 && <span className="text-white/35"> → {chain[0]} → …</span>}
+                  </>
+                )
+              })()}
             </p>
           )}
-          {rotateEnabled && enabledSlots.length === 0 && enabledGames.length === 0 && (
+          {rotateEnabled && poolLen === 0 && (
             <p className="mt-3 text-[11px] text-white/50 px-0.5">
-              Enable at least two RPCs to see rotation.
+              Select at least two RPCs below (or enable them) to see rotation.
             </p>
           )}
-          {rotateEnabled && !masterOn && rotationChain.length >= 2 && (
+          {rotateEnabled && !masterOn && (rotationChain.length >= 2 || poolLen >= 2) && (
             <p className="mt-3 text-[11px] text-amber-300/80 px-0.5">
               Master RPC is off — turn it on to see rotation live.
             </p>

@@ -32,9 +32,12 @@ export async function POST() {
     }
 
     // Raw SQL on purpose — preserves updatedAt (the rotation anchor).
+    // Portable SQL (no LEAST/GREATEST — SQLite daemons / local dev lack
+    // them): read → clamp → write, identical to the Game skip route.
+    const nextSkip = Math.min(1_000_000_000, Number(cfg.rpcRotateSkip) || 0) + 1
     await db.$executeRaw`
       UPDATE "GlobalConfig"
-      SET "rpcRotateSkip" = LEAST("rpcRotateSkip" + 1, 1000000000)
+      SET "rpcRotateSkip" = ${nextSkip}
       WHERE "userId" = ${session.userId}`
 
     const refreshed = await db.globalConfig.findUnique({ where: { userId: session.userId } })

@@ -9,7 +9,7 @@ import { syncPresence, stopPresence } from '@/lib/presence-sync'
 import { resolveRpcActivityName } from '@/lib/constants'
 import { capStr, capNum, LIMIT_TEXT, LIMIT_ASSET_REF, LIMIT_URL, LIMIT_SHORT } from '@/lib/validate'
 import { DISCORD_APP_ID_RE, isGameApplicationId } from '@/lib/games'
-import { anyEnabledCandidate, serializeSlot } from '@/lib/rpc-slots'
+import { anyEnabledCandidate, rotationCoversAnySlot, serializeSlot } from '@/lib/rpc-slots'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -109,10 +109,17 @@ export async function DELETE(_req: Request, ctx: { params: Promise<{ id: string 
     let message = 'RPC deleted'
     if (wasEnabled && session.discordAccessToken) {
       const moreLeft = await anyEnabledCandidate(session.userId)
+        // Task 106 — Auto Rotate ON with a selection that still covers an
+        // existing slot: the rotator keeps cycling through it, so the
+        // presence must NOT be torn down here.
+        || await rotationCoversAnySlot(session.userId)
       if (moreLeft) {
         // Other candidates still running — just rebuild the activity set.
         await syncPresence(session.userId)
-        message = 'RPC deleted — remaining RPCs keep running'
+        const stillRotates = await rotationCoversAnySlot(session.userId)
+        message = stillRotates
+          ? 'RPC deleted — Auto Rotate keeps cycling through the selected RPCs'
+          : 'RPC deleted — remaining RPCs keep running'
       } else {
         // That was the last enabled candidate → clear the presence fully.
         await db.session.updateMany({

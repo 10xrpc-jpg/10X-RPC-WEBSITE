@@ -134,9 +134,13 @@ export async function GET() {
     rpcConfigs: rpcSlots as Array<RpcCandidate & { enabled: boolean }>,
     enabledGame: enabledGames,
   })
+  // Task 106 — allRpcConfigs passes EVERY slot row (enabled AND disabled): the
+  // dashboard's live strip must match the daemon EXACTLY, including disabled
+  // slots the user explicitly selected for Auto Rotate.
   const runtime = resolveRuntimeCandidates({
     rpcEnabled: session.rpcEnabled,
     rpcConfigs: rpcSlots as Array<RpcCandidate & { enabled: boolean }>,
+    allRpcConfigs: rpcSlots as Array<RpcCandidate & { enabled: boolean }>,
     enabledGame: enabledGames,
     autoRotate: rotateView.enabled,
     rotateSecs: rotateView.secs,
@@ -160,13 +164,24 @@ export async function GET() {
     nextSwitchInSecs: number
   } | null = null
   if (runtime.active && runtime.runtimeMode === 'rotate' && runtime.rotateIndex != null && runtime.rotatePoolLength) {
-    // Task 89 — the preview pool comes from the SAME shared helper the daemon
-    // uses (explicit selection → includeGame legacy rule), so the strip,
-    // the selection chips and Discord can never disagree.
-    const poolCandidates = rotationPoolCandidates(fullSelection, {
-      rotateSlotKeys: rotateView.slots,
-      includeGame: rotateView.includeGame,
-    })
+    // Task 89/106 — the preview pool comes from the SAME shared resolver the
+    // daemon uses. rotatePoolKeys carries the resolved pool (explicit
+    // selection matched against ALL slots, disabled ones included); each key
+    // is resolved back to its candidate for the strip. Legacy fallback: the
+    // enabled-slot pool helper.
+    const keyToCandidate = new Map<string, RpcCandidate>()
+    for (const c of [...(rpcSlots as RpcCandidate[]), ...enabledGames]) {
+      const k = rpcCandidateKey(c)
+      if (k && !keyToCandidate.has(k)) keyToCandidate.set(k, c)
+    }
+    const poolCandidates: RpcCandidate[] = runtime.rotatePoolKeys && runtime.rotatePoolKeys.length > 0
+      ? runtime.rotatePoolKeys
+          .map(k => keyToCandidate.get(k))
+          .filter((c): c is RpcCandidate => !!c)
+      : rotationPoolCandidates(fullSelection, {
+          rotateSlotKeys: rotateView.slots,
+          includeGame: rotateView.includeGame,
+        })
     const pool = poolCandidates.map(c => ({
       key: rpcCandidateKey(c),
       name: c.name ?? 'RPC',

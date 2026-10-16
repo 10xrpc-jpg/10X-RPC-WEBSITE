@@ -1028,10 +1028,24 @@ export class RpcDaemon {
       const hasStatus = !!session.statusEnabled
       const hasRotator = !!(session.statusEnabled && session.user.globalConfig?.rotatorEnabled && session.user.rotatorPresets?.some(p => p.enabled))
 
+      // Task 106 — ROTATION-SELECTED SLOTS keep the daemon tracking the user
+      // even when NO slot is enabled: Auto Rotate ON + an explicit selection
+      // that matches at least one created slot (enabled or not) means the
+      // rotation pool still has members to publish. Reads ONLY the already
+      // loaded GlobalConfig row (no extra query); the same rule the resolver
+      // applies (enabled or disabled — the selection is what counts).
+      const gcRow = session.user.globalConfig as { rpcAutoRotate?: boolean | null; rpcRotateSlots?: string | null } | null
+      const tickRotateKeys = parseRotateSlots(gcRow?.rpcRotateSlots)
+      const rotationSelectedSlots = !!session.rpcEnabled
+        && !!gcRow?.rpcAutoRotate
+        && !!tickRotateKeys
+        && tickRotateKeys.length > 0
+        && rpcConfigs.some(r => r.id && tickRotateKeys.includes(r.id))
+
       // ── Role-pillar activity for THIS daemon (daemon-roles.ts) ──────────
       // A role daemon only tracks the user while ITS pillar is active; the
       // combined 'all' daemon keeps the pre-split combined rule.
-      const roleSlotsActive = hasRpc && selection.candidates.some(c => !c.gameSlug)
+      const roleSlotsActive = (hasRpc && selection.candidates.some(c => !c.gameSlug)) || rotationSelectedSlots
       const roleGamesActive = hasRpc && selection.candidates.some(c => !!c.gameSlug)
       const roleActive = DAEMON_ROLE === 'status'
         ? (hasStatus || hasRotator)
@@ -1039,7 +1053,7 @@ export class RpcDaemon {
           ? roleSlotsActive
           : DAEMON_ROLE === 'game'
             ? roleGamesActive
-            : (hasRpc || hasStatus || hasRotator)
+            : (hasRpc || hasStatus || hasRotator || rotationSelectedSlots)
 
       // Only track if THIS daemon's pillar is active for the user
       if (!roleActive) {
@@ -1247,10 +1261,22 @@ export class RpcDaemon {
     const hasStatus = !!session.statusEnabled
     const hasRotator = !!(session.statusEnabled && session.user.globalConfig?.rotatorEnabled && session.user.rotatorPresets?.some(p => p.enabled))
 
+    // Task 106 — ROTATION-SELECTED SLOTS keep this instant-sync path alive
+    // even when NO slot is enabled (same rule as the tick gate below): Auto
+    // Rotate ON + an explicit selection matching at least one created slot
+    // means the pool still has members — this sync must REBUILD, never stop.
+    const gcRowSync = session.user.globalConfig as { rpcAutoRotate?: boolean | null; rpcRotateSlots?: string | null } | null
+    const syncRotateKeys = parseRotateSlots(gcRowSync?.rpcRotateSlots)
+    const rotationSelectedSlots = !!session.rpcEnabled
+      && !!gcRowSync?.rpcAutoRotate
+      && !!syncRotateKeys
+      && syncRotateKeys.length > 0
+      && rpcConfigs.some(r => r.id && syncRotateKeys.includes(r.id))
+
     // Role-pillar activity (daemon-roles.ts) — a role daemon only owns its
     // own pillar's socket/pushes; the combined 'all' daemon keeps the
     // combined rule.
-    const roleSlotsActive = hasRpc && selection.candidates.some(c => !c.gameSlug)
+    const roleSlotsActive = (hasRpc && selection.candidates.some(c => !c.gameSlug)) || rotationSelectedSlots
     const roleGamesActive = hasRpc && selection.candidates.some(c => !!c.gameSlug)
     const roleActive = DAEMON_ROLE === 'status'
       ? (hasStatus || hasRotator)
@@ -1258,7 +1284,7 @@ export class RpcDaemon {
         ? roleSlotsActive
         : DAEMON_ROLE === 'game'
           ? roleGamesActive
-          : (hasRpc || hasStatus || hasRotator)
+          : (hasRpc || hasStatus || hasRotator || rotationSelectedSlots)
 
     // If THIS daemon's pillar is not active for the user: stop & clear
     if (!roleActive) {
@@ -1960,10 +1986,14 @@ export class RpcDaemon {
     // OPTIONAL Auto Rotate overlay: simultaneous (default) sends every
     // candidate in one authorized OP 3; rotate sends exactly one, advancing
     // every interval. Rotation is runtime-only — no config is read-write here.
+    // Task 106 — allRpcConfigs passes EVERY slot row (enabled AND disabled):
+    // the explicit rotation selection matches against ALL created slots, so a
+    // DISABLED slot the user selected still takes its turn on Discord.
     const fullSelection = selectActiveRpcConfigs(session.rpcEnabled, rpcConfigs, enabledGames)
     const runtime = resolveRuntimeCandidates({
       rpcEnabled: session.rpcEnabled,
       rpcConfigs,
+      allRpcConfigs: rpcConfigs as Array<RpcCandidate & { slot?: number }>,
       enabledGame: enabledGames,
       autoRotate: rotate.enabled,
       rotateSecs: rotate.secs,
@@ -1985,7 +2015,13 @@ export class RpcDaemon {
       statusEnabled: isStatusActive,
       statusPlatform: session.statusPlatform,
       vrActive: !!session.vrStatusActive,
-      firstSlotPlatform: fullSelection.candidates.find(c => !c.gameSlug)?.platform || null,
+      // Task 106 — when every ENABLED slot is off but the rotation pool
+      // carries disabled-but-selected slots, the main session still needs a
+      // STABLE platform anchor: fall back to the first created slot (enabled
+      // or not) so the plan never degrades to the desktop class mid-rotation.
+      firstSlotPlatform: fullSelection.candidates.find(c => !c.gameSlug)?.platform
+        || (rpcConfigs as Array<RpcCandidate>).find(c => !c.gameSlug)?.platform
+        || null,
       rpcEnabled: session.rpcEnabled,
     })
     // Pillar activity from the FULL candidate list (rotation-independent):
@@ -1993,7 +2029,10 @@ export class RpcDaemon {
     const fullGames = fullSelection.candidates.filter(c => !!c.gameSlug)
     const pillarsActive = {
       status: isStatusActive,
-      rpc: isRpcActive && fullSlots.length > 0,
+      // Task 106 — rotate/single mode publishes the pool's slot card even when
+      // NO enabled slot exists (disabled-but-selected rotation): the pillar is
+      // active whenever the runtime is actually sending a slot card.
+      rpc: isRpcActive && (fullSlots.length > 0 || runtime.candidates.some(c => !c.gameSlug)),
       game: isRpcActive && fullGames.length > 0,
     }
 
@@ -2552,10 +2591,11 @@ export class RpcDaemon {
     }
 
     if ((DAEMON_ROLE === 'all' || DAEMON_ROLE === 'rpc') && isRpcActive && runtime.runtimeMode === 'rotate' && runtime.rotateIndex != null) {
+      const allSlotsCount = (rpcConfigs as Array<{ gameSlug?: string }>).filter(c => !c.gameSlug).length
       const poolNote = Array.isArray(rotate.slots)
-        ? `, selection: ${runtime.rotatePoolLength} of ${fullSelection.candidates.length} RPCs${rotateGameExtraActive ? `, ${rotateGameExtras.length} left-out RPC(s) stay visible` : ''}`
+        ? `, selection: ${runtime.rotatePoolLength} of ${allSlotsCount} RPCs${rotateGameExtraActive ? `, ${rotateGameExtras.length} left-out RPC(s) stay visible` : ''}`
         : `${rotate.includeGame ? '' : ', excluded games pinned to their own sessions'}`
-      console.log(`[10X RPC Daemon] Auto Rotate for user ${userId}: candidate ${runtime.rotateIndex + 1}/${runtime.rotatePoolLength ?? fullSelection.candidates.length} (${runtime.candidates[0]?.name ?? '?'}) every ${rotate.secs}s, order=${rotate.order}${rotate.skip > 0 ? `, skip+${rotate.skip}` : ''}${poolNote}`)
+      console.log(`[10X RPC Daemon] Auto Rotate for user ${userId}: candidate ${runtime.rotateIndex + 1}/${runtime.rotatePoolLength ?? allSlotsCount} (${runtime.candidates[0]?.name ?? '?'}) every ${rotate.secs}s, order=${rotate.order}${rotate.skip > 0 ? `, skip+${rotate.skip}` : ''}${poolNote}`)
     }
 
     // If socket is open and payload is ready, send OP 3 — Task 99: never
