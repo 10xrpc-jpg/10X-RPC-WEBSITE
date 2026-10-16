@@ -1,0 +1,418 @@
+// 10X RPC — Prisma schema
+// Uses PostgreSQL (Neon) in production. Falls back to SQLite if DATABASE_URL
+// starts with "file:". The provider is resolved by postinstall script + the
+// build script that runs `prisma generate` with the correct provider.
+
+generator client {
+  provider      = "prisma-client-js"
+  binaryTargets = ["native", "linux-musl-openssl-3.0.x", "debian-openssl-3.0.x", "debian-openssl-1.1.x", "rhel-openssl-3.0.x", "rhel-openssl-1.1.x"]
+}
+
+datasource db {
+  provider  = "sqlite"
+  url       = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(cuid())
+  discordId     String   @unique
+  username      String
+  discriminator String?
+  avatar        String?
+  backgroundUrl String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions       Session[]
+  rpcConfigs     RpcConfig[]
+  gameConfigs    GameConfig[]
+  rotatorPresets RotatorPreset[]
+  globalConfig   GlobalConfig?
+  trial          Trial?
+  subscription   Subscription?
+  payments       Payment[]
+  applicationRpc ApplicationRpcConfig?
+  /** Internal admin remarks (never shown to the user). */
+  adminNote      String?
+}
+
+model Session {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  // Discord OAuth tokens (stored server-side only, never sent to client)
+  discordAccessToken    String?
+  discordRefreshToken   String?
+  discordTokenExpiresAt DateTime?
+
+  // Status & RPC state (completely independent)
+  statusEnabled      Boolean   @default(false)
+  rpcEnabled         Boolean   @default(false)
+  gatewayReady       Boolean   @default(false)
+  userStatus         String    @default("online")
+  customStatus       String?
+  customStatusEmoji  String?
+  statusPlatform     String    @default("mobile")
+  lastPresenceUpdate DateTime?
+
+  // VR / Meta Quest state
+  vrStatusActive     Boolean   @default(false)
+  vrSessionToken     String?
+  vrMetaAccessToken  String?
+  vrMetaRefreshToken String?
+  vrMetaTokenExpires DateTime?
+
+  // Smart sleep timer
+  sleepTimerActive Boolean   @default(false)
+  sleepTimerEndsAt DateTime?
+
+  @@index([userId])
+}
+
+model RpcConfig {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String   @default("10X RPC")
+  type         String   @default("PLAYING") // PLAYING / STREAMING / LISTENING / WATCHING / COMPETING
+  platform     String   @default("desktop") // desktop / xbox / ps4 / ps5 / samsung / ios / android / embedded / meta_quest
+  /** RPC slot 1..3 — up to three independent, simultaneously-manageable RPC
+   *  configurations per user. Existing single-RPC rows default to slot 1. */
+  slot         Int      @default(1)
+  state        String?
+  details      String?
+  largeImage   String?
+  largeText    String?
+  smallImage   String?
+  smallText    String?
+  button1Label String?
+  button1Url   String?
+  button2Label String?
+  button2Url   String?
+  partyCurrent Int?
+  partyMax     Int?
+  partyId      String?
+  partySecret  String?
+  startMinsAgo Int      @default(0)
+  endTotalMins Int?
+  appId        String? // Discord Application ID (user's own app) — daemon presents Normal RPC presence as this application
+  enabled      Boolean  @default(false)
+  /** Task 111 — CONFIGURED-ONLY VISIBILITY. True ONLY after the user explicitly
+   *  saved this slot's configuration (or explicitly enabled it). Legacy builds
+   *  auto-created default "10X RPC" placeholder rows — those stay configured=false
+   *  and are hidden from every API response, the dashboard UI, the Auto-Rotate
+   *  pool and the runtime presence. Never flipped back to false anywhere. */
+  configured   Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model GameConfig {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gameSlug     String // e.g. "minecraft", "genshin", "gta-v", "custom-4f2a..."
+  gameName     String
+  enabled      Boolean  @default(false)
+  appId        String? // Discord Application ID (custom games with "Add Games") — daemon presents presence as this application
+  platform     String   @default("desktop")
+  state        String?
+  details      String?
+  largeImage   String?
+  largeText    String?
+  smallImage   String?
+  smallText    String?
+  button1Label String?
+  button1Url   String?
+  button2Label String?
+  button2Url   String?
+  partyCurrent Int      @default(1)
+  partyMax     Int      @default(5)
+  partyId      String?
+  partySecret  String?
+  startMinsAgo Int      @default(0)
+  endTotalMins Int?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([userId, gameSlug])
+  @@index([userId])
+}
+
+// Application RPC — the THIRD, fully independent RPC system (alongside the
+// Normal RPC slots and the Game RPC). Own table, own identifiers, own enabled
+// flag, own execution path (src/lib/application-rpc-daemon.ts) and own status
+// tracking. Saving/toggling this row NEVER reads or writes RpcConfig,
+// GameConfig or the Session RPC flags, and vice versa.
+// runState is the daemon-written execution truth: idle | starting | running |
+// error (runError carries the exact reason). runSinceAt is an ISO timestamp —
+// epoch ms would overflow the 32-bit Int column; a String keeps the raw-SQL
+// status writes portable across Postgres/SQLite and never touches updatedAt
+// (the elapsed-time anchor for the activity).
+model ApplicationRpcConfig {
+  id           String   @id @default(cuid())
+  userId       String   @unique
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name         String   @default("10X RPC")
+  type         String   @default("PLAYING") // PLAYING / STREAMING / LISTENING / WATCHING / COMPETING
+  platform     String   @default("meta_quest") // session platform class; default = VR class (collision-safe)
+  /** Discord Application ID this RPC presents as. REQUIRED to enable — the
+   *  whole point of Application RPC is running under a specific application.
+   *  Game catalog ids are rejected here (reserved for the isolated Game RPC). */
+  appId        String?
+  state        String?
+  details      String?
+  largeImage   String?
+  largeText    String?
+  smallImage   String?
+  smallText    String?
+  button1Label String?
+  button1Url   String?
+  button2Label String?
+  button2Url   String?
+  partyCurrent Int?
+  partyMax     Int?
+  startMinsAgo Int      @default(0)
+  endTotalMins Int?
+  enabled      Boolean  @default(false)
+  runState     String   @default("idle")
+  runError     String?
+  runSinceAt  String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model RotatorPreset {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji        String?
+  text         String
+  durationMins Int      @default(5) // how long this status stays before rotating
+  order        Int      @default(0)
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@index([userId])
+}
+
+model GlobalConfig {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  city                String?
+  timezone            String   @default("Asia/Calcutta")
+  tempUnit            String   @default("C")
+  rotatorEnabled      Boolean  @default(false)
+  rotatorIntervalMins Int      @default(5)
+  /** RPC Auto Rotate — optional runtime-only rotation across the user's
+   *  ENABLED RPC slots (+ enabled game). Never modifies saved configs. */
+  rpcAutoRotate       Boolean  @default(false)
+  rpcRotateSecs       Int      @default(30)
+  /** Task 87 — rotation order: forward | reverse | shuffle (deterministic). */
+  rpcRotateOrder      String   @default("forward")
+  /** Task 87 — when false, the Game RPC does NOT join the rotation: it keeps
+   *  its own always-visible Discord session while the slots rotate. */
+  rpcRotateIncludeGame Boolean @default(true)
+  /** Task 87 — manual advance counter ("Skip to next RPC"). Incremented via
+   *  raw SQL WITHOUT touching updatedAt (the rotation anchor). */
+  rpcRotateSkip       Int      @default(0)
+  /** Task 89 — explicit rotation pool: JSON string[] of candidate keys
+   *  (RpcConfig ids or "game:<slug>"). null = not set → every enabled RPC
+   *  joins per rpcRotateIncludeGame; an array = ONLY those candidates rotate. */
+  rpcRotateSlots      String?
+  /** Task 95 — GAME Auto-Rotate: FULLY independent from the Normal RPC
+   *  rotation above. Own switch, own interval, own pool (game slugs), own
+   *  skip counter, own clock anchor and applied-skip watermark. The daemon
+   *  flips GameConfig.enabled so exactly ONE game runs at a time; these
+   *  columns never touch rpcAutoRotate* and vice versa. */
+  gameRotateEnabled   Boolean  @default(false)
+  gameRotateSecs      Int      @default(60)
+  gameRotateOrder     String   @default("forward")
+  /** Manual advance counter ("Skip to next game") — raw-SQL bump, never
+   *  touches updatedAt. */
+  gameRotateSkip      Int      @default(0)
+  /** JSON string[] of GameConfig.gameSlug values the user selected for the
+   *  rotation pool. null = rotate every game. */
+  gameRotateSlots     String?
+  /** The slug currently published by the rotation (persists restarts). */
+  gameRotateCurrent   String?
+  /** Rotation clock anchor — independent from updatedAt so either system's
+   *  settings changes never reset the other system's phase. */
+  gameRotateAnchorAt  DateTime?
+  /** Watermark of the gameRotateSkip counter already applied by the daemon. */
+  gameRotateAppliedSkip Int    @default(0)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model Trial {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startsAt  DateTime @default(now())
+  endsAt    DateTime
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// Subscription — the single source of truth for user access.
+// Lifecycle: new user → plan "free", status "trialing" (3-day free trial).
+// When the trial (or a paid period) ends, the lazy sweep flips the status to
+// "suspended" and kills every session's RPC — the user must renew (admin grant
+// or Discord purchase) to regain access. Admins bypass gating entirely.
+//   plan    = free | plus | pro | lifetime
+//   status  = trialing | active | suspended
+//   trialEndsAt      — end of the free-trial phase (status "trialing")
+//   currentPeriodEnd — end of the paid period (status "active"; null = never expires)
+model Subscription {
+  id               String    @id @default(cuid())
+  userId           String    @unique
+  user             User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  plan             String    @default("free")
+  status           String    @default("trialing")
+  trialEndsAt      DateTime?
+  currentPeriodEnd DateTime?
+  suspendedAt      DateTime?
+  /** True once this account consumed its signup (or admin-granted) free trial. */
+  trialUsed        Boolean   @default(false)
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  @@index([status])
+}
+
+model OAuthState {
+  id        String   @id @default(cuid())
+  state     String   @unique
+  verifier  String
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([state])
+}
+
+// Cache of images uploaded as Discord application assets (url -> asset key)
+// so the RPC daemon can reference user-provided image URLs as native
+// Discord assets (gateway presences only render application asset keys).
+model DiscordAsset {
+  id        String   @id @default(cuid())
+  url       String   @unique // source image URL (or local file:// reference)
+  key       String   @unique // Discord application asset key (name) sent in activity assets
+  assetId   String? // Discord numeric asset id (informational)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([key])
+}
+
+// Mirrored copies of user-provided images, served via /api/asset-mirror/[hash].
+// Unlike public/asset-mirror static files (which only reach production on a
+// redeploy), DB-backed mirrors are live on Vercel IMMEDIATELY — new user images
+// resolve without any deploy step.
+model MirrorAsset {
+  id          String   @id @default(cuid())
+  hash        String   @unique // sha1(source URL pathname), 16 hex chars
+  contentType String
+  bytes       Bytes
+  size        Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Profile Board → Favorite Game: the user's shortlist of games (starred).
+// A favorite references either a catalog preset (slug) or a Discord
+// application discovered via the directory search (appId). "Use for Game RPC"
+// resolves it to the user's GameConfig (creating the custom game if needed)
+// and enables it as the active Gamer RPC.
+
+// Payments ledger — one row per Razorpay order created for a subscription
+// purchase. "created" → "paid" (verify/webhook) → subscription activated.
+// Keeps the admin platform honest about revenue without any Razorpay
+// dashboard access.
+model Payment {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider   String   @default("razorpay")
+  orderId    String   @unique
+  paymentId  String?  @unique
+  plan       String // plus | pro | <plan slug>
+  amount     Int // paise
+  currency   String   @default("INR")
+  status     String   @default("created")
+  /** Snapshot of the plan's display name at purchase time (plan edits never rewrite history). */
+  planLabel  String?
+  /** Snapshot of the granted period in days — the activation entitlement. */
+  periodDays Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId])
+  @@index([status])
+}
+
+// Admin-managed subscription plans. The pricing page + checkout resolve
+// everything from here (amount/duration/features), so prices and durations
+// can change without a code deploy. Payment rows snapshot what was purchased.
+model Plan {
+  id             String   @id @default(cuid())
+  slug           String   @unique // plus | pro | lifetime | custom
+  name           String
+  description    String?
+  amount         Int // paise (INR)
+  originalAmount Int? // paise — struck-through "was" price for offers
+  durationDays   Int // granted period length
+  badge          String? // POPULAR / BEST VALUE / RECOMMENDED…
+  featuresJson   String   @default("[]") // JSON string[] — primitive lists are not portable
+  active         Boolean  @default(true) // purchasable (checkout accepts only active plans)
+  visible        Boolean  @default(true) // shown on the public pricing page
+  displayOrder   Int      @default(0)
+  trial          Boolean  @default(false) // marks the free-trial plan (informational)
+  archived       Boolean  @default(false) // archived = hidden everywhere, historical data intact
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([active, visible, displayOrder])
+}
+
+// Server-controlled platform settings (trial policy, offers, …) as JSON
+// strings keyed by name. Edited from the admin dashboard; read by the
+// backend with short in-memory caching.
+model PlatformSetting {
+  key       String   @id
+  value     String // JSON
+  updatedAt DateTime @updatedAt
+}
+
+// Tamper-resistant record of privileged admin actions (plans, trials,
+// subscription adjustments, payments). before/after are JSON snapshots.
+model AuditLog {
+  id          String   @id @default(cuid())
+  actorId     String // acting admin's Discord ID
+  actorName   String?
+  action      String // e.g. plan.create · subscription.add_days · trial.config_update
+  targetType  String? // user | plan | trial_config | payment | platform
+  targetId    String? // user id / plan id / …
+  targetLabel String? // human label (username / plan name) for quick scanning
+  beforeJson  String?
+  afterJson   String?
+  reason      String?
+  outcome     String   @default("ok") // ok | error
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([targetType, targetId])
+  @@index([actorId])
+}
