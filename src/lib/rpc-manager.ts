@@ -433,6 +433,18 @@ function allSlotCandidates(
 }
 
 /**
+ * Task 107 — public wrapper: EVERY created slot row (enabled AND disabled) in
+ * the deterministic slot order (slot → createdAt → id). The display-type
+ * inputs in Auto-Rotate mode are built from this list on ALL surfaces so the
+ * assignment is identical everywhere (see buildGlobalDisplayTypeInputs).
+ */
+export function sortedSlotRows(
+  rows: Array<RpcCandidate & { slot?: number }> | null | undefined
+): RpcCandidate[] {
+  return allSlotCandidates(rows)
+}
+
+/**
  * Task 106 — a RUNTIME-ONLY publishable copy of a rotation candidate. The
  * activity builder skips candidates whose `enabled` flag is false (that flag
  * governs the non-rotate Multi-Session mode); a slot taking its Auto-Rotate
@@ -626,6 +638,54 @@ export interface DisplayTypeCandidate {
 }
 
 /**
+ * Task 107 — ONE shared constructor for the GLOBAL display-type assignment
+ * inputs, used verbatim by ALL THREE surfaces (rpc-daemon.ts, application-
+ * rpc-daemon.ts, /api/me) so every process computes the IDENTICAL assignment
+ * from the same rows. Order: games FIRST (pinned PLAYING, Task 105), then
+ * slots, then the Application RPC.
+ *
+ * `slots` semantics per mode:
+ *   • Auto Rotate ON  → EVERY created slot (enabled AND disabled) in stable
+ *     slot order. A DISABLED-but-selected slot takes rotation turns and IS
+ *     pushed during its turn — before this change it was missing from the
+ *     inputs, kept its configured PLAYING, and was pruned by the client
+ *     against the game's pinned PLAYING card (the "RPC3 not showing during
+ *     its rotation turn" bug). Extra disabled rows in the assignment are
+ *     harmless: every surface includes them identically, and only PUSHED
+ *     cards are subject to the client prune.
+ *   • Auto Rotate OFF → enabled slots only (the pushed set).
+ */
+export function buildGlobalDisplayTypeInputs(src: {
+  slots: Array<{ id?: string | null; name?: string | null; appId?: string | null; type?: string | null; gameSlug?: string | null } | null | undefined>
+  games: Array<{ id?: string | null; gameSlug?: string | null; gameName?: string | null; name?: string | null } | null | undefined>
+  appRpc?: { name: string | null; appId: string | null; type: string | null } | null
+}): DisplayTypeCandidate[] {
+  return [
+    // Games FIRST — the pinned game consumes the single global PLAYING card.
+    ...(src.games ?? [])
+      .filter((g): g is { id?: string | null; gameSlug?: string | null; gameName?: string | null; name?: string | null } => !!g)
+      .map(g => ({
+        key: `game:${g.gameSlug ?? g.id ?? 'unknown'}`,
+        name: g.gameName || g.name || 'Game',
+        appId: null,
+        configuredType: 'PLAYING',
+        kind: 'game' as const,
+      })),
+    ...(src.slots ?? [])
+      .filter((s): s is { id?: string | null; name?: string | null; appId?: string | null; type?: string | null; gameSlug?: string | null } => !!s && !s.gameSlug)
+      .map(s => ({
+        key: s.id ?? '',
+        name: s.name ?? '',
+        appId: s.appId ?? null,
+        configuredType: s.type ?? null,
+      })),
+    ...(src.appRpc
+      ? [{ key: 'app_rpc', name: src.appRpc.name ?? '', appId: src.appRpc.appId, configuredType: src.appRpc.type }]
+      : []),
+  ]
+}
+
+/**
  * Assign each candidate a DISPLAY activity type so Discord's client renders
  * every card simultaneously (rules above). Returns key → type string.
  *
@@ -655,7 +715,16 @@ export function assignDisplayTypes(
       // system: no substitute, no rotate-mode demotion, no collapse-driven
       // re-labeling. Distinct game names / spoofed app ids keep every game
       // card's (type, application_id, name) triple unique by construction.
+      // Task 107 — the game ALSO CONSUMES the single global PLAYING slot
+      // (playingTaken): Discord's client prune keeps exactly ONE PLAYING
+      // activity across the WHOLE profile, so the pinned game's PLAYING
+      // blocks every later non-game PLAYING candidate. Without this stamp
+      // the first PLAYING-configured slot after a game ALSO presented as
+      // PLAYING → two PLAYING cards → the client pruned one → the
+      // "RPC not showing / flip-flopping" bug the games-first input order
+      // was supposed to prevent but could not on its own.
       t = 'PLAYING'
+      playingTaken = true
     } else if ((configured === 'PLAYING' && !playingTaken && !neverPlayingKeys.has(c.key))) {
       t = 'PLAYING'
       playingTaken = true

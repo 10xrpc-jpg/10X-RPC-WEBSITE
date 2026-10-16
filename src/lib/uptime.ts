@@ -23,6 +23,9 @@ export interface DaemonReport extends UptimeProbe {
   totalTrackedUsers?: number
   authFailedUsers?: number
   platforms?: Record<string, number>
+  /** Task 107 — per-node detail when ORIHOST_DAEMON_URL lists several nodes
+   *  (the 3-node Orihost split: status / rpc / game). */
+  nodes?: Array<{ url: string; ok: boolean; latencyMs: number | null; error?: string; running?: boolean }>
 }
 
 export interface NodeReport extends UptimeProbe {
@@ -102,19 +105,27 @@ async function probeDiscord(): Promise<UptimeProbe> {
   return probe
 }
 
-async function probeDaemon(): Promise<DaemonReport> {
-  const base = process.env.ORIHOST_DAEMON_URL
-  if (!base) return { configured: false, ok: false, latencyMs: null, error: 'ORIHOST_DAEMON_URL not set' }
+/** Task 107 — ORIHOST_DAEMON_URL is a COMMA-SEPARATED list of node base URLs
+ *  (presence-sync.ts splits it the same way for /sync broadcasts). The uptime
+ *  probe used to treat the whole env var as ONE URL → "Failed to parse URL
+ *  from http://…,http://…,http://…/status" → the uptime page reported the
+ *  daemon down (operational:false) even with all three nodes healthy. */
+function orihostDaemonBases(): string[] {
+  return (process.env.ORIHOST_DAEMON_URL || '')
+    .split(',')
+    .map(s => s.trim().replace(/\/+$/, ''))
+    .filter(Boolean)
+}
 
-  const { probe, body } = await timedFetch(`${base}/status`, undefined, PROBE_TIMEOUT_MS)
-  if (!probe.ok || !body) return { configured: true, ...probe }
+interface DaemonStatusBody {
+  heartbeatAgeSec?: number
+  daemon?: { status?: Record<string, unknown>; iso?: string }
+  status?: Record<string, unknown>
+}
 
+function parseDaemonStatus(body: string): { running?: boolean; uptimeSeconds?: number; heartbeatAgeSec?: number | null; lastTickAt?: string | null; activeConnections?: number; totalTrackedUsers?: number; authFailedUsers?: number; platforms: Record<string, number> } | null {
   try {
-    const parsed = JSON.parse(body) as {
-      heartbeatAgeSec?: number
-      daemon?: { status?: Record<string, unknown>; iso?: string }
-      status?: Record<string, unknown>
-    }
+    const parsed = JSON.parse(body) as DaemonStatusBody
     const st = (parsed.daemon?.status ?? parsed.status ?? {}) as {
       running?: boolean
       uptimeSeconds?: number
@@ -130,11 +141,8 @@ async function probeDaemon(): Promise<DaemonReport> {
       platforms[p] = (platforms[p] ?? 0) + 1
     }
     return {
-      configured: true,
-      ok: probe.ok && st.running === true,
-      latencyMs: probe.latencyMs,
       running: st.running,
-      daemonUptimeSeconds: st.uptimeSeconds,
+      uptimeSeconds: st.uptimeSeconds,
       heartbeatAgeSec: typeof parsed.heartbeatAgeSec === 'number' ? parsed.heartbeatAgeSec : null,
       lastTickAt: st.lastTickAt ?? null,
       activeConnections: st.activeConnections,
@@ -143,7 +151,61 @@ async function probeDaemon(): Promise<DaemonReport> {
       platforms,
     }
   } catch {
-    return { configured: true, ...probe }
+    return null
+  }
+}
+
+async function probeDaemon(): Promise<DaemonReport> {
+  const bases = orihostDaemonBases()
+  if (bases.length === 0) return { configured: false, ok: false, latencyMs: null, error: 'ORIHOST_DAEMON_URL not set' }
+
+  // Probe EVERY node in parallel (3-node split: status / rpc / game roles).
+  const results = await Promise.all(
+    bases.map(async base => {
+      const { probe, body } = await timedFetch(`${base}/status`, undefined, PROBE_TIMEOUT_MS)
+      if (!probe.ok || !body) {
+        return { url: base, ok: false, latencyMs: probe.latencyMs, error: probe.error, running: undefined, st: null }
+      }
+      const st = parseDaemonStatus(body)
+      if (!st) return { url: base, ok: false, latencyMs: probe.latencyMs, error: 'invalid /status payload', running: undefined, st: null }
+      return { url: base, ok: probe.ok && st.running === true, latencyMs: probe.latencyMs, running: st.running, st }
+    })
+  )
+
+  const ok = results.length > 0 && results.every(r => r.ok)
+  // Worst-case latency represents the probe honestly; single-node setups behave exactly as before.
+  const latencyMs = results.reduce<number | null>((worst, r) => {
+    if (typeof r.latencyMs !== 'number') return worst
+    return worst === null ? r.latencyMs : Math.max(worst, r.latencyMs)
+  }, null)
+  const firstErr = results.find(r => !r.ok)
+  const stats = results.map(r => r.st).filter((s): s is NonNullable<typeof s> => !!s)
+  const sum = (pick: (s: NonNullable<typeof stats[number]>) => number | undefined): number | undefined => {
+    const vals = stats.map(pick).filter((v): v is number => typeof v === 'number')
+    return vals.length > 0 ? vals.reduce((a, b) => a + b, 0) : undefined
+  }
+  const platforms: Record<string, number> = {}
+  for (const st of stats) {
+    for (const [p, n] of Object.entries(st.platforms)) platforms[p] = (platforms[p] ?? 0) + n
+  }
+  const uptimes = stats.map(s => s.uptimeSeconds).filter((v): v is number => typeof v === 'number')
+  const heartbeats = stats.map(s => s.heartbeatAgeSec).filter((v): v is number => typeof v === 'number')
+  const lastTicks = stats.map(s => s.lastTickAt).filter((v): v is string => typeof v === 'string')
+
+  return {
+    configured: true,
+    ok,
+    latencyMs,
+    error: ok ? undefined : (firstErr?.error ?? 'one or more daemon nodes unreachable'),
+    running: results.some(r => r.running === true),
+    daemonUptimeSeconds: uptimes.length > 0 ? Math.max(...uptimes) : undefined,
+    heartbeatAgeSec: heartbeats.length > 0 ? Math.max(...heartbeats) : null,
+    lastTickAt: lastTicks.sort().at(-1) ?? null,
+    activeConnections: sum(s => s.activeConnections),
+    totalTrackedUsers: sum(s => s.totalTrackedUsers),
+    authFailedUsers: sum(s => s.authFailedUsers),
+    platforms,
+    nodes: results.map(({ url, ok: nodeOk, latencyMs: l, error, running }) => ({ url, ok: nodeOk, latencyMs: l, error, running })),
   }
 }
 

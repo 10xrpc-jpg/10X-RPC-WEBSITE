@@ -18,6 +18,8 @@ import {
   selectActiveRpcConfigs,
   assignSessionPlatforms,
   assignDisplayTypes,
+  buildGlobalDisplayTypeInputs,
+  sortedSlotRows,
   discordPlatformClass,
   isValidActivityPlatform,
   type PresenceResult,
@@ -518,9 +520,35 @@ function presenceConfigFingerprint(
   },
   rpcConfigs: Array<{ id?: string | null; enabled?: boolean | null; updatedAt?: Date | string | null }>,
   enabledGames: Array<{ gameSlug?: string | null; updatedAt?: Date | string | null }>,
-  rotatorEnabled?: boolean | null
+  rotatorEnabled?: boolean | null,
+  /** Task 107 — the user's GlobalConfig row. The rpc/all fingerprints now
+   *  include the AUTO ROTATE settings (on/secs/order/skip/slots/includeGame):
+   *  a rotation-only change (enable, selection, interval, order, skip) used
+   *  to leave the fingerprint UNCHANGED, so syncUser took the cheap no-op
+   *  branch and the new rotation state waited for the next tick instead of
+   *  applying instantly. Defensive reads keep this safe on standalone Orihost
+   *  Prisma clients generated before the rpcRotate* columns existed (undefined
+   *  → stable constant → no phantom drift). */
+  globalConfigRow?: unknown
 ): string {
   const ts = (d?: Date | string | null) => (d ? new Date(d).getTime() : 0)
+  const rotFp = (): Record<string, unknown> => {
+    const gc = globalConfigRow as
+      | { rpcAutoRotate?: unknown; rpcRotateSecs?: unknown; rpcRotateOrder?: unknown; rpcRotateSkip?: unknown; rpcRotateSlots?: unknown; rpcRotateIncludeGame?: unknown }
+      | null
+      | undefined
+    if (!gc || typeof gc !== 'object') return { on: 0 }
+    const on = gc.rpcAutoRotate === true || gc.rpcAutoRotate === 1
+    if (!on) return { on: 0 }
+    return {
+      on: 1,
+      secs: Number(gc.rpcRotateSecs) || 0,
+      order: typeof gc.rpcRotateOrder === 'string' ? gc.rpcRotateOrder : '',
+      skip: Math.max(0, Math.floor(Number(gc.rpcRotateSkip) || 0)),
+      slots: typeof gc.rpcRotateSlots === 'string' ? gc.rpcRotateSlots : '',
+      ig: gc.rpcRotateIncludeGame === false || gc.rpcRotateIncludeGame === 0 ? 0 : 1,
+    }
+  }
   if (DAEMON_ROLE === 'status') {
     return JSON.stringify({
       r: 'status',
@@ -539,6 +567,7 @@ function presenceConfigFingerprint(
       r: 'rpc',
       re: session.rpcEnabled ? 1 : 0,
       slots: rpcConfigs.map(c => `${c.id ?? ''}:${c.enabled ? 1 : 0}:${ts(c.updatedAt)}`),
+      rot: rotFp(),
     })
   }
   if (DAEMON_ROLE === 'game') {
@@ -560,6 +589,7 @@ function presenceConfigFingerprint(
     slots: rpcConfigs.map(c => `${c.id ?? ''}:${c.enabled ? 1 : 0}:${ts(c.updatedAt)}`),
     games: enabledGames.map(g => `${g.gameSlug ?? ''}:${ts(g.updatedAt)}`),
     rot: rotatorEnabled ? 1 : 0,
+    rpcRot: rotFp(),
     sleep: session.sleepTimerActive ? 1 : 0,
   })
 }
@@ -1110,6 +1140,8 @@ export class RpcDaemon {
           rpcConfigs,
           allGameRows.filter(g => g.enabled),
           session.user.globalConfig?.rotatorEnabled,
+          // Task 107 — rotation-only changes must drift-check as a change.
+          session.user.globalConfig,
         )
         userSock.desiredFingerprint = driftFp
         if (userSock.lastAppliedFingerprint !== driftFp) {
@@ -1321,6 +1353,8 @@ export class RpcDaemon {
       rpcConfigs,
       enabledGames,
       session.user.globalConfig?.rotatorEnabled,
+      // Task 107 — rotation settings are part of the rpc fingerprint now.
+      session.user.globalConfig,
     )
     userSock.desiredFingerprint = desiredFp
 
@@ -1967,6 +2001,8 @@ export class RpcDaemon {
       rpcConfigs,
       enabledGames.filter((g): g is NonNullable<typeof g> => !!g),
       (globalConfig as { rotatorEnabled?: boolean | null } | null)?.rotatorEnabled,
+      // Task 107 — rotation settings are part of the rpc fingerprint now.
+      globalConfig,
     )
 
     // AUTO ROTATE settings (raw SQL — Orihost-safe, missing columns → OFF).
@@ -2184,37 +2220,29 @@ export class RpcDaemon {
       // into the inputs (pinned PLAYING, Task 93) so its slot types come out
       // IDENTICAL to the combined daemon's — the game cards live on the game
       // role, but the at-most-one-non-game-PLAYING rule sees them.
-      const globalTypeInputs: DisplayTypeCandidate[] = [
-        ...fullSelection.candidates.map(c => ({
-          key: rpcCandidateKey(c),
-          name: c.name ?? '',
-          appId: c.gameSlug ? null : (c.appId ?? null),
-          configuredType: c.type ?? null,
-          // Task 93 — Game RPC candidates are PINNED to PLAYING (they never
-          // present as any other status, in any mode).
-          kind: c.gameSlug ? ('game' as const) : undefined,
-        })),
-        ...(appRpcRow ? [{
-          key: 'app_rpc',
-          name: appRpcRow.name,
-          appId: appRpcRow.appId,
-          configuredType: appRpcRow.type,
-        }] : []),
-      ]
-      // Task 105 — GAME CANDIDATES FIRST for the rpc role. The client prune
-      // keeps exactly ONE PLAYING activity GLOBALLY (Task 92 bundle
-      // verification: display = prune(uniqBy(type:app:name))), and the Task 93
-      // pin makes every enabled game PLAYING. With the previous slots-first
-      // input order the first PLAYING slot consumed the assignment before the
-      // pinned game was seen → slot PLAYING + game PLAYING → the client pruned
-      // one of the two cards every time (the visible "RPC2 not showing" /
-      // "game not showing" flip-flop). Games first → the pinned game(s) take
-      // PLAYING and EVERY slot deterministically yields to a substitute type.
-      const orderedTypeInputs: DisplayTypeCandidate[] = DAEMON_ROLE === 'rpc'
-        ? [...globalTypeInputs].sort(
-            (a, b) => (a.kind === 'game' ? 0 : 1) - (b.kind === 'game' ? 0 : 1)
-          )
-        : globalTypeInputs
+      // Task 107 — ONE shared input builder for ALL surfaces (rpc-daemon,
+      // application-rpc-daemon, /api/me — see buildGlobalDisplayTypeInputs).
+      // In Auto-Rotate mode the slots input is EVERY created slot (enabled
+      // AND disabled): a disabled-but-selected slot IS pushed during its
+      // rotation turn and must be part of the assignment — before this fix
+      // it was missing, kept its configured PLAYING, and the client pruned
+      // it against the game's pinned PLAYING card ("RPC3 not showing during
+      // its turn"). Non-rotate modes keep the enabled-slots-only pushed set.
+      const globalTypeInputs: DisplayTypeCandidate[] = buildGlobalDisplayTypeInputs({
+        slots: runtime.runtimeMode === 'rotate'
+          ? (sortedSlotRows(rpcConfigs as Array<RpcCandidate & { slot?: number }>))
+          : fullSelection.candidates,
+        games: fullGames,
+        appRpc: appRpcRow,
+      })
+      // Task 105 — GAME CANDIDATES FIRST (the shared builder already emits
+      // games first — kept as an invariant note). The client prune keeps
+      // exactly ONE PLAYING activity GLOBALLY (Task 92 bundle verification:
+      // display = prune(uniqBy(type:app:name))), and the Task 93 pin makes
+      // every enabled game PLAYING. Task 107 — a pinned game also CONSUMES
+      // the global PLAYING position inside assignDisplayTypes, so every
+      // non-game candidate deterministically yields to a substitute type.
+      const orderedTypeInputs: DisplayTypeCandidate[] = globalTypeInputs
       if (DAEMON_ROLE === 'rpc') {
         // Role view — apply over the rpc role's own candidates only.
         if (multiSessionRpc) {
@@ -2223,16 +2251,28 @@ export class RpcDaemon {
             const t = displayTypes.get(rpcCandidateKey(c))
             if (t && t !== c.type) c.type = t
           }
-        } else if (rotatePinnedRpc) {
-          // Rotate mode: the rotating main session owns the single PLAYING
-          // card among the NON-game candidates; pinned slot extras and the
-          // Application RPC never present as PLAYING. (Games are exempt by
-          // definition — Task 93 — and live on the game role anyway.)
+        } else if (isRpcActive && runtime.runtimeMode === 'rotate') {
+          // Task 107 — ALL Auto-Rotate mode (with AND without pinned extras).
+          // The pinned-game card is PLAYING (Task 93, game role), so the
+          // ROTATING main card must deterministically yield to a substitute
+          // type — the client prune keeps exactly ONE PLAYING activity
+          // GLOBALLY, and before this fix the rotating card kept its
+          // configured PLAYING whenever NO slot was left out of the pool
+          // (the most common setup: game enabled + every selected slot in the
+          // rotation) → two PLAYING cards → one pruned → the rotating RPC
+          // vanished from Discord (the "Auto-Rotate RPC not showing" bug).
           const neverPlaying = new Set<string>(
             rotateGameExtras.filter(c => !c.gameSlug).map(c => rpcCandidateKey(c))
           )
           if (appRpcRow) neverPlaying.add('app_rpc')
           const displayTypes = assignDisplayTypes(orderedTypeInputs, neverPlaying)
+          // The rotating MAIN card (runtime.candidates[0] — the publishable
+          // rotation copy) takes the assignment first.
+          const rotatingCandidate = runtime.candidates[0]
+          if (rotatingCandidate && !rotatingCandidate.gameSlug) {
+            const t = displayTypes.get(rpcCandidateKey(rotatingCandidate))
+            if (t && t !== rotatingCandidate.type) rotatingCandidate.type = t
+          }
           for (const c of rotateGameExtras) {
             const t = displayTypes.get(rpcCandidateKey(c))
             if (t && t !== c.type) c.type = t
@@ -2249,24 +2289,30 @@ export class RpcDaemon {
           }
         }
       } else if (multiSessionActive) {
-        const displayTypes = assignDisplayTypes(globalTypeInputs)
+        const displayTypes = assignDisplayTypes(orderedTypeInputs)
         for (const c of runtime.candidates) {
           const t = displayTypes.get(rpcCandidateKey(c))
           if (t && t !== c.type) c.type = t
         }
-      } else if (rotateGameExtraActive) {
-        // Rotate mode: the rotating main session owns the single PLAYING card
-        // among the NON-game candidates. Pinned slot extras and the
-        // Application RPC (it enforces the same rule via GlobalConfig
-        // .rpcAutoRotate) never present as PLAYING.
-        // Task 93 — GAME extras are EXEMPT: a Game RPC always presents as
-        // PLAYING ("Playing <Game>"), pinned or not — it never switches to
-        // another status, even while Auto Rotate runs.
+      } else if (isRpcActive && runtime.runtimeMode === 'rotate') {
+        // Task 107 — combined-daemon Auto-Rotate branch (covers rotate WITH
+        // and WITHOUT pinned extras — it subsumes the old rotateGameExtra-
+        // Active-only branch, which missed the plain-rotate case entirely).
+        // The pinned-game card is PLAYING (Task 93), so the rotating main
+        // card must yield to a substitute type — otherwise two PLAYING
+        // activities coexist and the client prune removes one (the rotating
+        // RPC vanished whenever a game was enabled). Pinned slot extras and
+        // the Application RPC never present as PLAYING while rotation runs.
         const neverPlaying = new Set<string>(
           rotateGameExtras.filter(c => !c.gameSlug).map(c => rpcCandidateKey(c))
         )
         if (appRpcRow) neverPlaying.add('app_rpc')
-        const displayTypes = assignDisplayTypes(globalTypeInputs, neverPlaying)
+        const displayTypes = assignDisplayTypes(orderedTypeInputs, neverPlaying)
+        const rotatingCandidate = runtime.candidates[0]
+        if (rotatingCandidate && !rotatingCandidate.gameSlug) {
+          const t = displayTypes.get(rpcCandidateKey(rotatingCandidate))
+          if (t && t !== rotatingCandidate.type) rotatingCandidate.type = t
+        }
         for (const c of rotateGameExtras) {
           const t = displayTypes.get(rpcCandidateKey(c))
           if (t && t !== c.type) c.type = t

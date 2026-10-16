@@ -4,7 +4,7 @@ import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { avatarUrl } from '@/lib/discord-oauth'
 import { CONFIG } from '@/lib/config'
-import { resolveRuntimeCandidates, rotationPoolCandidates, rpcCandidateKey, type RpcCandidate } from '@/lib/rpc-manager'
+import { resolveRuntimeCandidates, rotationPoolCandidates, rpcCandidateKey, assignDisplayTypes, buildGlobalDisplayTypeInputs, type RpcCandidate } from '@/lib/rpc-manager'
 import { rotateCycleIndex, rotateNextSwitchInSecs } from '@/lib/rotation'
 import { rotateSettingsView } from '@/lib/rpc-rotate-settings'
 import { sweepSubscription, subscriptionView } from '@/lib/subscription'
@@ -208,9 +208,58 @@ export async function GET() {
       nextSwitchInSecs: nextIn,
     }
   }
-  const activeRpcConfig = runtime.active && runtime.candidates[0]
-    ? serializeRpcConfig(runtime.candidates[0])
-    : null
+  // Task 107 — DISPLAY-TYPE PARITY: the daemon substitutes the published
+  // activity type so Discord's client prune (exactly ONE PLAYING card
+  // globally; (type, application_id, name) duplicates collapse) keeps every
+  // card. The dashboard profile preview MUST show the SAME type Discord
+  // renders — otherwise "Playing" here vs "Watching" on Discord reads as a
+  // bug. Mirror of rpc-daemon.ts's global orchestration (games pinned
+  // PLAYING first, enabled slots next, the Application RPC last; while Auto
+  // Rotate runs the rotating card + app_rpc never present as PLAYING).
+  let activeRpcConfig: ReturnType<typeof serializeRpcConfig> | null = null
+  if (runtime.active && runtime.candidates[0]) {
+    const previewCandidate = runtime.candidates[0]
+    let previewType = previewCandidate.type ?? 'PLAYING'
+    try {
+      if (!previewCandidate.gameSlug) {
+        const appRpcRow = await db.applicationRpcConfig.findUnique({
+          where: { userId: session.userId },
+          select: { name: true, appId: true, type: true, enabled: true },
+        })
+        // Task 107 — ONE shared input builder (same as both daemons). In
+        // rotate mode the slot inputs are EVERY created slot (enabled AND
+        // disabled): disabled-but-selected slots take rotation turns and are
+        // pushed on Discord during their turn, so the preview must assign
+        // them the same substitute type the daemon publishes.
+        const typeInputs = buildGlobalDisplayTypeInputs({
+          slots: runtime.runtimeMode === 'rotate'
+            ? (rpcSlots as Array<RpcCandidate>)
+            : (rpcSlots as Array<RpcCandidate & { enabled: boolean }>).filter(c => c.enabled && !c.gameSlug),
+          games: enabledGames,
+          appRpc: appRpcRow?.enabled
+            ? { name: appRpcRow.name, appId: appRpcRow.appId, type: appRpcRow.type }
+            : null,
+        })
+        // Rotate mode → the rotating card + app_rpc never present as PLAYING
+        // (mirror of the daemon's neverPlaying set); simultaneous mode → no
+        // neverPlaying (the first non-game candidate may own PLAYING when no
+        // game is enabled — exactly what the daemon assigns).
+        const neverPlaying = new Set<string>()
+        if (runtime.runtimeMode === 'rotate') {
+          if (appRpcRow?.enabled) neverPlaying.add('app_rpc')
+          if (Array.isArray(runtime.rotatePoolKeys)) {
+            const poolSet = new Set(runtime.rotatePoolKeys)
+            for (const c of rpcSlots as Array<RpcCandidate & { enabled: boolean }>) {
+              if (c.enabled && !c.gameSlug && c.id && !poolSet.has(c.id)) neverPlaying.add(c.id)
+            }
+          }
+        }
+        const assigned = assignDisplayTypes(typeInputs, neverPlaying).get(rpcCandidateKey(previewCandidate))
+        if (assigned) previewType = assigned
+      }
+    } catch { /* preview-only parity — never block /api/me on it */ }
+    activeRpcConfig = serializeRpcConfig({ ...previewCandidate, type: previewType })
+  }
   // UI-compat mode flag: 'game' only when the game is the SOLE candidate.
   const rpcMode = runtime.active
     ? (runtime.candidates.length === 1 && runtime.candidates[0].gameSlug ? 'game' as const : 'normal' as const)
