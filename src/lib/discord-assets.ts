@@ -909,7 +909,34 @@ export function sanitizeActivityAssets<T extends Record<string, unknown>>(activi
 }
 
 export function sanitizeActivities<T extends Record<string, unknown>>(activities: T[]): T[] {
-  return activities.map((a) => sanitizeActivityButtons(sanitizeActivityAssets(a)))
+  return activities.map((a) => sanitizeActivityPlatform(sanitizeActivityButtons(sanitizeActivityAssets(a))))
+}
+
+/**
+ * Platform-enum guard (Task 110): Discord's gateway silently rejects the WHOLE
+ * activity when its `platform` field is outside the ACTIVITY platform enum
+ * (Task 84d live-verification: 'web'/'mobile' were never stored). Legacy slot
+ * configs can still carry values like 'console'/'web' from the old platform
+ * selector — strip them here so the card renders (label-less → the daemon's
+ * role anchor re-labels the main card; see rpc-manager.resolveRpcMainCardLabel).
+ * The enum is mirrored from rpc-manager.ts (kept local: rpc-manager already
+ * imports THIS module — an import back would create a cycle).
+ */
+const ACTIVITY_PLATFORM_ENUM_MIRROR: ReadonlySet<string> = new Set([
+  'desktop', 'xbox', 'samsung', 'ios', 'android', 'embedded', 'ps4', 'ps5', 'meta_quest',
+])
+
+export function sanitizeActivityPlatform<T extends Record<string, unknown>>(activity: T): T {
+  const p = (activity as { platform?: unknown }).platform
+  if (p === undefined) return activity // key absent — nothing to guard
+  if (typeof p === 'string' && ACTIVITY_PLATFORM_ENUM_MIRROR.has(p)) return activity
+  const cleaned: Record<string, unknown> = { ...activity }
+  delete cleaned.platform
+  console.error(
+    `[DiscordAssets] Stripped invalid activity.platform "${String(p).slice(0, 40)}" — ` +
+      `values outside the activity platform enum get the WHOLE activity rejected by the gateway`
+  )
+  return cleaned as T
 }
 
 /**

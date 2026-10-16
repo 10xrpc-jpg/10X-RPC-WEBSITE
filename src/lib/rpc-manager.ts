@@ -941,6 +941,58 @@ export function isValidActivityPlatform(p: string | null | undefined): boolean {
 }
 
 /**
+ * Task 110 — the activity-level platform LABEL the RPC-role MAIN card should
+ * carry. Screenshot bug this fixes: a slot the user configured with the Xbox
+ * platform rendered with the wrong/forced label — the Task 105 anchor stamped
+ * EVERY main card 'ps4' unconditionally, overwriting the builder's own stamp
+ * (buildActivityPayload sets `platform: cfg.platform`) and breaking the RPC
+ * DEVICE/PLATFORM feature (the console badge IS the feature).
+ *
+ * Rule: the slot's CONFIGURED platform is honored when it is
+ *   • a valid ACTIVITY enum value (invalid legacy values — 'console', 'web',
+ *     'mobile' — get the whole activity REJECTED by the gateway, Task 84d,
+ *     so they must never ride the wire), and
+ *   • NOT a label group occupied by a real client or reserved for another
+ *     role's main card:
+ *       - desktop              → wiped by the user's real desktop client
+ *                                (live-verified Task 91/105 failure)
+ *       - android/ios/samsung  → real phone clients occupy these groups
+ *       - embedded             → the GAME role's main card label (merge key)
+ * Everything else (xbox / ps4 / ps5 / meta_quest) is honored as-is — those
+ * labels collide with neither real clients nor sibling cards (the extras
+ * pool never receives the main card's label — see rpc-daemon extrasMainLabel).
+ * Unset / desktop / legacy configs fall back to the collision-safe anchor
+ * platform ('ps4' — Task 105: labels no real client emits, so a lone slot
+ * card can always render).
+ */
+const REAL_CLIENT_OR_RESERVED_LABELS: ReadonlySet<string> = new Set([
+  'desktop', 'android', 'ios', 'samsung', 'embedded',
+])
+
+export function resolveRpcMainCardLabel(
+  candidatePlatform: string | null | undefined,
+  anchorPlatform: string | null | undefined
+): string | null {
+  const configured = typeof candidatePlatform === 'string' ? candidatePlatform.trim() : ''
+  if (
+    configured &&
+    isValidActivityPlatform(configured) &&
+    !REAL_CLIENT_OR_RESERVED_LABELS.has(configured)
+  ) {
+    return configured
+  }
+  // The anchor obeys the same rule — an anchor inside a real-client/reserved
+  // label group ('desktop', phone groups, the game role's 'embedded') must
+  // never be stamped onto the main card (Task 91: desktop-labeled cards are
+  // wiped by the user's real desktop client — the invisible-card bug).
+  const anchor = typeof anchorPlatform === 'string' ? anchorPlatform.trim() : ''
+  if (anchor && isValidActivityPlatform(anchor) && !REAL_CLIENT_OR_RESERVED_LABELS.has(anchor)) {
+    return anchor
+  }
+  return null
+}
+
+/**
  * Assign each extra (beyond-main) session a platform whose VALUE (and hence
  * the activity card label) is unique across all concurrent sessions.
  * Deterministic → assignments never churn between ticks (sessions reopen

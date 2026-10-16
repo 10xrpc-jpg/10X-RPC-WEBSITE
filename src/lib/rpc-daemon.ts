@@ -22,6 +22,7 @@ import {
   sortedSlotRows,
   discordPlatformClass,
   isValidActivityPlatform,
+  resolveRpcMainCardLabel,
   type PresenceResult,
   type RpcCandidate,
   type DisplayTypeCandidate,
@@ -2407,10 +2408,22 @@ export class RpcDaemon {
       // 5 classes total = main + 4 extras max.
       // GAME role — its own collision-safe pool instead (its main session
       // already occupies 'embedded'): labels no other role emits.
+      // Task 110 — the MAIN card's label is TAKEN for extras: two cards with
+      // the same activity-platform label merge client-side (Task 91). The rpc
+      // role's main may now carry the slot's own console label (xbox/ps4/ps5 —
+      // resolveRpcMainCardLabel), so extras are assigned against THAT label
+      // instead of the raw ps4 anchor, which would hand an extra the very
+      // 'xbox' label the main card is wearing. 'all'/'game' keep the legacy
+      // anchor (the combined daemon's main never honors a console label).
+      const extrasMainLabel = DAEMON_ROLE === 'rpc'
+        ? (roleSlotCandidates[0]
+            ? (resolveRpcMainCardLabel(roleSlotCandidates[0].platform, targetPlatform) ?? targetPlatform)
+            : targetPlatform)
+        : targetPlatform
       const platformAssignments: Array<string | null> = DAEMON_ROLE === 'game'
         ? []
         : assignSessionPlatforms(
-            targetPlatform,
+            extrasMainLabel,
             extrasSource.map(e => e.cand.platform),
             // Task 84d — STABLE per-candidate hints (see allConfigIndex above):
             // toggling a middle slot never reshuffles the others (no reopen
@@ -2581,16 +2594,30 @@ export class RpcDaemon {
     if (DAEMON_ROLE === 'game' && safeActivities.length > 0 && isValidActivityPlatform(plan.gameMainLabel)) {
       safeActivities[0].platform = plan.gameMainLabel
     }
-    // RPC role — SAME doctrine (Task 105, the "RPC1/RPC2 card invisible" fix):
-    // the builder stamps the main card with the slot's CONFIGURED platform —
-    // overwhelmingly 'desktop' — and the desktop label group is occupied by
-    // the user's REAL desktop client, which wipes the card (live-verified,
-    // Task 91). The main session now identifies the collision-safe anchor
-    // class (ps4, or meta_quest for a Quest slot — see daemon-roles.ts) and
-    // the card is stamped to MATCH, exactly like the game role above. Without
-    // this stamp a lone enabled slot could never render its card.
-    if (DAEMON_ROLE === 'rpc' && safeActivities.length > 0 && isValidActivityPlatform(targetPlatform)) {
-      safeActivities[0].platform = targetPlatform
+    // RPC role — Task 105 doctrine (the "RPC1/RPC2 card invisible" fix): the
+    // main card MUST carry a label no real client occupies — the builder
+    // stamps the slot's CONFIGURED platform, overwhelmingly 'desktop', and the
+    // desktop label group is wiped by the user's REAL desktop client
+    // (live-verified, Task 91) — so unset/desktop slots keep the collision-
+    // safe ps4 anchor (or meta_quest for a Quest slot, see daemon-roles.ts).
+    // Task 110 — a slot CONFIGURED with a console platform now keeps its OWN
+    // label: the Xbox/PlayStation badge IS the RPC DEVICE/PLATFORM feature,
+    // and the unconditional ps4 overwrite was silently breaking it (screenshot
+    // bug: slot cards rendering with a forced/wrong console badge). Console
+    // labels collide with neither real clients nor the game role's 'embedded'
+    // card, and extras never receive the main's label (extrasMainLabel above).
+    // Hardening: a legacy/invalid enum value ('console', 'web', …) riding the
+    // builder's stamp would get the WHOLE activity rejected by the gateway
+    // (Task 84d) — strip it before re-labeling.
+    if (DAEMON_ROLE === 'rpc' && safeActivities.length > 0) {
+      const builderStamp = (safeActivities[0] as { platform?: unknown }).platform
+      if (typeof builderStamp === 'string' && !isValidActivityPlatform(builderStamp)) {
+        delete (safeActivities[0] as { platform?: string }).platform
+      }
+      const mainCardLabel = resolveRpcMainCardLabel(mainPushCandidates[0]?.platform, targetPlatform)
+      if (mainCardLabel) {
+        safeActivities[0].platform = mainCardLabel
+      }
     }
 
     // OP 3 status field per role. Discord IGNORES this field for OAuth/sdk
