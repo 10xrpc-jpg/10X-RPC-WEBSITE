@@ -90,6 +90,9 @@ export interface Me {
   rpcConfig?: RpcConfig | null
   /** Multi-RPC: every slot (max 3) with its own config + enabled flag. */
   rpcSlots?: RpcConfig[]
+  /** Task 108 — slot numbers auto-disabled by the mutual-exclusivity heal on
+   *  this load (legacy "multiple enabled slots" convergence; usually empty). */
+  slotExclusivityFixed?: number[]
   /** RPC Auto Rotate settings (optional runtime rotation across enabled RPCs). */
   autoRotate?: {
     enabled: boolean
@@ -587,6 +590,11 @@ export const api = {
   rpcToggle: (enabled: boolean) => fetchJson<{
     ok: boolean
     enabled: boolean
+    rpcConfig?: RpcConfig
+    /** Task 108 — slot numbers auto-disabled by mutual exclusivity. */
+    disabledSlots?: number[]
+    /** Task 108 — daemon-confirmed running state (true = Discord confirmed). */
+    applied?: boolean
     message?: string
     error?: string
   }>('/api/rpc/toggle', {
@@ -600,6 +608,8 @@ export const api = {
     slots: RpcConfig[]
     autoRotate: Me['autoRotate']
     game: { slug: string; name: string; enabled: boolean } | null
+    /** Task 108 — slot numbers auto-disabled by the exclusivity heal. */
+    exclusivityFixed?: number[]
   }>('/api/rpc/slots'),
   rpcSlotCreate: () => fetchJson<{
     ok: boolean
@@ -626,6 +636,12 @@ export const api = {
     ok: boolean
     enabled: boolean
     rpcConfig?: RpcConfig
+    /** Task 108 — authoritative slot list AFTER the exclusive switch. */
+    slots?: RpcConfig[]
+    /** Task 108 — slot numbers auto-disabled by mutual exclusivity. */
+    disabledSlots?: number[]
+    /** Task 108 — daemon-confirmed running state (true = Discord confirmed). */
+    applied?: boolean
     message?: string
     error?: string
   }>(`/api/rpc/slots/${id}/toggle`, {

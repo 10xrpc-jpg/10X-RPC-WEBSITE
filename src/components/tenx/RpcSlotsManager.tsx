@@ -1,10 +1,13 @@
 // 10X RPC — Multi-RPC slots manager (dashboard)
 // Renders one independent card per created slot (max 3), the "+ Add RPC"
 // button (hidden at the cap), the optional Auto Rotate settings card, and the
-// Game RPC CTA. Each slot owns its own config + enable state; no slot can
-// ever affect another. Multi-Session runtime: every enabled RPC runs as its
-// own Discord session at the same time — Auto Rotate is the optional
-// one-at-a-time cycling mode and never modifies any saved configuration.
+// Game RPC CTA. Each slot owns its own config + enable state.
+// Task 108 — MUTUAL EXCLUSIVITY: RPC1/RPC2/RPC3 can never be enabled at the
+// same time. Enabling one slot atomically turns the others off (server-side,
+// one transaction) and the UI mirrors the switch instantly — this manager
+// keeps optimistic overrides so every card flips in the same frame.
+// Auto Rotate is the optional one-at-a-time cycling mode and never modifies
+// any saved configuration.
 //
 // Task 87 — the Auto Rotate card is now a full control center:
 //   • LIVE "now on your profile" strip with a per-second countdown + progress
@@ -23,7 +26,7 @@
 //     card rotates RPC SLOTS only; changing anything here cannot affect the
 //     game and vice versa.
 'use client'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { api, type Me, type RpcConfig } from '@/lib/api-client'
 import { rotateCycleIndex, rotateNextSwitchInSecs, type RotateOrder } from '@/lib/rotation'
@@ -95,7 +98,39 @@ export function RpcSlotsManager({
   const [skipping, setSkipping] = useState(false)
   const [nowMs, setNowMs] = useState(() => Date.now())
 
-  const enabledSlots = slots.filter(s => s.enabled)
+  // ── Task 108 — MUTUAL EXCLUSIVITY UI ──────────────────────────────────────
+  // Optimistic per-slot enabled overrides. While a toggle request runs (and
+  // until the fresh /api/me payload lands) every card reflects the
+  // one-active-RPC rule INSTANTLY: the flipped switch follows the user's
+  // click and all other switches drop to OFF in the same frame. Overrides
+  // clear as soon as authoritative data arrives.
+  const [slotOverrides, setSlotOverrides] = useState<Record<string, boolean>>({})
+  const slotsStateKey = slots.map(s => `${s.id ?? s.slot}:${s.enabled ? 1 : 0}`).join('|')
+  useEffect(() => { setSlotOverrides({}) }, [slotsStateKey])
+  const effSlots = useMemo(
+    () => slots.map(s =>
+      (s.id && slotOverrides[s.id] !== undefined)
+        ? { ...s, enabled: slotOverrides[s.id] }
+        : s
+    ),
+    [slotsStateKey, slotOverrides]
+  )
+  // One-time toast when a legacy "multiple slots enabled" state was healed
+  // server-side during this load (slotExclusivityFixed non-empty).
+  const healToastShown = useRef(false)
+  useEffect(() => {
+    if (healToastShown.current) return
+    const fixed = me.slotExclusivityFixed ?? []
+    if (fixed.length > 0) {
+      healToastShown.current = true
+      toast.info(
+        `Only one RPC can run at a time — ${fixed.map(n => `RPC ${n}`).join(' and ')} turned off automatically`,
+        { duration: 4500 }
+      )
+    }
+  }, [me.slotExclusivityFixed])
+
+  const enabledSlots = effSlots.filter(s => s.enabled)
   // Task 95 — the enabled Game RPC is NOT a rotation candidate here anymore:
   // it lives in its own session and cycles through its OWN Game Auto-Rotate
   // system (Games page). Only RPC SLOTS rotate in this card.
@@ -109,13 +144,13 @@ export function RpcSlotsManager({
   // `slotEnabled` so the chip can badge the disabled ones.
   // (Dep keys are precomputed strings — the join() anti-churn trick, made
   // lint-simple per react-hooks/use-memo's simple-expression rule.)
-  const allSlotsKey = slots.map(s => s.id).join(',')
+  const allSlotsKey = effSlots.map(s => s.id).join(',')
   const rotateCandidates = useMemo(() =>
-    slots
+    effSlots
       .filter(s => s.id)
       .sort((a, b) => (a.slot ?? 99) - (b.slot ?? 99))
       .map(s => ({ key: s.id!, label: `RPC ${s.slot ?? '?'}`, game: false, slotEnabled: !!s.enabled })),
-  [allSlotsKey])
+  [allSlotsKey, slotOverrides])
   const hasGame = enabledGames.length > 0
   const allKeys = rotateCandidates.map(c => c.key)
   // Effective selection — the explicit pick (slot keys only; any legacy
@@ -127,9 +162,10 @@ export function RpcSlotsManager({
     if (rotateSlots !== null) return rotateSlots.filter(k => allKeys.includes(k))
     return rotateCandidates.filter(c => c.slotEnabled).map(c => c.key)
   }, [rotateSlots, allKeysKey, enabledKeysKey])
-  // Full chain (slots + games) — used by the Multi-Session status texts.
-  // Task 106 — the ENABLED chain only: Multi-Session truly runs enabled slots
-  // side by side; disabled-but-selected slots only appear during rotation.
+  // Full chain — used by the status texts.
+  // Task 108 — the ENABLED chain only: at most ONE slot can be enabled at a
+  // time (mutual exclusivity); disabled-but-selected slots appear during
+  // rotation regardless.
   const rotationChain = rotateCandidates.filter(c => c.slotEnabled).map(c => c.label)
   // Rotation POOL — matches the daemon EXACTLY (Task 106): the explicit
   // selection matched against ALL slots (disabled ones included); when the
@@ -342,8 +378,8 @@ export function RpcSlotsManager({
 
   return (
     <div className="space-y-4">
-      {/* ── One independent card per created slot ── */}
-      {slots.map((slot, i) => (
+      {/* ── One independent card per created slot (mutually exclusive ON/OFF) ── */}
+      {effSlots.map((slot, i) => (
         <RichPresenceForm
           key={slot.id ?? slot.slot ?? i}
           initial={slot}
@@ -359,7 +395,25 @@ export function RpcSlotsManager({
           duplicating={duplicatingId === slot.id || (duplicatingId !== null && atCap)}
           onChange={cfg => onDraftChange?.({ ...cfg, id: slot.id, slot: slot.slot })}
           onSaved={onRefresh}
-          onToggle={() => onRefresh()}
+          onToggle={(v, res) => {
+            // Task 108 — INSTANT mutual exclusivity: prefer the server's
+            // authoritative post-switch slot list; while it is unavailable
+            // (legacy endpoint / no list), mirror the rule locally — this
+            // slot takes the requested state, every other slot goes OFF.
+            const authoritative = res?.slots?.length ? res.slots : null
+            const next: Record<string, boolean> = {}
+            for (const s of effSlots) {
+              if (!s.id) continue
+              if (authoritative) {
+                const match = authoritative.find(a => a.id === s.id)
+                if (match) next[s.id] = !!match.enabled
+              } else {
+                next[s.id] = s.id === slot.id ? v : false
+              }
+            }
+            setSlotOverrides(prev => ({ ...prev, ...next }))
+            onRefresh()
+          }}
         />
       ))}
 
@@ -397,19 +451,18 @@ export function RpcSlotsManager({
           />
         </div>
 
-        {/* Multi-Session status — all enabled RPCs run at once as their own
-            Discord sessions; Auto Rotate is the optional cycling mode.
-            Task 106 — rotation can also run from DISABLED-but-selected slots,
-            so the block shows whenever the pool has 2+ members. */}
+        {/* Task 108 — status block: one RPC slot at a time; Auto Rotate is
+            the optional cycling mode. Rotation can also run from
+            DISABLED-but-selected slots, so the block shows whenever the pool
+            has 2+ members. */}
         {rotationChain.length >= 2 || poolLen >= 2 ? (
           rotateEnabled ? (
             poolLen < 2 ? (
-              // The daemon falls back to simultaneous when the pool has fewer
-              // than 2 candidates — the copy must say exactly that.
+              // The daemon falls back to a single running RPC when the pool
+              // has fewer than 2 candidates — the copy must say exactly that.
               <p className="relative z-10 text-xs text-white/45 leading-relaxed mb-4 px-0.5">
                 Auto Rotate is ON — select <span className="text-white/75 font-semibold">at least 2 RPCs</span> in
-                ROTATION RPCS below to start cycling. Until then every enabled RPC runs at the same
-                time (Multi-Session).
+                ROTATION RPCS below to start cycling. Until then your enabled RPC runs on its own.
               </p>
             ) : (
               <p className="relative z-10 text-xs text-white/45 leading-relaxed mb-4 px-0.5">
@@ -420,7 +473,7 @@ export function RpcSlotsManager({
                   : poolLen < rotationChain.length
                     ? ' RPCs you left out stay visible as usual.'
                     : null}
-                {' '}Turn it off to run the enabled ones at the same time.
+                {' '}Turn it off to keep just your enabled RPC on the profile.
               </p>
             )
           ) : (
@@ -429,13 +482,13 @@ export function RpcSlotsManager({
                 <Layers className="w-4.5 h-4.5 text-emerald-400 shrink-0 mt-0.5" aria-hidden />
                 <div className="min-w-0">
                   <p className="text-xs font-semibold text-emerald-200 leading-relaxed">
-                    Multi-Session is ON — {hasGame ? <>all {rotationChain.length} RPC slots{rotationChain.length > 0 ? ` (${rotationChain.join(', ')})` : ''} plus your active Game RPC are running at the same time.</> : <>all {rotationChain.length} RPCs are running at the same time ({rotationChain.join(', ')}).</>}
+                    One at a time — {rotationChain.length === 1 ? <><span className="text-white">{rotationChain[0]}</span> is live on your profile.</> : <>only one RPC slot can be enabled at any moment.</>}
                   </p>
                   <p className="mt-1 text-[11px] text-white/55 leading-relaxed">
-                    Each RPC slot runs as its own Discord session with its own device identity
-                    (desktop, phone, console, VR…), so Discord shows all of them side by side.
-                    {hasGame ? ' Your Game RPC runs in its own session and cycles independently via Auto-Rotate Game RPC (Games page).' : ''}{' '}
-                    Auto Rotate stays off — nothing cycles.
+                    RPC 1, RPC 2 and RPC 3 are mutually exclusive: enabling one automatically turns the others off —
+                    on this page, in the database and live on Discord. Flip a different RPC's switch to switch instantly,
+                    or turn Auto Rotate ON to cycle through your selected RPCs automatically.
+                    {hasGame ? ' Your Game RPC is fully independent and keeps running in its own session.' : ''}
                   </p>
                 </div>
               </div>
@@ -443,8 +496,8 @@ export function RpcSlotsManager({
           )
         ) : (
           <p className="relative z-10 text-xs text-white/45 leading-relaxed mb-4 px-0.5">
-            Optional: cycle your RPCs one at a time instead of running them all at once.
-            Every RPC you created can be picked below — even ones whose own switch is OFF.
+            Optional: cycle your RPCs one at a time on your profile. Only one RPC slot runs at any moment —
+            Auto Rotate switches between the RPCs you pick below automatically (even ones whose own switch is OFF).
             Rotation never modifies your saved configurations.
           </p>
         )}

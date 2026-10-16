@@ -1,13 +1,16 @@
 // 10X RPC — /api/rpc/slots/[id]/toggle — enable/disable ONE RPC slot
 // Each slot has its OWN independent status (never a global RPC switch):
-//   • enable  → this slot's flag ON (other slots + Game RPC untouched)
+//   • enable  → this slot's flag ON; ALL OTHER RPC1/2/3 slots are atomically
+//     turned OFF in the same DB transaction (Task 108 mutual exclusivity —
+//     at most one Normal RPC slot is active at any time). Game RPC, the
+//     Application RPC and every saved field are never touched.
 //   • disable → this slot's flag OFF; other candidates keep running untouched
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
-import { syncPresence, stopPresence } from '@/lib/presence-sync'
+import { syncPresence, syncPresenceVerified, stopPresence } from '@/lib/presence-sync'
 import { requireSubscriptionAccess } from '@/lib/subscription'
-import { rotationCoversAnySlot, serializeSlot } from '@/lib/rpc-slots'
+import { enableSlotExclusively, rotationCoversAnySlot, serializeSlot } from '@/lib/rpc-slots'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -46,11 +49,22 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         )
       }
 
-      // 2. THIS slot ON — every other slot and the Game RPC stay exactly as they are.
-      const updated = await db.rpcConfig.update({
-        where: { id: slot.id },
-        data: { enabled: true },
-      })
+      // 2. ATOMIC MUTUAL EXCLUSIVITY (Task 108): THIS slot ON + every other
+      //    RPC1/2/3 slot OFF inside ONE serialized transaction. Rapid
+      //    switching, parallel requests and page refreshes can never leave
+      //    two slots enabled. Game RPC is NOT part of this transaction.
+      const result = await enableSlotExclusively(session.userId, slot.id)
+      if (!result.ok) {
+        if (result.reason === 'slot_not_found') {
+          return NextResponse.json({ ok: false, error: 'slot_not_found' }, { status: 404 })
+        }
+        return NextResponse.json({
+          ok: false,
+          error: 'toggle_failed',
+          message: 'Could not enable the RPC — please try again',
+        }, { status: 500 })
+      }
+      const updated = result.row
 
       // 3. Master RPC gate ON (the daemon tracks the user while any candidate runs).
       await db.session.updateMany({
@@ -58,16 +72,35 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         data: { rpcEnabled: true, lastPresenceUpdate: new Date() },
       })
 
-      // 4. Rebuild + push the full candidate set (this slot included).
+      // 4. Rebuild + push the full candidate set (this slot included). The
+      //    daemon stops the previous slot's presence and starts this one —
+      //    and its verify chain keeps retrying until Discord CONFIRMS the
+      //    running state matches the saved config (runtime verified, not
+      //    just the DB flag).
+      let applied: boolean | undefined
       if (session.discordAccessToken) {
-        await syncPresence(session.userId)
+        const sync = await syncPresenceVerified(session.userId)
+        applied = sync.applied
       }
 
+      // 5. Authoritative slot list for an instant UI sync.
+      const allSlots = await db.rpcConfig.findMany({
+        where: { userId: session.userId },
+        orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
+      })
+
+      const offNames = result.disabledSlots.filter(s => s > 0).map(s => `RPC ${s}`)
+      const offText = offNames.length
+        ? ` — ${offNames.join(offNames.length > 1 ? ' and ' : ' & ')} turned off (one RPC at a time)`
+        : ''
       return NextResponse.json({
         ok: true,
         enabled: true,
         rpcConfig: serializeSlot(updated),
-        message: `RPC ${updated.slot} enabled & live on Discord`,
+        disabledSlots: result.disabledSlots,
+        slots: allSlots.map(s => serializeSlot({ ...(s as Record<string, unknown> & { slot: number }) })),
+        applied,
+        message: `RPC ${updated.slot} enabled & live on Discord${offText}`,
       })
     } else {
       // THIS slot OFF — only its own flag flips.

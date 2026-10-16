@@ -149,3 +149,190 @@ export async function rotationCoversAnySlot(userId: string): Promise<boolean> {
     return false
   }
 }
+
+// ═════════════════════════════════════════════════════════════════════════
+// Task 108 — MUTUAL EXCLUSIVITY for RPC1 / RPC2 / RPC3
+//
+// At most ONE Normal RPC slot may carry enabled=true at any moment. Enabling
+// a slot atomically disables the other slots (same DB transaction); Game RPC
+// (GameConfig), Application RPC and every saved field are NEVER touched.
+//
+// Concurrency hardening (the "rapid switching / simultaneous requests"
+// requirement):
+//   • PostgreSQL (production): a per-user transaction-scoped advisory lock
+//     serializes concurrent slot writes — two parallel enable requests can
+//     never interleave into "two slots enabled".
+//   • SQLite (local/sandbox): a single-writer engine — the interactive
+//     transaction already serializes writers.
+//   • Belt & suspenders: after every exclusive enable the committed state is
+//     re-read; if a violation ever slipped through, the heal runs and keeps
+//     only the intended slot.
+// ═════════════════════════════════════════════════════════════════════════
+
+type SlotTx = Parameters<Parameters<typeof db.$transaction>[0]>[0]
+
+const SLOT_ORDER = [{ slot: 'asc' }, { createdAt: 'asc' }, { id: 'asc' }] as const
+
+/** Serializable per-user slot transaction (advisory lock on PostgreSQL). */
+export async function withSlotExclusivityTx<T>(
+  userId: string,
+  fn: (tx: SlotTx) => Promise<T>
+): Promise<T> {
+  return db.$transaction(async tx => {
+    // PostgreSQL only: a transaction-scoped per-user advisory lock serializes
+    // concurrent slot writes. SQLite (file: URLs — sandbox/local dev) is a
+    // single-writer engine; the interactive transaction already serializes,
+    // and the raw call would just error (no pg functions) — skip it entirely.
+    const url = (process.env.DATABASE_URL || '').trim()
+    if (!url.startsWith('file:')) {
+      try {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${userId}), 42069)`
+      } catch {
+        /* provider without pg functions — proceed under the engine's own lock */
+      }
+    }
+    return fn(tx)
+  }, { timeout: 15_000, maxWait: 5_000 })
+}
+
+export type ExclusiveEnableResult =
+  | { ok: true; row: SlotRow; disabledSlots: number[]; disabledIds: string[] }
+  | { ok: false; reason: 'slot_not_found' }
+  | { ok: false; reason: 'tx_failed' }
+
+/**
+ * Enable ONE slot and disable every OTHER slot of the user — atomically.
+ * Returns the auto-disabled slot numbers so callers can message the user and
+ * sync the UI instantly. Never touches GameConfig or any configuration field.
+ */
+export async function enableSlotExclusively(
+  userId: string,
+  slotId: string
+): Promise<ExclusiveEnableResult> {
+  try {
+    const result = await withSlotExclusivityTx(userId, async tx => {
+      // Re-read INSIDE the serialized transaction — the authoritative check.
+      const slot = await tx.rpcConfig.findFirst({ where: { id: slotId, userId } })
+      if (!slot) return { ok: false as const, reason: 'slot_not_found' as const }
+
+      const others = await tx.rpcConfig.findMany({
+        where: { userId, id: { not: slotId }, enabled: true },
+        orderBy: [...SLOT_ORDER],
+      })
+      if (others.length > 0) {
+        await tx.rpcConfig.updateMany({
+          where: { userId, id: { in: others.map(r => r.id) } },
+          data: { enabled: false },
+        })
+      }
+      const updated = await tx.rpcConfig.update({
+        where: { id: slotId },
+        data: { enabled: true },
+      })
+      return {
+        ok: true as const,
+        row: updated as SlotRow,
+        disabledSlots: others.map(r => (r as { slot?: number }).slot ?? 0),
+        disabledIds: others.map(r => r.id),
+      }
+    })
+
+    if (!result.ok) return result
+
+    // Belt & suspenders: verify the COMMITTED state honors the invariant. If
+    // an exotic race still produced 2+ enabled slots, heal keeping THIS slot.
+    const stragglers = await db.rpcConfig.findMany({
+      where: { userId, enabled: true, id: { not: slotId } },
+      select: { id: true, slot: true },
+    })
+    if (stragglers.length > 0) {
+      await db.rpcConfig.updateMany({
+        where: { userId, id: { in: stragglers.map(r => r.id) } },
+        data: { enabled: false },
+      })
+      return {
+        ...result,
+        disabledSlots: [...new Set([...result.disabledSlots, ...stragglers.map(r => (r as { slot?: number }).slot ?? 0)])],
+        disabledIds: [...new Set([...result.disabledIds, ...stragglers.map(r => r.id)])],
+      }
+    }
+    return result
+  } catch (e) {
+    console.error('enableSlotExclusively failed:', e instanceof Error ? e.message : e)
+    return { ok: false, reason: 'tx_failed' }
+  }
+}
+
+export type ExclusivityHealResult = {
+  changed: boolean
+  keepSlot: number | null
+  disabledSlots: number[]
+  disabledIds: string[]
+}
+
+// Task 108 — short-lived memory of a heal so REPEATED dashboard loads within
+// the same moment (StrictMode double-mount, parallel tabs) still surface the
+// one-time explanation toast even though the heal itself already converged.
+const recentHeals = new Map<string, { slots: number[]; until: number }>()
+const HEAL_MEMORY_MS = 15_000
+
+function rememberHealForUi(userId: string, slots: number[]): void {
+  recentHeals.set(userId, { slots, until: Date.now() + HEAL_MEMORY_MS })
+  if (recentHeals.size > 5000) {
+    const now = Date.now()
+    for (const [k, v] of recentHeals) if (now > v.until) recentHeals.delete(k)
+  }
+}
+
+/** Slot numbers healed for this user within the last HEAL_MEMORY_MS (or []). */
+export function recallHealForUi(userId: string): number[] {
+  const f = recentHeals.get(userId)
+  if (!f) return []
+  if (Date.now() > f.until) {
+    recentHeals.delete(userId)
+    return []
+  }
+  return f.slots
+}
+
+/**
+ * Converge any state with 2+ enabled slots back to the one-active-slot rule.
+ * Keeps `keepId` (or the lowest slot number when unspecified). Cheap no-op
+ * (single indexed read) while the invariant already holds. Used by the
+ * dashboard loads so legacy/anomalous states self-heal on the next page view.
+ */
+export async function enforceRpcSlotExclusivity(
+  userId: string,
+  keepId?: string
+): Promise<ExclusivityHealResult> {
+  const idle: ExclusivityHealResult = { changed: false, keepSlot: null, disabledSlots: [], disabledIds: [] }
+  try {
+    const enabledRows = await db.rpcConfig.findMany({
+      where: { userId, enabled: true },
+      orderBy: [...SLOT_ORDER],
+    })
+    if (enabledRows.length <= 1) {
+      const keep = enabledRows[0] as { slot?: number } | undefined
+      return { ...idle, keepSlot: keep ? keep.slot ?? 1 : null }
+    }
+    const keeper = (keepId && enabledRows.find(r => r.id === keepId)) || enabledRows[0]
+    const losers = enabledRows.filter(r => r.id !== keeper.id)
+    await withSlotExclusivityTx(userId, async tx => {
+      await tx.rpcConfig.updateMany({
+        where: { userId, id: { in: losers.map(r => r.id) } },
+        data: { enabled: false },
+      })
+    })
+    const disabledSlots = losers.map(r => (r as { slot?: number }).slot ?? 0)
+    rememberHealForUi(userId, disabledSlots)
+    return {
+      changed: true,
+      keepSlot: (keeper as { slot?: number }).slot ?? 1,
+      disabledSlots,
+      disabledIds: losers.map(r => r.id),
+    }
+  } catch (e) {
+    console.error('enforceRpcSlotExclusivity failed:', e instanceof Error ? e.message : e)
+    return idle
+  }
+}

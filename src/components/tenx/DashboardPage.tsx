@@ -3,7 +3,7 @@
 // live status/plan pills, payment buttons priced from the admin-managed
 // plan catalog (GET /api/plans) instead of hardcoded rupees.
 'use client'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { api, type Me, type RpcConfig, type PublicPlans } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { ProfileSection } from './ProfileSection'
@@ -21,30 +21,40 @@ export function DashboardPage() {
   const [liveSlots, setLiveSlots] = useState<RpcConfig[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const refreshInFlight = useRef<Promise<void> | null>(null)
 
   const refresh = useCallback(async () => {
-    try {
-      const m = await api.me()
-      setMe(m)
-      setError(null)
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : 'Failed to load'
-      if (msg.includes('not_authenticated') || msg.includes('401')) {
-        // Don't redirect to OAuth — just show the Welcome gate with Demo option
-        setMe({ authenticated: false })
-        return
-      }
-      setMe(prev => {
-        if (!prev) {
-          setError(msg)
-        } else {
-          console.warn('Background session refresh skipped temporary error:', msg)
+    // In-flight dedupe — StrictMode double-mounts and overlapping callers
+    // (toggles, keep-alive) must never fire two concurrent /api/me loads: the
+    // second response would overwrite the first (this raced the one-time
+    // slotExclusivityFixed heal toast into a blank flag).
+    if (refreshInFlight.current) return refreshInFlight.current
+    const run = (async () => {
+      try {
+        const m = await api.me()
+        setMe(m)
+        setError(null)
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : 'Failed to load'
+        if (msg.includes('not_authenticated') || msg.includes('401')) {
+          // Don't redirect to OAuth — just show the Welcome gate with Demo option
+          setMe({ authenticated: false })
+          return
         }
-        return prev
-      })
-    } finally {
-      setLoading(false)
-    }
+        setMe(prev => {
+          if (!prev) {
+            setError(msg)
+          } else {
+            console.warn('Background session refresh skipped temporary error:', msg)
+          }
+          return prev
+        })
+      } finally {
+        setLoading(false)
+      }
+    })()
+    refreshInFlight.current = run.finally(() => { refreshInFlight.current = null })
+    return run
   }, [])
 
   useEffect(() => {

@@ -33,7 +33,8 @@
 import WebSocket from 'ws'
 import { CONFIG } from './config'
 import { db } from './db'
-import { buildActivityPayload, assignDisplayTypes, buildGlobalDisplayTypeInputs } from './rpc-manager'
+import { buildActivityPayload, assignDisplayTypes, buildGlobalDisplayTypeInputs, resolveRuntimeCandidates } from './rpc-manager'
+import { normalizeRotateOrder } from './rotation'
 import { resolvePlaceholders, type PlaceholderContext } from './placeholders'
 import { sanitizeActivities } from './discord-assets'
 import { discordAuthValue } from './discord-auth'
@@ -627,8 +628,8 @@ export class ApplicationRpcDaemon {
    * bundle 2026-10-14). The main daemon (rpc-daemon.ts) computes the same
    * deterministic assignment over slots + games + THIS row (key "app_rpc",
    * always LAST in the global order), so both processes independently agree.
-   * Read-only: two raw SELECTs against RpcConfig/GameConfig + one against
-   * GlobalConfig for the Auto-Rotate flag — zero writes to other systems.
+   * Read-only: raw SELECTs against RpcConfig/GameConfig/GlobalConfig/Session
+   * — zero writes to other systems.
    *
    * Task 107 — the inputs are built with the ONE shared builder
    * (buildGlobalDisplayTypeInputs) the rpc-role daemon and /api/me use, with
@@ -636,43 +637,72 @@ export class ApplicationRpcDaemon {
    *   • Auto Rotate ON → slot inputs = EVERY created slot (enabled AND
    *     disabled): disabled-but-selected slots take rotation turns and are
    *     pushed by the rpc daemon, so they must consume substitute types here
- *     too or both sides disagree (and app_rpc's type could collide with a
+   *     too or both sides disagree (and app_rpc's type could collide with a
    *     rotating card). neverPlaying = app_rpc + the enabled slots the user
    *     LEFT OUT of the rotation pool (they keep pinned extra sessions and
    *     never present as PLAYING while rotation runs — same as the daemon).
    *   • Auto Rotate OFF → enabled slots only, no neverPlaying.
+   *
+   * Task 109 — FULL parity with the rpc daemon's runtime resolution: the
+   * rotate semantics (neverPlaying + the preferred PLAYING owner) apply ONLY
+   * when the shared resolveRuntimeCandidates math actually resolves to
+   * 'rotate' (pool ≥ 2, master RPC on) — previously the raw flag alone decided
+   * this, so a rotation flag with a 1-slot pool disagreed with the daemon.
+   * The ROTATING candidate (runtime.candidates[0]) is passed as the preferred
+   * PLAYING owner — the exact mirror of rpc-daemon.ts's rotate branch — so a
+   * rotating slot keeps PLAYING when no game owns it instead of degrading to
+   * "Competing in 10X RPC".
    */
   private async resolveDisplayType(row: AppRpcRow): Promise<string> {
     // Rotation state first — it decides the slots query semantics.
     let rotateOn = false
-    let rotatePoolKeys: string[] | null = null
+    let rotateSettings = { secs: 30, order: 'forward' as string, skip: 0, refMs: null as number | null, slots: null as string[] | null }
     try {
-      const rot = await db.$queryRaw<Array<{ rpcAutoRotate: boolean | number; rpcRotateSlots: string | null }>>`
-        SELECT "rpcAutoRotate", "rpcRotateSlots" FROM "GlobalConfig" WHERE "userId" = ${row.userId} LIMIT 1`
+      const rot = await db.$queryRaw<Array<{
+        rpcAutoRotate: boolean | number
+        rpcRotateSecs: number | null
+        rpcRotateOrder: string | null
+        rpcRotateSkip: number | null
+        rpcRotateSlots: string | null
+        updatedAt: Date | string
+      }>>`
+        SELECT "rpcAutoRotate", "rpcRotateSecs", "rpcRotateOrder",
+               "rpcRotateSkip", "rpcRotateSlots", "updatedAt"
+        FROM "GlobalConfig" WHERE "userId" = ${row.userId} LIMIT 1`
       rotateOn = rot?.[0]?.rpcAutoRotate === true || (rot?.[0]?.rpcAutoRotate as unknown) === 1
-      const raw = rot?.[0]?.rpcRotateSlots
-      if (typeof raw === 'string' && raw.trim()) {
-        try {
-          const parsed = JSON.parse(raw)
-          if (Array.isArray(parsed)) {
-            rotatePoolKeys = parsed.filter((v): v is string => typeof v === 'string' && v.length > 0)
-          }
-        } catch { /* invalid JSON → legacy rule (no left-outs) */ }
+      const r = rot?.[0]
+      if (r) {
+        rotateSettings = {
+          secs: Math.max(15, Math.min(3600, Number(r.rpcRotateSecs ?? 30) || 30)),
+          order: normalizeRotateOrder(r.rpcRotateOrder),
+          skip: Math.max(0, Math.min(1_000_000_000, Math.floor(Number(r.rpcRotateSkip) || 0))),
+          refMs: r.updatedAt ? new Date(r.updatedAt).getTime() : null,
+          slots: null,
+        }
+        const raw = r.rpcRotateSlots
+        if (typeof raw === 'string' && raw.trim()) {
+          try {
+            const parsed = JSON.parse(raw)
+            if (Array.isArray(parsed)) {
+              rotateSettings.slots = parsed.filter((v): v is string => typeof v === 'string' && v.length > 0)
+            }
+          } catch { /* invalid JSON → legacy rule */ }
+        }
       }
     } catch { /* column/table missing — rotation off */ }
 
-    let slotRows: Array<{ id: string; name: string; appId: string | null; type: string | null; enabled: boolean }> = []
+    let slotRows: Array<{ id: string; name: string; appId: string | null; type: string | null; enabled: boolean; slot?: number; createdAt?: Date | string; gameSlug?: null }> = []
     try {
       // Task 107 — rotate mode needs EVERY slot (enabled AND disabled);
       // non-rotate modes only the enabled pushed set.
       slotRows = rotateOn
-        ? await db.$queryRaw<Array<{ id: string; name: string; appId: string | null; type: string | null; enabled: boolean }>>`
-            SELECT "id", "name", "appId", "type", "enabled"
+        ? await db.$queryRaw<Array<{ id: string; name: string; appId: string | null; type: string | null; enabled: boolean; slot?: number; createdAt?: Date | string }>>`
+            SELECT "id", "name", "appId", "type", "enabled", "slot", "createdAt"
             FROM "RpcConfig"
             WHERE "userId" = ${row.userId}
             ORDER BY "slot" ASC, "createdAt" ASC`
-        : await db.$queryRaw<Array<{ id: string; name: string; appId: string | null; type: string | null; enabled: boolean }>>`
-            SELECT "id", "name", "appId", "type", "enabled"
+        : await db.$queryRaw<Array<{ id: string; name: string; appId: string | null; type: string | null; enabled: boolean; slot?: number; createdAt?: Date | string }>>`
+            SELECT "id", "name", "appId", "type", "enabled", "slot", "createdAt"
             FROM "RpcConfig"
             WHERE "userId" = ${row.userId} AND "enabled" = ${true}
             ORDER BY "slot" ASC, "createdAt" ASC`
@@ -689,6 +719,60 @@ export class ApplicationRpcDaemon {
         ORDER BY "createdAt" ASC`
     } catch { /* no GameConfig table — skip */ }
 
+    // Task 109 — resolve the runtime mode EXACTLY like the rpc daemon does
+    // (shared resolveRuntimeCandidates math — rotation engages only with a
+    // pool of 2+ and the master RPC gate on) so both processes always agree
+    // on whether the rotate semantics apply at all.
+    let runtimeMode: 'single' | 'simultaneous' | 'rotate' = 'simultaneous'
+    let rotatingSlotKey: string | null = null
+    let rotatePoolKeys: string[] | null = null
+    if (rotateOn && slotRows.length > 0) {
+      try {
+        // Master RPC gate — same session rule the rpc daemon resolves with
+        // (latest valid session carrying a Discord token).
+        let rpcEnabled = true
+        try {
+          const sess = await db.$queryRaw<Array<{ rpcEnabled: boolean | number }>>`
+            SELECT "rpcEnabled" FROM "Session"
+            WHERE "userId" = ${row.userId}
+              AND "expiresAt" > NOW()
+              AND "discordAccessToken" IS NOT NULL
+            ORDER BY "createdAt" DESC LIMIT 1`
+          if (sess?.[0]) rpcEnabled = sess[0].rpcEnabled === true || (sess[0].rpcEnabled as unknown) === 1
+        } catch { /* SQLite NOW() fallback below */
+          try {
+            const sess = await db.$queryRaw<Array<{ rpcEnabled: boolean | number }>>`
+              SELECT "rpcEnabled" FROM "Session"
+              WHERE "userId" = ${row.userId}
+                AND "expiresAt" > ${new Date()}
+                AND "discordAccessToken" IS NOT NULL
+              ORDER BY "createdAt" DESC LIMIT 1`
+            if (sess?.[0]) rpcEnabled = sess[0].rpcEnabled === true || (sess[0].rpcEnabled as unknown) === 1
+          } catch { /* unreadable — assume on (rotation is the flag's state) */ }
+        }
+        const runtime = resolveRuntimeCandidates({
+          rpcEnabled,
+          rpcConfigs: slotRows as Array<Parameters<typeof resolveRuntimeCandidates>[0]['rpcConfigs']>[number],
+          allRpcConfigs: slotRows as Array<Parameters<typeof resolveRuntimeCandidates>[0]['rpcConfigs']>[number],
+          enabledGame: [],
+          autoRotate: true,
+          rotateSecs: rotateSettings.secs,
+          rotateRefMs: rotateSettings.refMs,
+          rotateOrder: rotateSettings.order,
+          rotateSkip: rotateSettings.skip,
+          rotateSlotKeys: rotateSettings.slots,
+          rotateSeed: row.userId,
+          nowMs: Date.now(),
+        })
+        runtimeMode = runtime.runtimeMode
+        if (runtime.runtimeMode === 'rotate') {
+          rotatePoolKeys = runtime.rotatePoolKeys
+          const rotating = runtime.candidates[0] as { id?: string | null } | undefined
+          rotatingSlotKey = rotating?.id ?? null
+        }
+      } catch { /* math failure → non-rotate semantics (safe default) */ }
+    }
+
     const inputs = buildGlobalDisplayTypeInputs({
       slots: slotRows,
       games: gameRows,
@@ -700,7 +784,8 @@ export class ApplicationRpcDaemon {
     })
 
     const neverPlaying = new Set<string>()
-    if (rotateOn) {
+    let preferredPlayingKey: string | null = null
+    if (runtimeMode === 'rotate') {
       neverPlaying.add('app_rpc')
       // Enabled slots the user LEFT OUT of the rotation pool keep their own
       // always-visible extra sessions and never present as PLAYING while
@@ -711,8 +796,10 @@ export class ApplicationRpcDaemon {
           if (s.enabled && s.id && !poolSet.has(s.id)) neverPlaying.add(s.id)
         }
       }
+      // Task 109 — the ROTATING card owns the free PLAYING position.
+      preferredPlayingKey = rotatingSlotKey
     }
-    return assignDisplayTypes(inputs, neverPlaying).get('app_rpc') ?? 'PLAYING'
+    return assignDisplayTypes(inputs, neverPlaying, preferredPlayingKey).get('app_rpc') ?? 'PLAYING'
   }
 
   private async buildActivity(row: AppRpcRow, userAccessToken: string, activityLabel?: string): Promise<Record<string, unknown> | null> {

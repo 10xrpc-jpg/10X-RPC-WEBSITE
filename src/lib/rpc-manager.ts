@@ -696,17 +696,36 @@ export function buildGlobalDisplayTypeInputs(src: {
  *   PLAYING (rotate-mode pinned slot extras / the Application RPC while Auto
  *   Rotate runs — the rotating main session owns the PLAYING card in that
  *   mode). Games are exempt by definition.
+ * @param preferredPlayingKey Task 109 — the non-game candidate that OWNS the
+ *   single PLAYING card when it is free. Auto-Rotate mode passes the ROTATING
+ *   candidate (the only slot card actually being pushed): without this, the
+ *   first slot in the input order consumed PLAYING even when it was NOT being
+ *   pushed, and the rotating card degraded to WATCHING / LISTENING /
+ *   COMPETING ("Competing in 10X RPC") even when NO game existed. Evaluated
+ *   right after the pinned games so every surface (rpc-daemon, application-
+ *   rpc-daemon, /api/me) reaches the identical assignment.
  */
 export function assignDisplayTypes(
   cands: DisplayTypeCandidate[],
-  neverPlayingKeys: ReadonlySet<string> = new Set()
+  neverPlayingKeys: ReadonlySet<string> = new Set(),
+  preferredPlayingKey?: string | null
 ): Map<string, string> {
+  // Task 109 — evaluation order: pinned games first, then the preferred
+  // PLAYING owner (the rotating card), then everything else in input order.
+  // Deterministic and identical on every surface that passes the same key.
+  const ordered = preferredPlayingKey
+    ? [
+        ...cands.filter(c => c.kind === 'game'),
+        ...cands.filter(c => c.kind !== 'game' && c.key === preferredPlayingKey),
+        ...cands.filter(c => c.kind !== 'game' && c.key !== preferredPlayingKey),
+      ]
+    : cands
   const out = new Map<string, string>()
   const used = new Set<string>()
   const tripleOf = (c: DisplayTypeCandidate, ty: string) => `${ty}|${c.appId ?? ''}|${c.name}`
   let playingTaken = false
   let subIdx = 0
-  for (const c of cands) {
+  for (const c of ordered) {
     const configured = (c.configuredType || 'PLAYING').toUpperCase()
     let t: string
     if (c.kind === 'game') {

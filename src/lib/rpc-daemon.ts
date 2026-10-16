@@ -2261,14 +2261,22 @@ export class RpcDaemon {
           // (the most common setup: game enabled + every selected slot in the
           // rotation) → two PLAYING cards → one pruned → the rotating RPC
           // vanished from Discord (the "Auto-Rotate RPC not showing" bug).
+          // Task 109 — the ROTATING card owns the PLAYING position when it is
+          // free: without the preferred key the FIRST slot in the inputs
+          // consumed PLAYING even though only the rotating card is pushed,
+          // so turns of slot 2/3 degraded to "Competing in 10X RPC" even with
+          // NO game on the profile.
           const neverPlaying = new Set<string>(
             rotateGameExtras.filter(c => !c.gameSlug).map(c => rpcCandidateKey(c))
           )
           if (appRpcRow) neverPlaying.add('app_rpc')
-          const displayTypes = assignDisplayTypes(orderedTypeInputs, neverPlaying)
+          const rotatingCandidate = runtime.candidates[0]
+          const preferredPlayingKey = rotatingCandidate && !rotatingCandidate.gameSlug
+            ? rpcCandidateKey(rotatingCandidate)
+            : null
+          const displayTypes = assignDisplayTypes(orderedTypeInputs, neverPlaying, preferredPlayingKey)
           // The rotating MAIN card (runtime.candidates[0] — the publishable
           // rotation copy) takes the assignment first.
-          const rotatingCandidate = runtime.candidates[0]
           if (rotatingCandidate && !rotatingCandidate.gameSlug) {
             const t = displayTypes.get(rpcCandidateKey(rotatingCandidate))
             if (t && t !== rotatingCandidate.type) rotatingCandidate.type = t
@@ -2303,12 +2311,18 @@ export class RpcDaemon {
         // activities coexist and the client prune removes one (the rotating
         // RPC vanished whenever a game was enabled). Pinned slot extras and
         // the Application RPC never present as PLAYING while rotation runs.
+        // Task 109 — the ROTATING card owns the free PLAYING position (same
+        // as the rpc-role branch above — without it slot 2/3 turns rendered
+        // as "Competing in …" when no game owned PLAYING).
         const neverPlaying = new Set<string>(
           rotateGameExtras.filter(c => !c.gameSlug).map(c => rpcCandidateKey(c))
         )
         if (appRpcRow) neverPlaying.add('app_rpc')
-        const displayTypes = assignDisplayTypes(orderedTypeInputs, neverPlaying)
         const rotatingCandidate = runtime.candidates[0]
+        const preferredPlayingKey = rotatingCandidate && !rotatingCandidate.gameSlug
+          ? rpcCandidateKey(rotatingCandidate)
+          : null
+        const displayTypes = assignDisplayTypes(orderedTypeInputs, neverPlaying, preferredPlayingKey)
         if (rotatingCandidate && !rotatingCandidate.gameSlug) {
           const t = displayTypes.get(rpcCandidateKey(rotatingCandidate))
           if (t && t !== rotatingCandidate.type) rotatingCandidate.type = t

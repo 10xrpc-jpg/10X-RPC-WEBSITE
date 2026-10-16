@@ -9,7 +9,7 @@ import { rotateCycleIndex, rotateNextSwitchInSecs } from '@/lib/rotation'
 import { rotateSettingsView } from '@/lib/rpc-rotate-settings'
 import { sweepSubscription, subscriptionView } from '@/lib/subscription'
 import { getTrialConfig } from '@/lib/trial-config'
-import { serializeSlot } from '@/lib/rpc-slots'
+import { enforceRpcSlotExclusivity, recallHealForUi, serializeSlot } from '@/lib/rpc-slots'
 
 export const dynamic = 'force-dynamic'
 
@@ -115,6 +115,17 @@ export async function GET() {
         }
         console.error('Error fetching user data in /api/me:', dbErr)
       }
+    }
+
+    // Task 108 — MUTUAL EXCLUSIVITY heal: legacy/anomalous states with 2-3
+    // enabled slots converge to the one-active-slot rule on dashboard load.
+    // The response carries `slotExclusivityFixed` so the UI can explain the
+    // switch flips. Game RPC rows are never touched by this pass.
+    const slotHeal = await enforceRpcSlotExclusivity(session.userId).catch(() => null)
+    if (slotHeal?.changed && slotHeal.disabledIds.length > 0) {
+      rpcSlots = rpcSlots.map(r =>
+        slotHeal.disabledIds.includes(r.id) ? { ...r, enabled: false } : r
+      )
     }
 
   const now = new Date()
@@ -244,7 +255,11 @@ export async function GET() {
         // (mirror of the daemon's neverPlaying set); simultaneous mode → no
         // neverPlaying (the first non-game candidate may own PLAYING when no
         // game is enabled — exactly what the daemon assigns).
+        // Task 109 — the ROTATING card owns the free PLAYING position (mirror
+        // of the daemon's preferredPlayingKey) — without it the preview shows
+        // "Competing in …" during slot 2/3 turns while Discord shows PLAYING.
         const neverPlaying = new Set<string>()
+        let preferredPlayingKey: string | null = null
         if (runtime.runtimeMode === 'rotate') {
           if (appRpcRow?.enabled) neverPlaying.add('app_rpc')
           if (Array.isArray(runtime.rotatePoolKeys)) {
@@ -253,8 +268,9 @@ export async function GET() {
               if (c.enabled && !c.gameSlug && c.id && !poolSet.has(c.id)) neverPlaying.add(c.id)
             }
           }
+          preferredPlayingKey = rpcCandidateKey(previewCandidate) || null
         }
-        const assigned = assignDisplayTypes(typeInputs, neverPlaying).get(rpcCandidateKey(previewCandidate))
+        const assigned = assignDisplayTypes(typeInputs, neverPlaying, preferredPlayingKey).get(rpcCandidateKey(previewCandidate))
         if (assigned) previewType = assigned
       }
     } catch { /* preview-only parity — never block /api/me on it */ }
@@ -319,6 +335,11 @@ export async function GET() {
     } : null,
     // Multi-RPC: every slot (max 3) + optional Auto Rotate settings.
     rpcSlots: rpcSlots.map(serializeSlot),
+    // Task 108 — slot numbers auto-disabled by the mutual-exclusivity heal
+    // (empty in the normal case; the UI toasts once when a legacy state
+    // with multiple enabled slots converges). recallHealForUi keeps the flag
+    // alive for a few seconds so StrictMode/parallel loads still surface it.
+    slotExclusivityFixed: slotHeal?.changed ? slotHeal.disabledSlots : recallHealForUi(session.userId),
     autoRotate: rotateView,
     // Task 87 — live rotation state for the dashboard strip (null when not
     // rotating). The UI recomputes the countdown locally every second from

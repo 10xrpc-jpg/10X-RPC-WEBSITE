@@ -2,10 +2,12 @@
 // Multi-RPC: each user manages up to 3 INDEPENDENT RPC configurations. Each
 // slot has its own fields, its own Application ID and its own enabled flag.
 // Existing single-RPC users keep working untouched (their row = slot 1).
+// Task 108 — MUTUAL EXCLUSIVITY: at most ONE of RPC1/RPC2/RPC3 carries
+// enabled=true. Loads self-heal legacy/anomalous states on view.
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
-import { MAX_RPC_SLOTS, normalizeRpcSlots, nextFreeSlot, serializeSlot } from '@/lib/rpc-slots'
+import { MAX_RPC_SLOTS, enforceRpcSlotExclusivity, normalizeRpcSlots, nextFreeSlot, recallHealForUi, serializeSlot } from '@/lib/rpc-slots'
 import { rotateSettingsView } from '@/lib/rpc-rotate-settings'
 
 export const dynamic = 'force-dynamic'
@@ -14,6 +16,10 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
+
+  // Task 108 — converge any legacy "2-3 slots enabled" state to the
+  // one-active-slot rule BEFORE the client renders the switches.
+  const healed = await enforceRpcSlotExclusivity(session.userId).catch(() => null)
 
   const rows = await normalizeRpcSlots(session.userId)
   const globalConfig = await db.globalConfig.findUnique({ where: { userId: session.userId } })
@@ -29,6 +35,7 @@ export async function GET() {
     game: enabledGame
       ? { slug: enabledGame.gameSlug, name: enabledGame.gameName, enabled: enabledGame.enabled }
       : null,
+    exclusivityFixed: healed?.changed ? healed.disabledSlots : recallHealForUi(session.userId),
   })
 }
 

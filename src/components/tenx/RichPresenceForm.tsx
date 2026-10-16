@@ -1,7 +1,9 @@
 // 10X RPC — Rich Presence form
 // Multi-RPC: renders ONE RPC slot's configuration. When `slotId` is provided
 // the form talks to the per-slot endpoints (/api/rpc/slots/[id]) — each slot
-// is saved, toggled and deleted independently; no slot can ever affect another.
+// is saved and toggled independently. Task 108 — enabling one slot is MUTUALLY
+// EXCLUSIVE: the server atomically turns the other RPC1/2/3 slots off and the
+// response carries the authoritative slot list so every card updates at once.
 'use client'
 import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
@@ -63,7 +65,17 @@ export function RichPresenceForm({
 }: {
   initial: RpcConfig | null | undefined
   onSaved?: () => void
-  onToggle?: (v: boolean) => void
+  /** Task 108 — v = this slot's new state; res carries the authoritative
+   *  post-switch slot list (`slots`) + the auto-disabled slot numbers so the
+   *  manager can flip EVERY switch instantly. */
+  onToggle?: (v: boolean, res?: {
+    ok?: boolean
+    enabled?: boolean
+    slots?: RpcConfig[]
+    disabledSlots?: number[]
+    applied?: boolean
+    message?: string
+  }) => void
   onChange?: (cfg: RpcConfig) => void
   /** Active RPC mode: 'game' while ONLY the Game RPC candidate runs, 'normal' otherwise. */
   rpcMode?: 'normal' | 'game' | null
@@ -228,12 +240,14 @@ export function RichPresenceForm({
         ? await api.rpcSlotToggle(slotId, v)
         : await api.rpcToggle(v)
       if (res.ok) {
+        // Task 108 — the message already reports the auto-disabled slots
+        // ("— RPC 1 and RPC 3 turned off (one RPC at a time)").
         toast.success(res.message || (v ? 'RPC enabled & live on Discord' : 'RPC stopped & cleared from Discord'), { duration: 2500 })
-        onToggle?.(v)
+        onToggle?.(v, res)
         onSaved?.()
       } else {
         setEnabled(!v)
-        toast.error('Failed to toggle RPC')
+        toast.error(res.message || 'Failed to toggle RPC')
       }
     } catch (e) {
       console.error(e)

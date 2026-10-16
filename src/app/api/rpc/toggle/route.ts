@@ -2,13 +2,15 @@
 // Legacy endpoint (the dashboard now uses per-slot toggles at
 // /api/rpc/slots/[id]/toggle). Kept working for old clients: it operates on
 // the user's FIRST slot only and — under Multi-RPC — never touches other
-// slots or the isolated Game RPC.
+// slots' configs, the Game RPC or the Application RPC. Task 108: enabling
+// the primary slot is MUTUALLY EXCLUSIVE — the other RPC1/2/3 slots are
+// atomically disabled in the same transaction (one Normal RPC at a time).
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
-import { syncPresence, stopPresence } from '@/lib/presence-sync'
+import { syncPresence, syncPresenceVerified, stopPresence } from '@/lib/presence-sync'
 import { requireSubscriptionAccess } from '@/lib/subscription'
-import { normalizeRpcSlots } from '@/lib/rpc-slots'
+import { enableSlotExclusively, normalizeRpcSlots } from '@/lib/rpc-slots'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -25,6 +27,8 @@ export async function POST(req: Request) {
 
     const body = await req.json() as { enabled?: boolean }
     const enabled = !!body.enabled
+    // Task 108 — slot numbers auto-disabled by the mutual-exclusivity rule.
+    let disabledSlots: number[] = []
 
     // The primary slot = the user's first RpcConfig row (slot 1 after
     // normalization; created on demand exactly like the legacy behavior).
@@ -50,12 +54,20 @@ export async function POST(req: Request) {
         )
       }
 
-      // 2. PRIMARY slot ON — other slots and the Game RPC stay untouched.
+      // 2. PRIMARY slot ON — MUTUALLY EXCLUSIVE (Task 108): every other
+      //    RPC1/2/3 slot is atomically disabled in the same serialized
+      //    transaction. Game RPC stays untouched.
       if (primary) {
-        primary = await db.rpcConfig.update({
-          where: { id: primary.id },
-          data: { enabled: true },
-        })
+        const result = await enableSlotExclusively(session.userId, primary.id)
+        if (!result.ok) {
+          return NextResponse.json({
+            ok: false,
+            error: 'toggle_failed',
+            message: 'Could not enable the RPC — please try again',
+          }, { status: 500 })
+        }
+        primary = result.row
+        disabledSlots = result.disabledSlots
       } else {
         primary = await db.rpcConfig.create({
           data: {
@@ -68,6 +80,10 @@ export async function POST(req: Request) {
             startMinsAgo: 0,
           },
         })
+        // A freshly created primary is the only possible enabled slot — no
+        // exclusivity pass needed, but run it anyway for absolute safety.
+        const healed = await enableSlotExclusively(session.userId, primary.id)
+        if (healed.ok) primary = healed.row
       }
 
       // 3. Master RPC gate ON.
@@ -79,16 +95,26 @@ export async function POST(req: Request) {
         },
       })
 
-      // 4. Push the full candidate set via the managed Gateway daemon.
+      // 4. Push the full candidate set via the managed Gateway daemon —
+      //    verified: the daemon confirms the RUNNING state matches the DB.
+      let applied: boolean | undefined
       if (session.discordAccessToken) {
-        await syncPresence(session.userId)
+        const sync = await syncPresenceVerified(session.userId)
+        applied = sync.applied
       }
+
+      const offNames = disabledSlots.filter(s => s > 0).map(s => `RPC ${s}`)
+      const offText = offNames.length
+        ? ` — ${offNames.join(offNames.length > 1 ? ' and ' : ' & ')} turned off (one RPC at a time)`
+        : ''
 
       return NextResponse.json({
         ok: true,
         enabled: true,
         rpcConfig: primary,
-        message: 'RPC enabled & live on Discord',
+        disabledSlots,
+        applied,
+        message: `RPC enabled & live on Discord${offText}`,
       })
     } else {
       // 1. PRIMARY slot OFF — only its own flag flips.
