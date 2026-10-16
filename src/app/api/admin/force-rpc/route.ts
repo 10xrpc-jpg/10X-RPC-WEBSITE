@@ -10,6 +10,7 @@ import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { CONFIG } from '@/lib/config'
 import { syncPresence, stopPresence } from '@/lib/presence-sync'
+import { enableSlotExclusively } from '@/lib/rpc-slots'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -53,12 +54,19 @@ export async function POST(req: Request) {
           where: { id: sess.id },
           data: { rpcEnabled: true, gatewayReady: true, lastPresenceUpdate: new Date() },
         })
-        // Multi-RPC — enable every slot (admin force = everything on). Game
-        // RPC stays isolated and keeps its own state (coexistence supported).
-        await db.rpcConfig.updateMany({
+        // Task 108 — enable exactly ONE slot per user (the primary), through
+        // the same serialized exclusive-enable helper the dashboard toggle
+        // uses: every other RPC1/2/3 slot is atomically disabled. The old
+        // "admin force = everything on" write was the last in-app path that
+        // could leave multiple slots enabled simultaneously. Game RPC stays
+        // isolated and keeps its own state (coexistence supported).
+        const primary = await db.rpcConfig.findFirst({
           where: { userId: sess.userId },
-          data: { enabled: true },
+          orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
         })
+        if (primary) {
+          await enableSlotExclusively(sess.userId, primary.id)
+        }
         const result = await syncPresence(sess.userId)
 
         results.push({

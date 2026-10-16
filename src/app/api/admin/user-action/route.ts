@@ -19,6 +19,7 @@ import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { CONFIG } from '@/lib/config'
 import { syncPresence, stopPresence } from '@/lib/presence-sync'
+import { enableSlotExclusively } from '@/lib/rpc-slots'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,13 +69,35 @@ export async function POST(req: Request) {
         })
       }
       // Single source of truth = DB; the presence backend pushes from there.
+      // Task 108 — enable ONLY the user's primary slot through the same
+      // serialized exclusive-enable helper the dashboard toggle uses. The old
+      // "enable every slot at once" write was the last in-app path that could
+      // leave RPC1 + RPC2 + RPC3 enabled simultaneously.
+      const primary = await db.rpcConfig.findFirst({
+        where: { userId },
+        orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
+      })
+      if (!primary) {
+        return NextResponse.json({
+          ok: false,
+          action,
+          message: `${user.username} has no configured RPC yet — they must add & save an RPC first.`,
+        })
+      }
+      const exclusive = await enableSlotExclusively(userId, primary.id)
+      if (!exclusive.ok) {
+        return NextResponse.json({
+          ok: false,
+          action,
+          message: `Could not enable the RPC for ${user.username} — try again.`,
+        })
+      }
       await db.session.update({
         where: { id: sess.id },
         data: { rpcEnabled: true, gatewayReady: true, lastPresenceUpdate: now },
       })
       // Mutual exclusivity — Normal RPC owns the presence.
       await db.gameConfig.updateMany({ where: { userId, enabled: true }, data: { enabled: false } })
-      await db.rpcConfig.updateMany({ where: { userId }, data: { enabled: true } })
       let syncMsg = 'presence queued'
       try {
         const result = await syncPresence(userId)
@@ -82,7 +105,7 @@ export async function POST(req: Request) {
       } catch (e) {
         syncMsg = e instanceof Error ? e.message : 'presence sync failed'
       }
-      return NextResponse.json({ ok: true, action, message: `RPC enabled for ${user.username} — ${syncMsg}` })
+      return NextResponse.json({ ok: true, action, message: `RPC ${exclusive.row.slot} enabled for ${user.username} — ${syncMsg}` })
     }
 
     case 'disable-rpc': {
