@@ -5,6 +5,13 @@
 //     at most one Normal RPC slot is active at any time). Game RPC, the
 //     Application RPC and every saved field are never touched.
 //   • disable → this slot's flag OFF; other candidates keep running untouched
+// Task 113 — AUTO ROTATE LIFECYCLE: while Auto Rotate is ON the rotator OWNS
+// the pool members' switches. After every toggle this route re-applies the
+// rotation truth instantly (rpc-rotation-lifecycle.ts — the exact member the
+// shared clock math picks is the one left enabled), so the switches, the DB
+// and Discord always agree: a slot enabled out of turn hands back to the
+// rotation within this very request, a rotation member disabled by hand is
+// kept live by its turn. Messages describe exactly that — no stale UI.
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
@@ -12,9 +19,42 @@ import { syncPresence, syncPresenceVerified, stopPresence } from '@/lib/presence
 import { requireSubscriptionAccess } from '@/lib/subscription'
 import { enableSlotExclusively, rotationCoversAnySlot, serializeSlot } from '@/lib/rpc-slots'
 import { ensureRpcConfiguredColumn, visibleRpcRows } from '@/lib/rpc-configured'
+import { reconcileRpcRotationFlags } from '@/lib/rpc-rotation-lifecycle'
+import { rotateSettingsView } from '@/lib/rpc-rotate-settings'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
+
+/**
+ * Task 113 — snap the slot enabled flags to the Auto-Rotate truth RIGHT NOW.
+ * No-op (zero writes) when Auto Rotate is off or the master RPC gate is off.
+ * Returns whether rotation is running and which slot number is live.
+ */
+async function applyRotationTruth(userId: string, masterOn: boolean): Promise<{ rotationOn: boolean; currentSlot: number | null; currentId: string | null }> {
+  try {
+    const gc = await db.globalConfig.findUnique({ where: { userId } })
+    const view = rotateSettingsView(gc)
+    if (!view.enabled || !masterOn) return { rotationOn: false, currentSlot: null, currentId: null }
+    await ensureRpcConfiguredColumn()
+    const rows = visibleRpcRows(await db.rpcConfig.findMany({
+      where: { userId },
+      orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
+    }))
+    if (rows.length === 0) return { rotationOn: true, currentSlot: null, currentId: null }
+    const result = await reconcileRpcRotationFlags(
+      userId,
+      { enabled: true, secs: view.secs, order: view.order, skip: view.skip, refMs: view.refMs, slots: view.slots, seed: userId },
+      rows.map(r => ({ id: r.id as string, enabled: !!r.enabled, createdAtMs: new Date(r.createdAt as Date).getTime() })),
+      Date.now(),
+      masterOn,
+    )
+    const currentRow = rows.find(r => r.id === result.currentId) as { slot?: number } | undefined
+    return { rotationOn: true, currentSlot: currentRow?.slot ?? null, currentId: result.currentId }
+  } catch (e: unknown) {
+    console.warn('toggle: rotation truth reconcile failed (daemon tick will reconcile):', e instanceof Error ? e.message : e)
+    return { rotationOn: false, currentSlot: null, currentId: null }
+  }
+}
 
 export async function POST(req: Request, ctx: { params: Promise<{ id: string }> }) {
   try {
@@ -77,36 +117,59 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         data: { rpcEnabled: true, lastPresenceUpdate: new Date() },
       })
 
-      // 4. Rebuild + push the full candidate set (this slot included). The
-      //    daemon stops the previous slot's presence and starts this one —
-      //    and its verify chain keeps retrying until Discord CONFIRMS the
-      //    running state matches the saved config (runtime verified, not
-      //    just the DB flag).
+      // 4. Task 113 — AUTO ROTATE OWNS THE LIFECYCLE: with rotation running,
+      //    re-apply its truth instantly. Enabling a slot out of turn hands
+      //    the switch back to the member whose turn it is (this very request
+      //    — the UI never shows a state the rotator is about to revert).
+      const rot = await applyRotationTruth(session.userId, true)
+
+      // 5. Rebuild + push the full candidate set. The daemon publishes the
+      //    rotation member (or this slot when rotation is off) — and its
+      //    verify chain keeps retrying until Discord CONFIRMS the running
+      //    state matches the saved config (runtime verified, not just the DB
+      //    flag).
       let applied: boolean | undefined
       if (session.discordAccessToken) {
         const sync = await syncPresenceVerified(session.userId)
         applied = sync.applied
       }
 
-      // 5. Authoritative slot list for an instant UI sync (Task 111 —
+      // 6. Authoritative slot list for an instant UI sync (Task 111 —
       //    configured slots only; unsaved drafts are never synced here).
       const allSlots = visibleRpcRows(await db.rpcConfig.findMany({
         where: { userId: session.userId },
         orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
       }))
 
-      const offNames = result.disabledSlots.filter(s => s > 0).map(s => `RPC ${s}`)
-      const offText = offNames.length
-        ? ` — ${offNames.join(offNames.length > 1 ? ' and ' : ' & ')} turned off (one RPC at a time)`
-        : ''
+      // 7. Honest message — what the user flipped vs. what the rotator runs.
+      const slotNum = updated.slot
+      const stillEnabled = allSlots.some(s => s.id === slot.id && s.enabled)
+      let message = `RPC ${slotNum} enabled & live on Discord`
+      if (rot.rotationOn) {
+        const offNames = result.disabledSlots.filter(s => s > 0).map(s => `RPC ${s}`)
+        const offText = offNames.length
+          ? ` — ${offNames.join(offNames.length > 1 ? ' and ' : ' & ')} turned off (one RPC at a time)`
+          : ''
+        if (rot.currentId === slot.id) {
+          message = `RPC ${slotNum} enabled & live on Discord${offText}`
+        } else if (stillEnabled) {
+          // Left out of the rotation selection — runs independently by design.
+          message = `RPC ${slotNum} is live on Discord and sits outside your Auto Rotate selection`
+        } else {
+          message = rot.currentSlot != null
+            ? `Auto Rotate is running — RPC ${slotNum} takes its turn automatically (RPC ${rot.currentSlot} is live now)`
+            : `Auto Rotate is running — RPC ${slotNum} takes its turn automatically`
+        }
+      }
+
       return NextResponse.json({
         ok: true,
-        enabled: true,
-        rpcConfig: serializeSlot(updated),
+        enabled: stillEnabled,
+        rpcConfig: serializeSlot({ ...(allSlots.find(s => s.id === slot.id) ?? updated) as Record<string, unknown> & { slot: number } }),
         disabledSlots: result.disabledSlots,
         slots: allSlots.map(s => serializeSlot({ ...(s as Record<string, unknown> & { slot: number }) })),
         applied,
-        message: `RPC ${updated.slot} enabled & live on Discord${offText}`,
+        message,
       })
     } else {
       // THIS slot OFF — only its own flag flips.
@@ -114,6 +177,12 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         where: { id: slot.id },
         data: { enabled: false },
       })
+
+      // Task 113 — with Auto Rotate running, its turn keeps the member live:
+      // re-apply the rotation truth instantly (a disabled rotation member is
+      // re-activated by its own turn; non-members stay off). No-op when
+      // rotation is off — zero automatic writes, requirement 10.
+      const rot = await applyRotationTruth(session.userId, !!session.rpcEnabled)
 
       const moreLeft = await db.rpcConfig.count({
         where: { userId: session.userId, enabled: true },
@@ -136,14 +205,18 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
         if (session.discordAccessToken) {
           await syncPresence(session.userId)
         }
-        const stillRotates = await rotationCoversAnySlot(session.userId)
+        const stillRotates = rot.rotationOn || await rotationCoversAnySlot(session.userId)
+        const keptLive = rot.rotationOn && rot.currentId === slot.id
+        const message = keptLive
+          ? `Auto Rotate keeps RPC ${updated.slot} live — turn Auto Rotate off to stop it`
+          : stillRotates
+            ? `RPC ${updated.slot} disabled — it still takes its Auto Rotate turns while selected`
+            : `RPC ${updated.slot} disabled — remaining RPCs keep running`
         return NextResponse.json({
           ok: true,
-          enabled: false,
-          rpcConfig: serializeSlot(updated),
-          message: stillRotates
-            ? `RPC ${updated.slot} disabled — it still takes its Auto Rotate turns while selected`
-            : `RPC ${updated.slot} disabled — remaining RPCs keep running`,
+          enabled: keptLive,
+          rpcConfig: serializeSlot({ ...(updated as Record<string, unknown> & { slot: number }) }),
+          message,
         })
       }
 
@@ -166,7 +239,7 @@ export async function POST(req: Request, ctx: { params: Promise<{ id: string }> 
       return NextResponse.json({
         ok: true,
         enabled: false,
-        rpcConfig: serializeSlot(updated),
+        rpcConfig: serializeSlot({ ...(updated as Record<string, unknown> & { slot: number }) }),
         message: 'RPC stopped & Rich Presence cleared from Discord',
       })
     }

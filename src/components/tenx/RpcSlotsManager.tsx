@@ -6,8 +6,12 @@
 // same time. Enabling one slot atomically turns the others off (server-side,
 // one transaction) and the UI mirrors the switch instantly — this manager
 // keeps optimistic overrides so every card flips in the same frame.
-// Auto Rotate is the optional one-at-a-time cycling mode and never modifies
-// any saved configuration.
+// Task 113 — AUTO ROTATE LIFECYCLE: the rotator OWNS the RPC lifecycle while
+// it is ON — it activates one eligible (configured) RPC, runs it for the set
+// interval, switches it off and brings up the next, flipping the slot
+// switches itself (the UI mirrors the live state via refresh-on-switch).
+// Rotation never edits any saved RPC CONTENT (name/type/device/images...);
+// with rotation OFF nothing is ever written.
 //
 // Task 87 — the Auto Rotate card is now a full control center:
 //   • LIVE "now on your profile" strip with a per-second countdown + progress
@@ -175,23 +179,25 @@ export function RpcSlotsManager({
   const hasGame = enabledGames.length > 0
   const allKeys = rotateCandidates.map(c => c.key)
   // Effective selection — the explicit pick (slot keys only; any legacy
-  // "game:<slug>" entries are ignored — Task 95) or, when unset, every
-  // ENABLED slot (the daemon's legacy rule — the chips must tell the truth).
+  // "game:<slug>" entries are ignored — Task 95) or, when unset, EVERY
+  // configured slot (Task 113 — the daemon's default pool: Auto Rotate
+  // supports every configured RPC, enabled or not — the chips tell the truth).
   const allKeysKey = allKeys.join(',')
   const enabledKeysKey = rotateCandidates.filter(c => c.slotEnabled).map(c => c.key).join(',')
   const effectiveSelection = useMemo(() => {
-    if (rotateSlots !== null) return rotateSlots.filter(k => allKeys.includes(k))
-    return rotateCandidates.filter(c => c.slotEnabled).map(c => c.key)
+    if (rotateSlots !== null && rotateSlots.length > 0) return rotateSlots.filter(k => allKeys.includes(k))
+    return allKeys
   }, [rotateSlots, allKeysKey, enabledKeysKey])
   // Full chain — used by the status texts.
   // Task 108 — the ENABLED chain only: at most ONE slot can be enabled at a
   // time (mutual exclusivity); disabled-but-selected slots appear during
   // rotation regardless.
   const rotationChain = rotateCandidates.filter(c => c.slotEnabled).map(c => c.label)
-  // Rotation POOL — matches the daemon EXACTLY (Task 106): the explicit
-  // selection matched against ALL slots (disabled ones included); when the
-  // effective selection is empty (stale keys of deleted slots), the daemon
-  // falls back to the enabled-slot legacy rule — the strip mirrors that.
+  // Rotation POOL — matches the daemon EXACTLY (Task 113): the explicit
+  // selection matched against ALL configured slots (disabled ones included);
+  // when it matches nothing (stale keys of deleted slots) or nothing is
+  // stored, the daemon falls back to EVERY configured slot — the strip
+  // mirrors that.
   const effectiveKey = effectiveSelection.join(',')
   const candidateKeysKey = rotateCandidates.map(c => c.key).join(',')
   const enabledFallbackKey = rotateCandidates.filter(c => c.slotEnabled).map(c => c.key).join(',')
@@ -199,7 +205,7 @@ export function RpcSlotsManager({
     const sel = new Set(effectiveSelection)
     const p = rotateCandidates.filter(c => sel.has(c.key))
     if (p.length > 0) return p
-    return rotateCandidates.filter(c => c.slotEnabled)
+    return rotateCandidates
   }, [effectiveKey, candidateKeysKey, enabledFallbackKey])
   const poolLen = pool.length
   const masterOn = !!me.session?.rpcEnabled
@@ -234,6 +240,26 @@ export function RpcSlotsManager({
       progressPct: Math.min(100, Math.max(0, ((rotateSecs - nextIn) / rotateSecs) * 100)),
     }
   }, [rotating, rotateRefMs, rotateSecs, rotateSkip, rotateOrder, poolLen, me.user?.id, nowMs, pool])
+
+  // Task 113 — LIVE SWITCH SYNC: the rotator flips the slot switches itself
+  // (the enabled RPC IS the one whose turn it is). When the strip's "now"
+  // RPC changes, pull a fresh /api/me so the switches, the chips' Off badges
+  // and the profile preview mirror the switch within the same second.
+  const liveNowKey = live?.now?.key ?? null
+  const onRefreshRef = useRef(onRefresh)
+  useEffect(() => { onRefreshRef.current = onRefresh })
+  const lastLiveKeyRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!rotating || !liveNowKey) return
+    if (lastLiveKeyRef.current === null) {
+      lastLiveKeyRef.current = liveNowKey
+      return
+    }
+    if (lastLiveKeyRef.current !== liveNowKey) {
+      lastLiveKeyRef.current = liveNowKey
+      onRefreshRef.current()
+    }
+  }, [liveNowKey, rotating])
 
   const applyRotateResponse = (v?: AutoRotate) => {
     if (!v) return
@@ -507,11 +533,11 @@ export function RpcSlotsManager({
                 Auto Rotate is ON — your <span className="text-white/75 font-semibold">{poolLen} selected RPCs</span> take
                 turns on your profile every {secsLabel} ({rotateOrder === 'shuffle' ? 'shuffled' : rotateOrder} order).
                 {poolLen > rotationChain.length
-                  ? <> Slots whose own switch is OFF still show up on their selected turn — Auto Rotate runs them for you.</>
+                  ? <> Slots whose switch is OFF still take their turn — Auto Rotate runs them for you and flips the switches itself, so they always show which RPC is live.</>
                   : poolLen < rotationChain.length
-                    ? ' RPCs you left out stay visible as usual.'
+                    ? ' RPCs you left out keep their own switches and stay visible as usual.'
                     : null}
-                {' '}Turn it off to keep just your enabled RPC on the profile.
+                {' '}Turn it off to stop the switching — the last live RPC keeps running.
               </p>
             )
           ) : (
@@ -534,9 +560,9 @@ export function RpcSlotsManager({
           )
         ) : (
           <p className="relative z-10 text-xs text-white/45 leading-relaxed mb-4 px-0.5">
-            Optional: cycle your RPCs one at a time on your profile. Only one RPC slot runs at any moment —
-            Auto Rotate switches between the RPCs you pick below automatically (even ones whose own switch is OFF).
-            Rotation never modifies your saved configurations.
+            Optional: cycle your RPCs one at a time on your profile. Auto Rotate picks one eligible RPC, runs it for the
+            interval you set, switches it off and brings up the next — flipping the slot switches itself so the page, the
+            database and Discord always agree. Rotation never edits your saved RPC content.
           </p>
         )}
 
@@ -690,9 +716,9 @@ export function RpcSlotsManager({
               <p className="mt-1.5 text-[11px] text-white/45 px-0.5">
                 Only the highlighted RPCs take turns in the Auto Rotator — tap to include or remove
                 them (you can pick these before turning Auto Rotate on). <span className="text-amber-300/80">RPCs marked Off
-                still take their turns while selected</span> — Auto Rotate runs them automatically and
-                never flips their individual switches. RPCs left out stay visible as usual; nothing is
-                ever deleted or reset.
+                still take their turns while selected</span> — Auto Rotate runs them automatically and flips their
+                switches as each turn starts, so the switches always show the live RPC. RPCs left out keep their own
+                switches; nothing is ever deleted or reset.
               </p>
             </div>
           )}

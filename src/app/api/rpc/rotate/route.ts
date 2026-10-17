@@ -1,8 +1,14 @@
 // 10X RPC — /api/rpc/rotate — RPC Auto Rotate settings (optional feature)
-// Auto Rotate controls ONLY the runtime presentation (which enabled RPC is
-// shown on Discord and how often it switches). It NEVER creates, deletes,
-// resets, overwrites, enables or disables any RPC configuration, and it never
-// touches Game RPC settings. Saved configs are 100% read-only to this route.
+// Task 113 — LIFECYCLE ROTATION: Auto Rotate now OWNS the RPC slot lifecycle.
+// Enabling it INSTANTLY activates the current rotation member (enabled flag +
+// Discord presence) and disables the other pool members; every interval the
+// daemon (rpc-rotation-lifecycle.ts shared helper) disables the previous RPC
+// and activates the next one — DB, dashboard switches and Discord always
+// describe the same live RPC. Disabling Auto Rotate stops the switching and
+// freezes the switches exactly as they are (the last live RPC keeps running;
+// no configuration is ever deleted or reset).
+// It never touches Game RPC settings, the Application RPC, or any saved RPC
+// content (name/type/device/images/buttons).
 //
 // Task 87 — the route also carries the rotation ORDER (forward | reverse |
 // shuffle) and the "include Game RPC in the pool" flag. Task 89 — it also
@@ -16,6 +22,8 @@ import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
 import { normalizeRotateOrder, normalizeRotateSecs, rotateSecsLabel, type RotateOrder } from '@/lib/rotation'
 import { rotateSettingsView } from '@/lib/rpc-rotate-settings'
+import { reconcileRpcRotationFlags } from '@/lib/rpc-rotation-lifecycle'
+import { ensureRpcConfiguredColumn, visibleRpcRows } from '@/lib/rpc-configured'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
@@ -80,6 +88,33 @@ export async function POST(req: Request) {
       },
     })
 
+    // Task 113 — INSTANT LIFECYCLE SYNC. Turning Auto Rotate ON activates the
+    // current rotation member right now: the member the shared clock math
+    // picks (fresh anchor = this save's updatedAt → the pool head) gets its
+    // enabled flag flipped ON and the other POOL members OFF — the very RPC
+    // the daemon publishes on Discord. Switches, DB and presence agree
+    // immediately (requirement 3/9). Turning it OFF writes nothing — the last
+    // live RPC simply keeps running (requirement 10).
+    if (enabled) {
+      try {
+        await ensureRpcConfiguredColumn()
+        const rows = visibleRpcRows(await db.rpcConfig.findMany({
+          where: { userId: session.userId },
+          orderBy: [{ slot: 'asc' }, { createdAt: 'asc' }],
+        }))
+        const v = rotateSettingsView(updated)
+        await reconcileRpcRotationFlags(
+          session.userId,
+          { enabled: true, secs: v.secs, order: v.order, skip: v.skip, refMs: v.refMs, slots: v.slots, seed: session.userId },
+          rows.map(r => ({ id: r.id as string, enabled: !!r.enabled, createdAtMs: new Date(r.createdAt as Date).getTime() })),
+          Date.now(),
+          !!session.rpcEnabled,
+        )
+      } catch (e: unknown) {
+        console.warn('rotate save: lifecycle reconcile failed (daemon tick will reconcile):', e instanceof Error ? e.message : e)
+      }
+    }
+
     // Runtime-only change — rebuild what is being sent (rotation starts/ends
     // immediately) without modifying any configuration.
     if (session.discordAccessToken && session.rpcEnabled) {
@@ -88,8 +123,8 @@ export async function POST(req: Request) {
 
     const view = rotateSettingsView(updated)
     const message = enabled
-      ? `Auto Rotate ON — your enabled RPC slots switch every ${rotateSecsLabel(view.secs)} (${view.order === 'shuffle' ? 'shuffled order' : `${view.order} order`}; games run in their own sessions with their own Game Auto-Rotate)`
-      : 'Auto Rotate OFF — all enabled RPCs are sent together'
+      ? `Auto Rotate ON — your selected RPCs take turns every ${rotateSecsLabel(view.secs)} (${view.order === 'shuffle' ? 'shuffled order' : `${view.order} order`}); the rotator flips the slot switches itself as each turn starts`
+      : 'Auto Rotate OFF — rotation stopped; the last live RPC keeps running'
 
     return NextResponse.json({ ok: true, autoRotate: view, message })
   } catch (e: unknown) {

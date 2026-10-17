@@ -46,6 +46,7 @@ import {
   type DaemonRole,
 } from './daemon-roles'
 import { ensureRpcConfiguredColumn, visibleRpcRows } from './rpc-configured'
+import { reconcileRpcRotationFlags, type RpcRotationSettingsLite } from './rpc-rotation-lifecycle'
 
 // ─── Daemon role split (NODE 1 = STATUS / NODE 2 = RPC / NODE 3 = GAME RPC) ─
 // DAEMON_ROLE unset / 'all' = the classic combined daemon — every role gate
@@ -103,20 +104,39 @@ async function daemonSubscriptionCheck(userId: string, discordId: string): Promi
       // Recovery for a user created between signup and subscription creation
       // (tiny race window): seed from the legacy Trial when it still has time,
       // otherwise a fresh 3-day window. Never leave a valid user locked out.
-      rows = await db.$queryRaw<DaemonSubRow[]>`
-        INSERT INTO "Subscription" ("id","userId","plan","status","trialEndsAt","createdAt","updatedAt")
-        SELECT 'sub_' || md5(random()::text || clock_timestamp()::text), u."id",
-               'free', 'trialing',
-               COALESCE(t."endsAt", NOW() + interval '3 days'),
-               NOW(), NOW()
-        FROM "User" u LEFT JOIN "Trial" t ON t."userId" = u."id"
-        WHERE u."id" = ${userId}
-        ON CONFLICT ("userId") DO NOTHING
-        RETURNING plan, status, "trialEndsAt", "currentPeriodEnd"`
-      if (rows.length === 0) {
+      // PostgreSQL carries the flavored INSERT/RETURNING below; SQLite
+      // (sandbox/local) has no ::text casts / ON CONFLICT DO NOTHING in this
+      // shape — the Prisma-client seeding path below covers it there.
+      const url = (process.env.DATABASE_URL || '').trim()
+      if (url.startsWith('file:')) {
+        // SQLite seeding path (identical semantics, engine-native API).
+        const user = await db.user.findUnique({
+          where: { id: userId },
+          include: { trial: true },
+        }).catch(() => null)
+        const trialEnds = user?.trial?.endsAt && user.trial.endsAt > new Date()
+          ? user.trial.endsAt
+          : new Date(Date.now() + 3 * 86_400_000)
+        await db.subscription.create({ data: { userId, plan: 'free', status: 'trialing', trialEndsAt: trialEnds } }).catch(() => null)
         rows = await db.$queryRaw<DaemonSubRow[]>`
           SELECT plan, status, "trialEndsAt", "currentPeriodEnd"
           FROM "Subscription" WHERE "userId" = ${userId} LIMIT 1`
+      } else {
+        rows = await db.$queryRaw<DaemonSubRow[]>`
+          INSERT INTO "Subscription" ("id","userId","plan","status","trialEndsAt","createdAt","updatedAt")
+          SELECT 'sub_' || md5(random()::text || clock_timestamp()::text), u."id",
+                 'free', 'trialing',
+                 COALESCE(t."endsAt", NOW() + interval '3 days'),
+                 NOW(), NOW()
+          FROM "User" u LEFT JOIN "Trial" t ON t."userId" = u."id"
+          WHERE u."id" = ${userId}
+          ON CONFLICT ("userId") DO NOTHING
+          RETURNING plan, status, "trialEndsAt", "currentPeriodEnd"`
+        if (rows.length === 0) {
+          rows = await db.$queryRaw<DaemonSubRow[]>`
+            SELECT plan, status, "trialEndsAt", "currentPeriodEnd"
+            FROM "Subscription" WHERE "userId" = ${userId} LIMIT 1`
+        }
       }
     }
   } catch {
@@ -437,6 +457,73 @@ async function reconcileGameRotationForUser(
   }
 }
 
+/**
+ * Task 113 — per-user NORMAL RPC Auto-Rotate LIFECYCLE reconcile. Runs right
+ * after the game reconcile in every syncAllUsers pass so the SAME tick
+ * publishes the reconciled state.
+ *
+ * While Auto Rotate is ON (and the master RPC gate is on), the rotator OWNS
+ * the pool members' enabled flags: exactly the member whose turn it is — the
+ * SAME member resolveRuntimeCandidates publishes on Discord (shared
+ * rotation.ts clock) — carries enabled=true; every other POOL member is
+ * OFF. This is what makes the dashboard switches, the database and Discord
+ * describe the same live RPC at every moment:
+ *   • a slot that was enabled before Auto Rotate started is managed by the
+ *     rotation from the first tick on (requirement 6 — no independent runs),
+ *   • every interval boundary disables the previous member and activates the
+ *     next one (requirements 4/5),
+ *   • unconfigured rows are never pool members and never touched,
+ *   • rotation OFF / master OFF → ZERO writes (requirement 10; switches keep
+ *     exactly the state the user left them in).
+ * Non-pool enabled slots (explicitly left out of the selection) keep running;
+ * the rotator never enables a member alongside one of them (one-active-slot
+ * invariant, Task 108).
+ *
+ * Role-gated to the rpc pillar (roleWantsRpc) so the three daemon nodes never
+ * race the same flag writes — mirrors the game reconcile's role gate.
+ * Mutates the in-memory rows to the authoritative post-apply enabled set so
+ * the rest of this tick sees the reconciled flags (no refetch).
+ */
+async function reconcileRpcRotationForUser(
+  userId: string,
+  slotRows: Array<{ id?: string | null; enabled: boolean; createdAt?: Date | string | null }>,
+  masterOn: boolean,
+): Promise<{ nextSwitchInSecs: number | null } | null> {
+  const configured = slotRows.filter(r => typeof r.id === 'string' && r.id.length > 0)
+  if (configured.length === 0) return null
+
+  const rotate = await fetchRpcRotateSettings(userId)
+  if (!rotate.enabled || !masterOn) return null
+
+  const settings: RpcRotationSettingsLite = {
+    enabled: true,
+    secs: rotate.secs,
+    order: rotate.order,
+    skip: rotate.skip,
+    refMs: rotate.refMs,
+    slots: rotate.slots,
+    seed: userId,
+  }
+  const nowMs = Date.now()
+  const liteRows: Array<{ id: string; enabled: boolean; createdAtMs: number }> = configured.map(r => ({
+    id: r.id as string,
+    enabled: !!r.enabled,
+    createdAtMs: r.createdAt ? new Date(r.createdAt).getTime() : 0,
+  }))
+  const result = await reconcileRpcRotationFlags(userId, settings, liteRows, nowMs, true)
+
+  // Mirror the authoritative enabled set in memory (no re-read).
+  const enabledSet = new Set(result.enabledIds)
+  for (const r of configured) {
+    const want = enabledSet.has(r.id as string)
+    if (r.enabled !== want) r.enabled = want
+  }
+  if (result.changed) {
+    console.log(`[10X RPC Daemon] Auto-Rotate lifecycle for ${userId}: RPC ${result.currentId} is now live (${result.poolIds.length}-RPC pool, next switch in ${result.nextSwitchInSecs ?? '?'}s)`)
+  }
+  return { nextSwitchInSecs: result.nextSwitchInSecs }
+}
+
 interface ActiveUserSocket {
   userId: string
   sessionId: string
@@ -644,6 +731,14 @@ export class RpcDaemon {
   private slotSessionsToken = new Map<string, string>()
   private tickTimer?: NodeJS.Timeout
   private watchdogTimer?: NodeJS.Timeout
+  /** Task 113 — one-shot timer armed on the NEXT Auto-Rotate boundary when it
+   *  lands sooner than the regular 10s tick (instant switch + flag flips). */
+  private rotatePrecisionTimer?: NodeJS.Timeout
+  /** Earliest upcoming Auto-Rotate boundary (ms epoch) seen in the last pass. */
+  private nextRotateBoundaryAt: number | null = null
+  /** Re-entrancy guard — a tick (regular, watchdog or precision) never runs
+   *  concurrently with another one. */
+  private tickInProgress = false
   private isRunning = false
   private startTime = Date.now()
   private lastTickAt: Date | null = null
@@ -764,12 +859,43 @@ export class RpcDaemon {
       clearInterval(this.watchdogTimer)
       this.watchdogTimer = undefined
     }
+    if (this.rotatePrecisionTimer) {
+      clearTimeout(this.rotatePrecisionTimer)
+      this.rotatePrecisionTimer = undefined
+    }
+    this.nextRotateBoundaryAt = null
 
     for (const [userId, userSock] of this.sockets.entries()) {
       this.cleanupSocket(userSock)
     }
     this.sockets.clear()
     console.log('[10X RPC Daemon] Daemon stopped.')
+  }
+
+  /**
+   * Task 113 — PRECISION ROTATION TICK. After a pass, when the earliest
+   * upcoming Auto-Rotate boundary lands sooner than the next regular 10s
+   * tick, arm a one-shot tick EXACTLY on that boundary (+250ms cushion): the
+   * flag flips and the presence switch land within ~a second of the clock
+   * instead of up to a full tick late ("instant & accurate status updates").
+   */
+  private armRotationPrecisionTick(): void {
+    if (this.rotatePrecisionTimer) {
+      clearTimeout(this.rotatePrecisionTimer)
+      this.rotatePrecisionTimer = undefined
+    }
+    const at = this.nextRotateBoundaryAt
+    this.nextRotateBoundaryAt = null
+    if (!at || !this.isRunning) return
+    const deltaMs = at - Date.now()
+    // Beyond the regular tick cadence → the 10s loop covers it; too close /
+    // in the past → run one now-ish (still bounded).
+    if (deltaMs >= 10500) return
+    const waitMs = Math.max(300, deltaMs + 250)
+    this.rotatePrecisionTimer = setTimeout(() => {
+      this.rotatePrecisionTimer = undefined
+      void this.tick().catch(() => {})
+    }, waitMs)
   }
 
   /**
@@ -781,11 +907,17 @@ export class RpcDaemon {
    * - Syncs any DB state changes
    */
   public async tick(): Promise<void> {
-    this.lastTickAt = new Date()
-    const now = new Date()
+    // Re-entrancy guard — the regular interval, the watchdog recovery and the
+    // Task-113 precision tick all funnel here; overlapping passes would race
+    // the same sockets and rotation flag writes.
+    if (this.tickInProgress) return
+    this.tickInProgress = true
+    try {
+      this.lastTickAt = new Date()
+      const now = new Date()
 
-    // 1. Sync users from DB
-    await this.syncAllUsers()
+      // 1. Sync users from DB
+      await this.syncAllUsers()
 
     // 2. Iterate connected users
     for (const [userId, userSock] of this.sockets.entries()) {
@@ -934,6 +1066,13 @@ export class RpcDaemon {
         console.error(`[10X RPC Daemon] Error in tick for user ${userId}:`, userTickErr)
       }
     }
+
+      // 3. Task 113 — arm the precision rotation tick when the earliest
+      // upcoming Auto-Rotate boundary is sooner than the regular 10s loop.
+      this.armRotationPrecisionTick()
+    } finally {
+      this.tickInProgress = false
+    }
   }
 
   /** Initial socket platform for a NEW socket record, per daemon role. The
@@ -970,6 +1109,9 @@ export class RpcDaemon {
    */
   public async syncAllUsers(): Promise<void> {
     const now = new Date()
+    // Task 113 — a fresh pass recomputes the earliest Auto-Rotate boundary
+    // from the live settings; drop the previous pass's value first.
+    this.nextRotateBoundaryAt = null
     let activeSessions
     try {
       activeSessions = await db.session.findMany({
@@ -1051,6 +1193,37 @@ export class RpcDaemon {
         }
       }
 
+      // Task 113 — NORMAL RPC Auto-Rotate LIFECYCLE reconcile (RPC-pillar
+      // state — only the rpc role or the combined 'all' daemon advances it).
+      // Flips the pool members' enabled flags to the rotation clock's current
+      // member (same inputs the presence resolver uses), so the DB, the
+      // dashboard switches and Discord always describe the same live RPC.
+      // Runs BEFORE rpcConfigs is read: it mutates those rows in place.
+      let rotateNextBoundarySecs: number | null = null
+      const configuredRpcRows = visibleRpcRows(session.user.rpcConfigs ?? [])
+      if (configuredRpcRows.length > 0 && roleWantsRpc(DAEMON_ROLE)) {
+        try {
+          const rr = await reconcileRpcRotationForUser(
+            session.userId,
+            configuredRpcRows as Array<{ id?: string | null; enabled: boolean; createdAt?: Date | string | null }>,
+            !!session.rpcEnabled,
+          )
+          if (rr?.nextSwitchInSecs != null) {
+            rotateNextBoundarySecs = rr.nextSwitchInSecs
+          }
+        } catch (rrErr) {
+          console.warn(`[10X RPC Daemon] rpc rotation reconcile failed for ${session.userId} (skipped this tick):`, rrErr instanceof Error ? rrErr.message : rrErr)
+        }
+      }
+      if (rotateNextBoundarySecs != null) {
+        // Track the EARLIEST upcoming switch across this pass's users — the
+        // tick loop arms a precision tick on it (instant flag flips + pushes
+        // at the boundary instead of up to a full 10s tick late).
+        const prev = this.nextRotateBoundaryAt
+        const at = Date.now() + rotateNextBoundarySecs * 1000
+        this.nextRotateBoundaryAt = prev != null ? Math.min(prev, at) : at
+      }
+
       const rpcConfigs = (session.user.rpcConfigs ?? []) as Array<RpcCandidate & { enabled: boolean }>
       // Task 89/95 — SINGLE-ACTIVE GAME: exactly ONE enabled game is a
       // candidate (the game-rotation reconcile above enforces this — manual
@@ -1068,19 +1241,21 @@ export class RpcDaemon {
       const hasStatus = !!session.statusEnabled
       const hasRotator = !!(session.statusEnabled && session.user.globalConfig?.rotatorEnabled && session.user.rotatorPresets?.some(p => p.enabled))
 
-      // Task 106 — ROTATION-SELECTED SLOTS keep the daemon tracking the user
-      // even when NO slot is enabled: Auto Rotate ON + an explicit selection
-      // that matches at least one created slot (enabled or not) means the
-      // rotation pool still has members to publish. Reads ONLY the already
-      // loaded GlobalConfig row (no extra query); the same rule the resolver
-      // applies (enabled or disabled — the selection is what counts).
+      // Task 106/113 — ROTATION-ELIGIBLE SLOTS keep the daemon tracking the
+      // user even when NO slot switch is ON: Auto Rotate ON + master RPC on +
+      // at least one rotation member means the rotator still has an RPC to
+      // publish AND manage. With an explicit selection the members are the
+      // selected slots; with NO stored selection EVERY configured slot
+      // rotates (requirement 1/2 — rotation works from the all-off state).
+      // Reads ONLY the already loaded rows (no extra query); the same rule
+      // the resolver and the flag reconcile apply.
       const gcRow = session.user.globalConfig as { rpcAutoRotate?: boolean | null; rpcRotateSlots?: string | null } | null
       const tickRotateKeys = parseRotateSlots(gcRow?.rpcRotateSlots)
       const rotationSelectedSlots = !!session.rpcEnabled
         && !!gcRow?.rpcAutoRotate
-        && !!tickRotateKeys
-        && tickRotateKeys.length > 0
-        && rpcConfigs.some(r => r.id && tickRotateKeys.includes(r.id))
+        && (tickRotateKeys && tickRotateKeys.length > 0
+          ? rpcConfigs.some(r => r.id && tickRotateKeys.includes(r.id))
+          : configuredRpcRows.length > 0)
 
       // ── Role-pillar activity for THIS daemon (daemon-roles.ts) ──────────
       // A role daemon only tracks the user while ITS pillar is active; the

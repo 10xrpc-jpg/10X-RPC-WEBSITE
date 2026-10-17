@@ -471,11 +471,13 @@ function publishableRotationCandidate(c: RpcCandidate): RpcCandidate {
  * enabled or not) — a DISABLED slot the user selected still rotates and
  * displays during its turn. The per-slot enable switch keeps governing the
  * non-rotate Multi-Session mode only; Auto Rotate never reads it for selected
- * slots and NEVER writes it (configs stay 100% read-only here).
- * Stateless across daemon restarts/multi-instance (same inputs → same index).
- * Auto Rotate is a RUNTIME-ONLY overlay: it never writes configs, never flips
- * enabled flags, never touches Game RPC settings, app IDs, buttons, images or
- * timestamps.
+ * slots and NEVER writes it (configs stay 100% read-only to THIS resolver —
+ * Task 113 moves the enabled-flag lifecycle into rpc-rotation-lifecycle.ts,
+ * which flips the SAME member this resolver publishes).
+ * Task 113 — DEFAULT POOL = every CONFIGURED slot (enabled or disabled):
+ * rotation supports every configured RPC and runs even when all switches
+ * start OFF. Stateless across daemon restarts/multi-instance (same inputs →
+ * same index).
  */
 export function resolveRuntimeCandidates(opts: {
   rpcEnabled: boolean | null | undefined
@@ -515,23 +517,28 @@ export function resolveRuntimeCandidates(opts: {
   }
 
   // ── Auto Rotate ON — build the pool ──────────────────────────────────────
-  // Task 106 — the EXPLICIT selection matches ALL created slots (enabled AND
-  // disabled). No explicit selection → the legacy rule (every ENABLED slot).
+  // Task 113 — LIFECYCLE ROTATION: the pool is EVERY CONFIGURED SLOT (enabled
+  // AND disabled) unless the user stored an explicit selection. Requirement 1:
+  // Auto-Rotate must work with every configured RPC; requirement 2: it must
+  // run even when every slot switch starts OFF. Unconfigured placeholder rows
+  // never reach this function (every caller pre-filters with visibleRpcRows).
+  // An explicit selection that matches nothing (stale/deleted ids) falls back
+  // to ALL configured slots so the profile never goes blank.
   const explicitKeys = Array.isArray(opts.rotateSlotKeys)
     ? opts.rotateSlotKeys.filter((k): k is string => typeof k === 'string' && k.length > 0 && !k.startsWith('game:'))
     : null
+  // Task 113 — defense-in-depth: rows that carry `configured === false` are
+  // NEVER pool members (every caller pre-filters with visibleRpcRows; this
+  // keeps unconfigured placeholder rows out even when a caller forgets).
+  const allSlots = allSlotCandidates(opts.allRpcConfigs ?? opts.rpcConfigs)
+    .filter(c => (c as { configured?: boolean | null }).configured !== false)
   let pool: RpcCandidate[]
-  if (explicitKeys) {
-    const allSlots = allSlotCandidates(opts.allRpcConfigs ?? opts.rpcConfigs)
+  if (explicitKeys && explicitKeys.length > 0) {
     const set = new Set(explicitKeys)
     const picked = allSlots.filter(c => (c.id ? set.has(c.id) : false))
-    // Empty explicit pick (or a legacy caller without allRpcConfigs) must
-    // never blank the profile — fall back to the enabled-slot legacy rule.
-    pool = picked.length > 0
-      ? picked
-      : rotationPoolCandidates(sel, { rotateSlotKeys: explicitKeys, includeGame: opts.rotateIncludeGame })
+    pool = picked.length > 0 ? picked : allSlots
   } else {
-    pool = rotationPoolCandidates(sel, { rotateSlotKeys: null, includeGame: opts.rotateIncludeGame })
+    pool = allSlots
   }
 
   // The pool can drive the presence even when NO slot is enabled: the user
@@ -541,18 +548,18 @@ export function resolveRuntimeCandidates(opts: {
     return { ...sel, runtimeMode: 'simultaneous', rotateIndex: null, rotatePoolLength: null, rotatePoolKeys: null }
   }
   if (pool.length < 2) {
-    // Nothing to cycle. Preserve the exact non-rotate presentation, EXCEPT
-    // the rotation-only case: the single pool member is a DISABLED slot the
-    // user explicitly selected → publish it (the selection is what keeps it
-    // visible while Auto Rotate is on).
-    if (!sel.active && pool.length === 1) {
+    // Nothing to cycle. With rotation ON and master RPC on, the single pool
+    // member IS the rotation (its permanent turn) — publish it exactly like a
+    // rotate step so the flag reconcile, the UI strip and the presence stay
+    // in one mode (and left-out pinned extras keep their sessions).
+    if (poolCanDrive && pool.length === 1) {
       return {
         active: true,
         candidates: [publishableRotationCandidate(pool[0])],
-        runtimeMode: 'single',
-        rotateIndex: null,
-        rotatePoolLength: null,
-        rotatePoolKeys: null,
+        runtimeMode: 'rotate',
+        rotateIndex: 0,
+        rotatePoolLength: 1,
+        rotatePoolKeys: pool.map(rpcCandidateKey),
       }
     }
     if (sel.active && sel.candidates.length === 1) {

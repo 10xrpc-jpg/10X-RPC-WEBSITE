@@ -64,6 +64,10 @@ async function seedSlots(rows: Array<{ slot: number; name: string; type?: string
         appId: r.appId ?? null,
         details: r.details ?? null,
         startMinsAgo: 0,
+        // Task 113 — these are REAL user-configured slots (the suite models
+        // explicit user setups); the resolver now excludes configured=false
+        // placeholder rows from the rotation pool as defense-in-depth.
+        configured: true,
       },
     })
   }

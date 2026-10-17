@@ -5,7 +5,7 @@
 
 import { db } from '@/lib/db'
 import { isGameApplicationId } from '@/lib/games'
-import { rowLooksConfigured } from '@/lib/rpc-configured'
+import { rowLooksConfigured, visibleRpcRows } from '@/lib/rpc-configured'
 
 export const MAX_RPC_SLOTS = 3
 
@@ -116,17 +116,18 @@ export async function anyEnabledCandidate(userId: string): Promise<boolean> {
 }
 
 /**
- * Task 106 — ROTATION COVERAGE. True when Auto Rotate is ON and its stored
- * EXPLICIT selection matches at least one EXISTING slot of the user (enabled
- * or not) — i.e. the rotator still has a member to publish even though no
- * slot (or no slot other than the one being disabled/deleted) is enabled.
+ * Task 106/113 — ROTATION COVERAGE. True when Auto Rotate is ON and its pool
+ * still has at least one member to publish:
+ *   • an EXPLICIT selection → at least one selected id matches an existing
+ *     slot of the user (enabled or not);
+ *   • NO stored selection (the Task 113 default) → at least one CONFIGURED
+ *     slot exists — every configured slot rotates when nothing is picked, so
+ *     disabling the last enabled slot must NOT tear the presence down.
  *
  * Used by the toggle/delete paths: flipping the last enabled slot OFF or
  * deleting it must NOT tear the presence down while the Auto Rotator still
- * cycles through selected slots — the selection is independent of the
- * per-slot enabled flags (that is the whole point of Task 106).
- * A null/unset selection means the legacy "every ENABLED slot rotates" rule,
- * which the enabled-count check already covers → false here.
+ * cycles through eligible slots — the pool is independent of the per-slot
+ * enabled flags (that is the whole point of Task 106/113).
  */
 export async function rotationCoversAnySlot(userId: string): Promise<boolean> {
   try {
@@ -135,18 +136,29 @@ export async function rotationCoversAnySlot(userId: string): Promise<boolean> {
       select: { rpcAutoRotate: true, rpcRotateSlots: true },
     })
     if (!gc?.rpcAutoRotate) return false
-    if (typeof gc.rpcRotateSlots !== 'string' || !gc.rpcRotateSlots.trim()) return false
+    if (typeof gc.rpcRotateSlots !== 'string' || !gc.rpcRotateSlots.trim()) {
+      // Unset selection → every CONFIGURED slot rotates: covered whenever at
+      // least one configured (visible) slot exists.
+      const rows = await db.rpcConfig.findMany({ where: { userId } })
+      return visibleRpcRows(rows).length > 0
+    }
     let keys: unknown
     try {
       keys = JSON.parse(gc.rpcRotateSlots)
     } catch {
       return false
     }
-    if (!Array.isArray(keys) || keys.length === 0) return false
+    if (!Array.isArray(keys) || keys.length === 0) {
+      const rows = await db.rpcConfig.findMany({ where: { userId } })
+      return visibleRpcRows(rows).length > 0
+    }
     const slotKeys = keys.filter(
       (k): k is string => typeof k === 'string' && k.length > 0 && !k.startsWith('game:')
     )
-    if (slotKeys.length === 0) return false
+    if (slotKeys.length === 0) {
+      const rows = await db.rpcConfig.findMany({ where: { userId } })
+      return visibleRpcRows(rows).length > 0
+    }
     const rows = await db.rpcConfig.findMany({ where: { userId }, select: { id: true } })
     const ids = new Set(rows.map(r => r.id))
     return slotKeys.some(k => ids.has(k))
