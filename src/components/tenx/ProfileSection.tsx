@@ -6,7 +6,7 @@ import { api, type Me } from '@/lib/api-client'
 import { useRouter } from './useRouter'
 import { Card, PurpleSwitch , StatusGlyph} from './ui'
 import { BADGE_PLATFORMS, DISCORD_STATUSES } from '@/lib/constants'
-import { Ban, Smartphone, SmilePlus, Globe, Image as ImageIcon, Settings, LogOut, Timer } from 'lucide-react'
+import { Ban, Smartphone, SmilePlus, Globe, Image as ImageIcon, Settings, LogOut, Timer, UserRound } from 'lucide-react'
 import { DiscordPreview } from './DiscordPreview'
 import { DiscordEmoji, normalizeEmojiInput } from './Emoji'
 
@@ -321,6 +321,11 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
 
   const currentPlatformItem = PLATFORM_ITEMS.find(p => p.value === selectedPlatform) || PLATFORM_ITEMS[0]
   const PlatformIcon = currentPlatformItem.icon
+  // Admin menu visibility — server-verified flags first (isAdmin comes from
+  // CONFIG.admin.discordIds, subscription.admin from the access sweep), with
+  // the legacy hardcoded-ID check kept as a belt-and-braces fallback.
+  const legacyAdminId = (me.user as Record<string, unknown>).discordId === '824940038617694279' || me.user.id === '824940038617694279'
+  const isAdminUser = !!me.isAdmin || !!me.subscription?.admin || legacyAdminId
 
   return (
     <>
@@ -375,6 +380,14 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                 </div>
                 <button
                   type="button"
+                  onClick={() => { setUserMenuOpen(false); navigate({ name: 'profile' }) }}
+                  className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-purple-300/90 hover:text-purple-200 hover:bg-purple-500/10 text-left transition-colors"
+                >
+                  <UserRound className="w-4 h-4 text-purple-400" />
+                  <span>My Profile</span>
+                </button>
+                <button
+                  type="button"
                   onClick={() => { setUserMenuOpen(false); navigate({ name: 'config' }) }}
                   className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sky-300/90 hover:text-sky-200 hover:bg-sky-500/10 text-left transition-colors"
                 >
@@ -389,7 +402,7 @@ export function ProfileSection({ me, onRefresh }: { me: Me; onRefresh: () => voi
                   <ImageIcon className="w-4 h-4 text-emerald-400" />
                   <span>Set Background</span>
                 </button>
-                {((me.user as Record<string, unknown>).discordId === '824940038617694279' || me.user.id === '824940038617694279') && (
+                {isAdminUser && (
                   <button
                     type="button"
                     onClick={() => { setUserMenuOpen(false); navigate({ name: 'admin' }) }}

@@ -51,6 +51,8 @@ export interface Me {
     discriminator: string
     avatar: string
     backgroundUrl?: string | null
+    /** Account creation date ("member since" on the profile page). */
+    createdAt?: string
   }
   session?: {
     statusEnabled?: boolean

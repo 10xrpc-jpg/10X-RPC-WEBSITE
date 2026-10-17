@@ -10,6 +10,7 @@ import { useCallback, useSyncExternalStore } from 'react'
 export type Route =
   | { name: 'home' }
   | { name: 'dashboard' }
+  | { name: 'profile' }
   | { name: 'games' }
   | { name: 'game', slug: string }
   | { name: 'config' }
@@ -22,6 +23,7 @@ export function parsePath(pathname: string): Route {
   if (!clean) return { name: 'home' }
   const parts = clean.split('/')
   if (parts[0] === 'dashboard') return { name: 'dashboard' }
+  if (parts[0] === 'profile') return { name: 'profile' }
   if (parts[0] === 'games') {
     if (parts[1]) return { name: 'game', slug: decodeURIComponent(parts[1]) }
     return { name: 'games' }
@@ -37,6 +39,7 @@ export function toPath(route: Route): string {
   switch (route.name) {
     case 'home': return '/'
     case 'dashboard': return '/dashboard'
+    case 'profile': return '/profile'
     case 'games': return '/games'
     case 'game': return `/games/${encodeURIComponent(route.slug)}`
     case 'config': return '/config'

@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useRouter } from '@/components/tenx/useRouter'
 import { LandingPage } from '@/components/tenx/LandingPage'
 import { DashboardPage } from '@/components/tenx/DashboardPage'
+import { ProfilePage } from '@/components/tenx/ProfilePage'
 import { GamesPage } from '@/components/tenx/GamesPage'
 import { GameConfigPage } from '@/components/tenx/GameConfigPage'
 import { GlobalConfigPage } from '@/components/tenx/GlobalConfigPage'
@@ -30,6 +31,7 @@ export default function Home() {
 
   if (route.name === 'home') return <LandingPage />
   if (route.name === 'dashboard') return <DashboardPage />
+  if (route.name === 'profile') return <ProfilePage />
   if (route.name === 'admin') return <AdminPage />
   if (route.name === 'games') return <GamesPage />
   if (route.name === 'game') return <GameConfigPage slug={route.slug} />

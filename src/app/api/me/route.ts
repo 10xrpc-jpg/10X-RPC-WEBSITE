@@ -279,6 +279,8 @@ export async function GET() {
         discriminator: session.user.discriminator || '0',
       }),
       backgroundUrl: session.user.backgroundUrl,
+      // Profile page — account creation date ("member since").
+      createdAt: session.user.createdAt,
     },
     session: {
       statusEnabled: session.statusEnabled ?? false,
