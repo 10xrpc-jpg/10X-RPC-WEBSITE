@@ -1,0 +1,75 @@
+# 10X RPC — automatic production deploy to Vercel.
+#
+# Runs on every push to main ONCE the repo secrets are configured. Until then
+# it exits gracefully with a setup reminder (no failed builds).
+#
+# ONE-TIME SETUP (repo Settings → Secrets and variables → Actions):
+#   VERCEL_TOKEN      — Vercel account token (vercel.com → Settings → Tokens)
+#   VERCEL_ORG_ID     — Vercel dashboard → project Settings → General → "Vercel ID" (org)
+#   VERCEL_PROJECT_ID — Vercel dashboard → project Settings → General → Project ID
+#
+# Alternative: connect the Vercel GitHub App (Vercel dashboard → project →
+# Settings → Git) — then Vercel deploys on push natively and this workflow
+# stays dormant (it only runs when VERCEL_TOKEN exists).
+name: Deploy to Vercel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      HAS_VERCEL_SECRETS: ${{ secrets.VERCEL_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup reminder (secrets not configured)
+        if: env.HAS_VERCEL_SECRETS != 'true'
+        run: |
+          echo "VERCEL_TOKEN secret is not set — skipping deploy."
+          echo "To enable automatic deploys, add repo secrets:"
+          echo "  VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID"
+          echo "(or connect the Vercel GitHub App in the Vercel dashboard)."
+
+      - uses: actions/setup-node@v4
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        with:
+          node-version: 22
+
+      - name: Install Vercel CLI
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        run: npm i -g vercel@latest
+
+      - name: Link Vercel project
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          mkdir -p .vercel
+          printf '{"projectId":"%s","orgId":"%s"}' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
+
+      - name: Pull production environment
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Build (production, with project env)
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - name: Deploy prebuilt to production
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
