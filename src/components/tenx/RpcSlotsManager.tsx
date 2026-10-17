@@ -70,6 +70,16 @@ function mmss(totalSecs: number): string {
   return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`
 }
 
+/** Task 114 — honest add/duplicate failure toasts. fetchJson throws with the
+ *  server's human-readable message (or a raw error code); map the few codes
+ *  that would look cryptic and show everything else verbatim. */
+function addErrorText(e: unknown): string {
+  const raw = e instanceof Error ? e.message : ''
+  if (!raw || raw === 'not_authenticated') return 'Please log in again'
+  if (raw === 'create_failed' || raw.startsWith('Request failed:')) return 'Failed to add RPC — please try again'
+  return raw
+}
+
 export function RpcSlotsManager({
   me,
   onRefresh,
@@ -355,7 +365,10 @@ export function RpcSlotsManager({
       }
     } catch (e) {
       console.error(e)
-      toast.error('Failed to add RPC')
+      // Task 114 — surface the REAL reason (fetchJson already extracts the
+      // server's human-readable `message`, e.g. "Maximum 3 RPCs per account.").
+      // The old generic toast hid the cause from the user.
+      toast.error(addErrorText(e))
     } finally {
       setAdding(false)
     }
@@ -422,7 +435,7 @@ export function RpcSlotsManager({
       onRefresh()
     } catch (e) {
       console.error(e)
-      toast.error('Could not duplicate RPC')
+      toast.error(addErrorText(e))
     } finally {
       setDuplicatingId(null)
     }
