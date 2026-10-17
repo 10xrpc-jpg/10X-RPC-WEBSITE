@@ -55,6 +55,11 @@ import { ensureRpcConfiguredColumn, visibleRpcRows } from './rpc-configured'
 // contract that keeps the three nodes' Discord sessions collision-free.
 const DAEMON_ROLE: DaemonRole = daemonRoleFromEnv()
 
+/** DEVICE-SELECTION RULE — the activity-level label the GAME role's main
+ *  card owns while a Game RPC is live. Slot-card extras must never take it
+ *  (two cards with the same label merge client-side, Task 91). */
+const RESERVED_GAME_MAIN_LABEL: ReadonlySet<string> = new Set(['embedded'])
+
 /** The daemon role this process runs ('all' = combined pre-split behavior). */
 export function getDaemonRole(): DaemonRole {
   return DAEMON_ROLE
@@ -944,12 +949,15 @@ export class RpcDaemon {
         : (session.statusPlatform || 'mobile')
     }
     if (DAEMON_ROLE === 'rpc') {
-      // Task 105 — mirror planRolePresencePlatforms: the main session carries
-      // slot cards, so it anchors to the collision-safe 'ps4' class (a
-      // 'desktop' main card is wiped by the user's real desktop client's
-      // label group); a Meta Quest slot keeps meta_quest.
+      // DEVICE-SELECTION RULE — mirror planRolePresencePlatforms: the main
+      // session IDENTIFIES with the first slot's EXPLICIT device (the badge
+      // the user picked) or the icon-less 'embedded' class for None/legacy
+      // slots. The old unconditional 'ps4' anchor stamped PlayStation badges
+      // onto cards whose user never selected a device — gone.
       const first = selection.candidates.find(c => !c.gameSlug)?.platform
-      return first ? (first === 'meta_quest' ? 'meta_quest' : 'ps4') : 'desktop'
+      return first
+        ? (first === 'meta_quest' || first === 'ps4' || first === 'ps5' || first === 'xbox' ? first : 'embedded')
+        : 'desktop'
     }
     if (DAEMON_ROLE === 'game') return 'embedded'
     return selection.candidates[0]?.platform || 'desktop'
@@ -2076,6 +2084,11 @@ export class RpcDaemon {
     // Pillar activity from the FULL candidate list (rotation-independent):
     const fullSlots = fullSelection.candidates.filter(c => !c.gameSlug)
     const fullGames = fullSelection.candidates.filter(c => !!c.gameSlug)
+    // DEVICE-SELECTION RULE — a Game RPC card is live whenever the user has
+    // an enabled game: the game role's main card owns the 'embedded' label,
+    // so None-platform slot cards must dodge to 'samsung' (see
+    // resolveRpcMainCardLabel) and extras must reserve 'embedded'.
+    const gameActive = fullGames.length > 0
     const pillarsActive = {
       status: isStatusActive,
       // Task 106 — rotate/single mode publishes the pool's slot card even when
@@ -2412,24 +2425,26 @@ export class RpcDaemon {
       const globalPlatform = DAEMON_ROLE === 'all'
         ? (isRpcActive ? (fullSelection.candidates[0]?.platform || 'desktop') : targetPlatform)
         : targetPlatform
-      // Task 84c/84d — every extra session gets a DISTINCT platform class (the
-      // merge key Discord uses for concurrent sessions; two sessions of the
-      // same class overwrite each other and only one card renders). The pool
-      // (web → ps4 → android → desktop) avoids classes the user's REAL clients
-      // occupy (phone = mobile, desktop app = desktop).
-      // 5 classes total = main + 4 extras max.
+      // Task 84c/84d — every extra card needs a DISTINCT activity-platform
+      // label (the merge key Discord uses for concurrent cards; two cards
+      // with the same label merge and only one renders). The pool is the
+      // ICON-LESS ladder (embedded → samsung → ios → android — see
+      // EXTRA_PLATFORM_FALLBACK_POOL): NO PlayStation/Xbox/Meta Quest label
+      // is ever auto-assigned — a device badge may only appear when the user
+      // explicitly picked that device in the RPC DEVICE/PLATFORM selector.
+      // 5 labels total = main + 4 extras max.
       // GAME role — its own collision-safe pool instead (its main session
       // already occupies 'embedded'): labels no other role emits.
-      // Task 110 — the MAIN card's label is TAKEN for extras: two cards with
-      // the same activity-platform label merge client-side (Task 91). The rpc
-      // role's main may now carry the slot's own console label (xbox/ps4/ps5 —
-      // resolveRpcMainCardLabel), so extras are assigned against THAT label
-      // instead of the raw ps4 anchor, which would hand an extra the very
-      // 'xbox' label the main card is wearing. 'all'/'game' keep the legacy
-      // anchor (the combined daemon's main never honors a console label).
+      // Task 110 + DEVICE-SELECTION RULE — the MAIN card's label is TAKEN for
+      // extras: two cards with the same activity-platform label merge
+      // client-side (Task 91). The main label now follows the explicit-only
+      // rule (resolveRpcMainCardLabel): the slot's own device when the user
+      // picked one, else the icon-less 'embedded'/'samsung' label. The Game
+      // role's 'embedded' main-card label is RESERVED while a game is live so
+      // no extra can merge into the game card.
       const extrasMainLabel = DAEMON_ROLE === 'rpc'
         ? (roleSlotCandidates[0]
-            ? (resolveRpcMainCardLabel(roleSlotCandidates[0].platform, targetPlatform) ?? targetPlatform)
+            ? (resolveRpcMainCardLabel(roleSlotCandidates[0].platform, gameActive) ?? targetPlatform)
             : targetPlatform)
         : targetPlatform
       const platformAssignments: Array<string | null> = DAEMON_ROLE === 'game'
@@ -2440,7 +2455,10 @@ export class RpcDaemon {
             // Task 84d — STABLE per-candidate hints (see allConfigIndex above):
             // toggling a middle slot never reshuffles the others (no reopen
             // churn / zombie sessions / card flicker).
-            extrasSource.map(e => e.hint)
+            extrasSource.map(e => e.hint),
+            // The game role's main card owns 'embedded' while a Game RPC is
+            // live — extras must never take a label the game card wears.
+            gameActive ? RESERVED_GAME_MAIN_LABEL : undefined
           )
       for (let i = 0; i < extrasSource.length && extras.length < 4; i++) {
         const cand = extrasSource[i].cand
@@ -2489,9 +2507,10 @@ export class RpcDaemon {
             // 'desktop' → all three collapsed into ONE card (and the real
             // desktop client wiped that label group). Every extra now stamps
             // its activity with its ASSIGNED platform — the pool exclusively
-            // contains valid activity-enum values (ps4/xbox/android/ios), so
-            // every card carries a UNIQUE label and can neither merge with a
-            // sibling nor be wiped by a real client's push.
+            // contains valid, ICON-LESS activity-enum values (embedded /
+            // samsung / ios / android), so every card carries a UNIQUE label,
+            // can neither merge with a sibling nor be wiped by a real
+            // client's push, and never shows an unselected device badge.
             // STABLE config hash — the session reopen guard. Resolved activities
             // churn every tick (dynamic placeholders), the row's fields don't.
             // Includes the ASSIGNED platform: a class reassignment reopens.
@@ -2606,18 +2625,15 @@ export class RpcDaemon {
     if (DAEMON_ROLE === 'game' && safeActivities.length > 0 && isValidActivityPlatform(plan.gameMainLabel)) {
       safeActivities[0].platform = plan.gameMainLabel
     }
-    // RPC role — Task 105 doctrine (the "RPC1/RPC2 card invisible" fix): the
-    // main card MUST carry a label no real client occupies — the builder
-    // stamps the slot's CONFIGURED platform, overwhelmingly 'desktop', and the
-    // desktop label group is wiped by the user's REAL desktop client
-    // (live-verified, Task 91) — so unset/desktop slots keep the collision-
-    // safe ps4 anchor (or meta_quest for a Quest slot, see daemon-roles.ts).
-    // Task 110 — a slot CONFIGURED with a console platform now keeps its OWN
-    // label: the Xbox/PlayStation badge IS the RPC DEVICE/PLATFORM feature,
-    // and the unconditional ps4 overwrite was silently breaking it (screenshot
-    // bug: slot cards rendering with a forced/wrong console badge). Console
-    // labels collide with neither real clients nor the game role's 'embedded'
-    // card, and extras never receive the main's label (extrasMainLabel above).
+    // RPC role — DEVICE-SELECTION RULE (explicit-only badges): the main card
+    // keeps the slot's CONFIGURED device label (ps4/ps5/xbox/meta_quest — the
+    // RPC DEVICE/PLATFORM feature the user picked) and gets an ICON-LESS
+    // label ('embedded', or 'samsung' while a Game RPC card is live so the
+    // two main cards never share the Task 91 merge key) for None/desktop/
+    // legacy configs. The builder's own stamp (cfg.platform — overwhelmingly
+    // 'desktop') is always overridden: a desktop-labeled card is wiped by the
+    // user's REAL desktop client (live-verified, Task 91), and a None slot
+    // must never wear a device badge it never picked (the old ps4 anchor).
     // Hardening: a legacy/invalid enum value ('console', 'web', …) riding the
     // builder's stamp would get the WHOLE activity rejected by the gateway
     // (Task 84d) — strip it before re-labeling.
@@ -2626,7 +2642,7 @@ export class RpcDaemon {
       if (typeof builderStamp === 'string' && !isValidActivityPlatform(builderStamp)) {
         delete (safeActivities[0] as { platform?: string }).platform
       }
-      const mainCardLabel = resolveRpcMainCardLabel(mainPushCandidates[0]?.platform, targetPlatform)
+      const mainCardLabel = resolveRpcMainCardLabel(mainPushCandidates[0]?.platform, gameActive)
       if (mainCardLabel) {
         safeActivities[0].platform = mainCardLabel
       }

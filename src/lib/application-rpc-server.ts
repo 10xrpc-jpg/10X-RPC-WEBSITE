@@ -16,7 +16,10 @@ export async function ensureApplicationRpcRow(userId: string) {
         userId,
         name: '10X RPC',
         type: 'PLAYING',
-        platform: 'meta_quest',
+        // DEVICE-SELECTION RULE — a fresh row has NO device: the selector's
+        // "None". Nothing may be auto-selected (the old 'meta_quest' default
+        // stamped a VR badge the user never picked).
+        platform: 'desktop',
         startMinsAgo: 0,
         enabled: false,
         runState: 'idle',

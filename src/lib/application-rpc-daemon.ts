@@ -5,13 +5,17 @@
 //   • own tick loop + watchdog (started alongside the main daemon by the
 //     standalone runner; the in-process dev fallback starts its own instance)
 //   • own gateway WebSocket sessions (one per user, platform chosen by the
-//     Application RPC's own config — default meta_quest/VR). Task 91: the
+//     Application RPC's own config — the user's EXPLICIT device selection,
+//     with the icon-less 'embedded' class as the None default). Task 91: the
 //     session platform doubles as the ACTIVITY-level `platform` label — the
-//     field Discord clients merge profile cards by. When the saved platform
-//     is already used by an enabled Normal RPC slot (live example: slot 1 =
-//     meta_quest), this daemon deterministically moves itself to a free
-//     label (samsung → ps5 → embedded → …) so the two cards can never merge
+//     field Discord clients merge profile cards by. When the resolved label
+//     is already used by an enabled Normal RPC slot or the Game role's main
+//     card, this daemon deterministically moves itself down the icon-less
+//     ladder (samsung → ios → android) so the cards can never merge
 //     into one — that collision was exactly the "only one RPC shows" bug.
+//     DEVICE-SELECTION RULE: no fallback ever hands out ps4/ps5/xbox/
+//     meta_quest — a device badge may only appear when the user explicitly
+//     selected that device.
 //   • own Database access: every ApplicationRpcConfig read/write goes through
 //     $queryRaw so this works on ANY Prisma client generation (the standalone
 //     Orihost daemon's client may predate the ApplicationRpcConfig model — raw
@@ -283,25 +287,45 @@ export class ApplicationRpcDaemon {
   // ─── Per-user maintenance (the whole independent lifecycle) ───────────────
 
   /**
-   * Task 91 — resolve THIS user's activity-level platform label (the card
-   * merge key). The saved Application RPC platform wins UNLESS an ENABLED
-   * Normal RPC slot already uses it (their two cards would merge into one —
-   * live-verified root cause of "only one RPC shows"). Deterministic and
-   * race-free: derived purely from saved configs, re-evaluated every tick.
-   * Read-only: one raw SELECT against RpcConfig, zero writes to it.
+   * Task 91 + DEVICE-SELECTION RULE — resolve THIS user's activity-level
+   * platform label (the card merge key). The user's SAVED platform is honored
+   * when it is an explicit device selection (ps4/ps5/xbox/meta_quest — the
+   * badge they picked); everything else (None/desktop/empty/legacy) gets the
+   * icon-less 'embedded' label. When the desired label is already used by an
+   * ENABLED Normal slot — or by the Game role's main card while a game is
+   * live ('embedded' is its merge key) — the label dodges down the icon-less
+   * ladder ['samsung', 'ios', 'android']: NO fallback ever hands out a
+   * PlayStation/Xbox/Meta Quest badge the user did not select.
+   * Deterministic and race-free: derived purely from saved configs,
+   * re-evaluated every tick. Read-only: raw SELECTs, zero writes.
    */
   private async resolveActivityLabel(userId: string, row: AppRpcRow): Promise<string> {
-    const desired = row.platform || 'meta_quest'
+    const EXPLICIT_DEVICE_LABELS = new Set(['ps4', 'ps5', 'xbox', 'meta_quest'])
+    const ACTIVITY_ENUM = new Set(['desktop', 'xbox', 'samsung', 'ios', 'android', 'embedded', 'ps4', 'ps5', 'meta_quest'])
+    const saved = typeof row.platform === 'string' ? row.platform.trim() : ''
+    // Explicit device selection → honor it. None/desktop/empty/invalid → the
+    // icon-less embedded anchor (a desktop label would be wiped by the user's
+    // real desktop client, Task 91; a meta_quest/ps4 default would stamp a
+    // device badge the user never picked).
+    const desired = saved && ACTIVITY_ENUM.has(saved)
+      ? (EXPLICIT_DEVICE_LABELS.has(saved) ? saved : 'embedded')
+      : 'embedded'
     let used: string[] = []
+    let gameLive = false
     try {
       const rows = await db.$queryRaw<Array<{ platform: string | null }>>`
         SELECT "platform" FROM "RpcConfig" WHERE "userId" = ${userId} AND "enabled" = ${true}`
       used = (rows ?? []).map(r => r.platform).filter((p): p is string => !!p)
     } catch { /* table missing / transient DB issue — no Normal slots known */ }
+    try {
+      const games = await db.$queryRaw<Array<{ id: string }>>`
+        SELECT "id" FROM "GameConfig" WHERE "userId" = ${userId} AND "enabled" = ${true} LIMIT 1`
+      gameLive = (games ?? []).length > 0
+    } catch { /* GameConfig missing / transient — assume no game card */ }
+    if (gameLive) used.push('embedded') // the game main card's merge key
     if (!used.includes(desired)) return desired
-    // Task 91 pool — labels the Normal/Game extras NEVER take (their pool is
-    // ps4/xbox/android/ios), so these three are collision-free by construction.
-    const fallback = ['samsung', 'ps5', 'embedded', 'ps4', 'xbox', 'android', 'ios']
+    // Icon-less dodge ladder — never a device badge the user did not pick.
+    const fallback = ['samsung', 'ios', 'android']
     const free = fallback.find(p => !used.includes(p))
     // (no per-tick log here — the tick runs every 10s; maintainUser logs the
     // actual label CHANGE on the socket, which is the actionable event)
@@ -433,11 +457,14 @@ export class ApplicationRpcDaemon {
     sock.isConnecting = true
     sock.connectingSince = Date.now()
 
-    // Task 91 — the session identify platform = the activity label (matched
-    // pair). Discord rejects activities whose platform label does not fit the
-    // session, and the label is the client-side card-merge key — the pair
-    // must agree. Falls back to the row's saved platform.
-    const platform = (activityLabel ?? sock.activityLabel ?? row.platform) || 'meta_quest'
+    // Task 91 + DEVICE-SELECTION RULE — the session identify platform = the
+    // RESOLVED activity label (matched pair). Discord rejects activities
+    // whose platform label does not fit the session, and the label is the
+    // client-side card-merge key — the pair must agree. The resolved label is
+    // always safe (explicit device the user picked, or the icon-less
+    // 'embedded'/'samsung'/'ios'/'android' ladder) — never an auto-selected
+    // device badge.
+    const platform = activityLabel ?? sock.activityLabel ?? 'embedded'
     sock.identifiedPlatform = platform
     sock.activityLabel = platform
 
@@ -859,11 +886,13 @@ export class ApplicationRpcDaemon {
 
       // Task 84d rule (live-verified): platform values OUTSIDE Discord's
       // activity enum ('web'/'mobile') get the WHOLE activity silently
-      // rejected — drop those. Task 91: a VALID enum label is now REQUIRED —
-      // it is the field Discord clients merge profile cards by. The label
-      // always matches this session's identify (resolved in maintainUser),
-      // mirroring the accepted meta_quest/VR precedent.
-      if (built.platform && built.platform !== 'meta_quest') delete built.platform
+      // rejected — drop those. Task 91 + DEVICE-SELECTION RULE: the RESOLVED
+      // label is the single source of truth — the builder's own stamp (the
+      // saved platform, often 'desktop') is always replaced. A desktop label
+      // is wiped by the user's real desktop client, and an unselected device
+      // must never ride the wire. The stamped label always matches this
+      // session's identify (resolved in maintainUser/connectUserSocket).
+      delete built.platform
       if (activityLabel && activityLabel !== 'desktop') {
         built.platform = activityLabel
       }

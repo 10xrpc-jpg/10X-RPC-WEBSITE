@@ -25,14 +25,16 @@
 //
 //   status role → IDENTIFY exactly the user's chosen statusPlatform
 //                 (mobile | desktop(None) | meta_quest) — the badge session.
-//   rpc role    → main session anchored to the collision-safe 'ps4' console
-//                 class (meta_quest only for a Meta Quest slot — Task 105:
-//                 a desktop-class main card is wiped by the user's real
-//                 desktop client's label group); extras from the Task 91
-//                 pool minus the anchor (xbox/android/ios).
+//   rpc role    → main session IDENTIFIES with the first slot's EXPLICIT
+//                 device (ps4/ps5/xbox/meta_quest — the user picked it, the
+//                 badge IS the feature) or the icon-less 'embedded' console
+//                 class for None/legacy slots (labels no real client emits,
+//                 renders NO device badge — the old unconditional 'ps4'
+//                 anchor stamped PlayStation badges onto cards the user
+//                 never pointed at a device, which is a product bug).
 //   game role   → main session 'embedded' + activity label 'embedded'
 //                 (console class — labels no real client and no other role
-//                 emits), extras from [ps5, samsung, ios].
+//                 emits), extras from [samsung, ios, android].
 //
 // Account-status PATCH authority (REST PATCH /users/@me/settings — Task 97):
 // exactly ONE role patches for a user, decided from the DB:
@@ -66,9 +68,12 @@ export function roleWantsGame(role: DaemonRole): boolean {
 /** Deterministic activity-label pool for GAME-role EXTRA sessions. The main
  *  game session always uses 'embedded'; extras continue here. Values are
  *  valid ACTIVITY_PLATFORM_ENUM members (Discord silently rejects others)
- *  and deliberately avoid the rpc-role extras pool (ps4/xbox/android/ios)
- *  except 'ios', which the rpc pool only reaches for a 4th+ slot extra. */
-export const GAME_EXTRA_PLATFORM_POOL = ['ps5', 'samsung', 'ios'] as const
+ *  and deliberately avoid the rpc-role extras ladder head ('embedded' —
+ *  taken by the rpc main for None slots). DEVICE-SELECTION RULE: the pool
+ *  contains NO ps4/ps5/xbox/meta_quest — those render device badges on
+ *  cards, and a device badge may ONLY appear when the user explicitly
+ *  selected that device (Game RPCs have no device selector). */
+export const GAME_EXTRA_PLATFORM_POOL = ['samsung', 'ios', 'android'] as const
 
 /** Platforms whose session class is the console family. */
 const CONSOLE_FAMILY = new Set(['console', 'xbox', 'ps4', 'ps5', 'embedded'])
@@ -126,23 +131,38 @@ export function planRolePresencePlatforms(input: {
   }
 
   // ── RPC role main session ────────────────────────────────────────────────
-  // Task 105 — the main session CARRIES SLOT CARDS whenever Normal RPC is
-  // active (it is the first slot's own session), so its class must never be
-  // a label group a REAL client occupies. Two live-verified failure modes
-  // made the first slot's card invisible whenever it ran here:
-  //   1. The activity builder stamps the card with the slot's CONFIGURED
-  //      platform — overwhelmingly 'desktop' — and the desktop label group
-  //      is occupied/wiped by the user's real desktop client (Task 91).
-  //   2. Meta/mobile classes collide with the user's real phone session.
-  // The main therefore anchors to the collision-safe 'ps4' console class
-  // (labels no real client emits; the daemon stamps it onto the card with
-  // the game-role pattern). A Meta Quest slot keeps its legitimate
-  // meta_quest class+label (verified rendering side by side with the game's
-  // embedded card). When no slot is active the class is irrelevant (no
-  // cards) and stays 'desktop'.
+  // DEVICE-SELECTION RULE (the "Watching + PlayStation badge I never picked"
+  // fix): the main session IDENTIFIES with the first slot's platform when the
+  // user EXPLICITLY picked a device (ps4/ps5/xbox/meta_quest — the session
+  // class matches the badge the user asked for), and with the icon-less
+  // 'embedded' console class for None/desktop/legacy slots. 'embedded' is
+  // collision-safe (labels no real client emits) and renders NO device badge
+  // on the card. The old unconditional 'ps4' anchor is GONE: an unselected
+  // device must never appear on the profile's RPC cards. (Meta Quest slots
+  // keep their legitimate meta_quest class+label; a desktop-class main card
+  // would be wiped by the user's real desktop client — Task 91/105 — which
+  // is exactly why None slots ride the embedded class instead.) When no slot
+  // is active the class is irrelevant (no cards) and stays 'desktop'.
+  // NOTE: the card's ACTIVITY-level label is decided per pushed card by
+  // resolveRpcMainCardLabel (rpc-manager.ts) — explicit devices pass through,
+  // None slots get 'embedded' (or 'samsung' while a Game RPC card is live so
+  // the two main cards never share a merge key). The session class and the
+  // card label may legitimately differ (a pattern Task 110 already shipped:
+  // an xbox-labeled card on the anchored session).
   let rpcMainPlatform = 'desktop'
   if (firstSlotPlatform) {
-    rpcMainPlatform = firstSlotPlatform === 'meta_quest' ? 'meta_quest' : 'ps4'
+    if (
+      firstSlotPlatform === 'meta_quest' ||
+      firstSlotPlatform === 'ps4' ||
+      firstSlotPlatform === 'ps5' ||
+      firstSlotPlatform === 'xbox'
+    ) {
+      // Explicit device — the user selected it; honor it end to end.
+      rpcMainPlatform = firstSlotPlatform
+    } else {
+      // None / desktop / legacy value → icon-less embedded anchor.
+      rpcMainPlatform = 'embedded'
+    }
   }
 
   // ── GAME role main session: always the embedded console class ───────────

@@ -316,10 +316,10 @@ export function ApplicationRpcCard() {
                   options={[...TYPE_OPTIONS]}
                 />
               </Field>
-              <Field label="Session Platform" hint="Meta Quest (VR) is least likely to collide with your other RPC sessions.">
+              <Field label="Session Platform" hint="Only the device you explicitly pick here is shown on Discord — None shows no device.">
                 <div ref={platformRef}>
                   <RpcPlatformSelect
-                    value={config.platform ?? 'meta_quest'}
+                    value={config.platform ?? 'desktop'}
                     onChange={v => patch({ platform: v })}
                     open={platformOpen}
                     onToggle={() => setPlatformOpen(o => !o)}

@@ -70,7 +70,11 @@ export async function PUT(req: Request) {
       }
     }
 
-    const platform = (body.platform as string) || existing.platform || 'meta_quest'
+    // DEVICE-SELECTION RULE — the platform is ONLY what the user explicitly
+    // saved. Nothing is auto-selected: an unset/empty value stays 'desktop'
+    // (the selector's "None") — the daemon resolves the icon-less session
+    // label at runtime; no PlayStation/Xbox/Meta Quest default, ever.
+    const platform = (body.platform as string) || existing.platform || 'desktop'
     const updated = await db.applicationRpcConfig.update({
       where: { userId: session.userId },
       data: {

@@ -909,7 +909,7 @@ export function discordPlatformClass(
 }
 
 /** Deterministic assignment pool for EXTRA (beyond-main) sessions.
- *  Task 91 REWRITE — the pool now contains ONLY platforms that are ALSO valid
+ *  Task 91 REWRITE — the pool contains ONLY platforms that are ALSO valid
  *  ACTIVITY-level `platform` enum values. WHY: live-verified (Task 91 aggregate
  *  dumps) — the Discord client merges rendered profile cards by the ACTIVITY's
  *  own `platform` field, NOT by the session's gateway class. Three game extras
@@ -919,14 +919,17 @@ export function discordPlatformClass(
  *  — also desktop-labeled — wiped the group entirely). Distinct labels are the
  *  actual multi-card mechanism.
  *
- *  Task 84d history kept for context: real clients permanently occupy the
- *  `mobile` class (phone) and often `desktop`/`web`. The pool therefore
- *  prefers the CONSOLE family (labels no real client emits, zero contention)
- *  and only then mobile labels. 'web' and 'desktop' are deliberately ABSENT:
- *  there is no 'web' activity enum value (activities from web sessions are
- *  labeled 'desktop'), so web/desktop sessions can never carry a DISTINCT
- *  label and would merge with the user's real desktop card. */
-const EXTRA_PLATFORM_FALLBACK_POOL = ['ps4', 'xbox', 'android', 'ios'] as const
+ *  DEVICE-SELECTION RULE (the "Watching + PlayStation badge I never picked"
+ *  fix) — the pool previously handed out 'ps4'/'xbox' labels, which Discord
+ *  renders as CONSOLE BADGES on cards the user never pointed at those
+ *  devices. The pool is now the ICON-LESS label ladder only:
+ *    embedded → samsung → ios → android
+ *  None of these render a PlayStation / Xbox / Meta Quest badge on the card.
+ *  'web' and 'desktop' remain ABSENT: there is no 'web' activity enum value
+ *  and desktop-labeled cards are wiped by the user's real desktop client
+ *  (Task 91). Explicit user-selected devices (ps4/ps5/xbox/meta_quest) are
+ *  honored OUTSIDE this pool — see resolveRpcMainCardLabel. */
+const EXTRA_PLATFORM_FALLBACK_POOL = ['embedded', 'samsung', 'ios', 'android'] as const
 
 /** Discord's ACTIVITY-level platform enum (docs.discord.food Activity Object).
  *  Values outside this list cause the WHOLE activity to be silently rejected
@@ -940,56 +943,55 @@ export function isValidActivityPlatform(p: string | null | undefined): boolean {
   return !!p && ACTIVITY_PLATFORM_ENUM.has(p)
 }
 
-/**
- * Task 110 — the activity-level platform LABEL the RPC-role MAIN card should
- * carry. Screenshot bug this fixes: a slot the user configured with the Xbox
- * platform rendered with the wrong/forced label — the Task 105 anchor stamped
- * EVERY main card 'ps4' unconditionally, overwriting the builder's own stamp
- * (buildActivityPayload sets `platform: cfg.platform`) and breaking the RPC
- * DEVICE/PLATFORM feature (the console badge IS the feature).
- *
- * Rule: the slot's CONFIGURED platform is honored when it is
- *   • a valid ACTIVITY enum value (invalid legacy values — 'console', 'web',
- *     'mobile' — get the whole activity REJECTED by the gateway, Task 84d,
- *     so they must never ride the wire), and
- *   • NOT a label group occupied by a real client or reserved for another
- *     role's main card:
- *       - desktop              → wiped by the user's real desktop client
- *                                (live-verified Task 91/105 failure)
- *       - android/ios/samsung  → real phone clients occupy these groups
- *       - embedded             → the GAME role's main card label (merge key)
- * Everything else (xbox / ps4 / ps5 / meta_quest) is honored as-is — those
- * labels collide with neither real clients nor sibling cards (the extras
- * pool never receives the main card's label — see rpc-daemon extrasMainLabel).
- * Unset / desktop / legacy configs fall back to the collision-safe anchor
- * platform ('ps4' — Task 105: labels no real client emits, so a lone slot
- * card can always render).
- */
-const REAL_CLIENT_OR_RESERVED_LABELS: ReadonlySet<string> = new Set([
-  'desktop', 'android', 'ios', 'samsung', 'embedded',
+/** Device platforms the user can EXPLICITLY pick in the RPC DEVICE/PLATFORM
+ *  selector (plus the legacy 'ps5' rows that map onto the PlayStation option).
+ *  These are the ONLY values that may render a device badge on a card — and
+ *  they render it ONLY because the user selected them. */
+const EXPLICIT_DEVICE_LABELS: ReadonlySet<string> = new Set([
+  'ps4', 'ps5', 'xbox', 'meta_quest',
 ])
 
+/**
+ * Task 110 + DEVICE-SELECTION RULE — the activity-level platform LABEL the
+ * RPC-role MAIN card should carry.
+ *
+ * Screenshot bug this fixes (twice over):
+ *   1. Task 105's anchor stamped EVERY main card 'ps4' unconditionally —
+ *      slots the user configured with NO device (None/desktop) rendered with
+ *      a PlayStation badge they never picked.
+ *   2. Task 110 honored explicit devices but STILL fell back to the ps4
+ *      anchor for unset configs.
+ *
+ * FINAL RULE — explicit selection ONLY:
+ *   • The slot's CONFIGURED platform is honored when it is one of the
+ *     selector's device options (ps4 / legacy ps5 / xbox / meta_quest) —
+ *     the console/VR badge IS the feature the user asked for.
+ *   • EVERYTHING else (None/desktop, empty, legacy 'console'/'web'/'mobile'
+ *     values the current UI no longer offers) gets an ICON-LESS label that
+ *     no real client emits and that renders NO device badge:
+ *       - 'embedded' when no Game RPC card is live,
+ *       - 'samsung' when one is (the game role's main card owns the
+ *         'embedded' label — two cards with the same label merge, Task 91).
+ *   • The old anchor fallback is GONE: a None slot can never wear a device
+ *     badge, no matter what any sibling slot or the session anchor says.
+ *
+ * `gameActive` — true when the user has a Game RPC card live (the game
+ * role's main session). Callers derive it from the same DB state every
+ * daemon reads, so all surfaces reach the identical label deterministically.
+ */
 export function resolveRpcMainCardLabel(
   candidatePlatform: string | null | undefined,
-  anchorPlatform: string | null | undefined
+  gameActive: boolean | null | undefined
 ): string | null {
   const configured = typeof candidatePlatform === 'string' ? candidatePlatform.trim() : ''
-  if (
-    configured &&
-    isValidActivityPlatform(configured) &&
-    !REAL_CLIENT_OR_RESERVED_LABELS.has(configured)
-  ) {
+  if (configured && EXPLICIT_DEVICE_LABELS.has(configured)) {
     return configured
   }
-  // The anchor obeys the same rule — an anchor inside a real-client/reserved
-  // label group ('desktop', phone groups, the game role's 'embedded') must
-  // never be stamped onto the main card (Task 91: desktop-labeled cards are
-  // wiped by the user's real desktop client — the invisible-card bug).
-  const anchor = typeof anchorPlatform === 'string' ? anchorPlatform.trim() : ''
-  if (anchor && isValidActivityPlatform(anchor) && !REAL_CLIENT_OR_RESERVED_LABELS.has(anchor)) {
-    return anchor
-  }
-  return null
+  // None / desktop / empty / legacy values → icon-less safe label.
+  // Both labels are valid ACTIVITY enum values (never rejected by the
+  // gateway, Task 84d), render NO PlayStation/Xbox/Meta Quest badge, and
+  // collide with neither real clients nor sibling cards.
+  return gameActive ? 'samsung' : 'embedded'
 }
 
 /**
@@ -1026,9 +1028,14 @@ export function resolveRpcMainCardLabel(
 export function assignSessionPlatforms(
   mainPlatform: string | null | undefined,
   candidatePlatforms: Array<string | null | undefined>,
-  stableHints?: Array<number | null | undefined>
+  stableHints?: Array<number | null | undefined>,
+  /** Labels owned by OTHER daemons' main cards (e.g. the Game role's
+   *  'embedded') that extras must never take — two cards with the same label
+   *  merge client-side (Task 91). */
+  reservedLabels?: ReadonlySet<string>
 ): Array<string | null> {
   const taken = new Set<string>([mainPlatform || 'desktop'])
+  if (reservedLabels) for (const r of reservedLabels) taken.add(r)
   return candidatePlatforms.map((own, i) => {
     const hint = stableHints?.[i]
     const start = typeof hint === 'number' ? ((hint % EXTRA_PLATFORM_FALLBACK_POOL.length) + EXTRA_PLATFORM_FALLBACK_POOL.length) % EXTRA_PLATFORM_FALLBACK_POOL.length : 0
