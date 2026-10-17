@@ -90,3 +90,4 @@ scripts/ping-*
 scripts/orihost-*
 scripts/boot-capture.*
 scripts/e2e-*
+upload/*.png

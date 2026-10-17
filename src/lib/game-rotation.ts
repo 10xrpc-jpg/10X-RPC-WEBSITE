@@ -221,12 +221,20 @@ export function decideGameRotation(
     current = pool[0]
     anchorMs = nowMs
     stateDirty = true
+  } else if (!pool.includes(current)) {
+    // 3) Current exists but the user excluded it from the rotation pool (or
+    //    it was manually enabled while OFF) — advance INTO the pool now so
+    //    rotation only ever publishes pool games (never a full interval of
+    //    an excluded game).
+    current = nextGameSlug(pool, current, s.order, 'game-rotate')
+    anchorMs = nowMs
+    stateDirty = true
   } else if (!anchorMs || !Number.isFinite(anchorMs) || anchorMs > nowMs) {
-    // 3) No anchor (or clock skew) — start the interval from now.
+    // 4) No anchor (or clock skew) — start the interval from now.
     anchorMs = nowMs
     stateDirty = true
   } else if (nowMs - anchorMs >= secs * 1000) {
-    // 4) Interval elapsed — advance ONE step (never burst-catch-up).
+    // 5) Interval elapsed — advance ONE step (never burst-catch-up).
     current = nextGameSlug(pool, current, s.order, 'game-rotate')
     anchorMs = nowMs
     stateDirty = true

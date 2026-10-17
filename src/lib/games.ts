@@ -210,6 +210,55 @@ export function findGame(slug: string) {
   return GAME_PRESETS.find(g => g.slug === slug)
 }
 
+/**
+ * Resolve a Discord Application ID back to a catalog preset (via GAME_SPOOF).
+ * Used by "Add Games": adding the OFFICIAL app of a preset game (e.g. the
+ * real Counter-Strike 2 application) must map onto the preset row instead of
+ * creating a duplicate custom game with the same name.
+ */
+export function findGameByAppId(appId: string | null | undefined): GamePreset | null {
+  if (!appId) return null
+  const entry = Object.entries(GAME_SPOOF).find(([, e]) => e.appId === appId)
+  return entry ? findGame(entry[0]) ?? null : null
+}
+
+/** Case-insensitive name lookup across the catalog (trimmed). */
+export function findGameByName(name: string | null | undefined): GamePreset | null {
+  const n = (name ?? '').trim().toLowerCase()
+  if (!n) return null
+  return GAME_PRESETS.find(g => g.name.trim().toLowerCase() === n) ?? null
+}
+
+/** Default GameConfig row values for a preset (used to materialize a row for
+ *  a game the user selected into rotation but never configured). */
+export function gamePresetDefaults(slug: string) {
+  const p = findGame(slug)
+  if (!p) return null
+  return {
+    gameSlug: p.slug,
+    gameName: p.name,
+    enabled: false,
+    appId: null,
+    platform: p.defaultPlatform,
+    state: p.defaultState,
+    details: p.defaultDetails,
+    largeImage: p.largeImage,
+    largeText: p.largeText,
+    smallImage: null,
+    smallText: null,
+    button1Label: null,
+    button1Url: null,
+    button2Label: null,
+    button2Url: null,
+    partyCurrent: p.defaultPartyCurrent,
+    partyMax: p.defaultPartyMax,
+    partyId: null,
+    partySecret: null,
+    startMinsAgo: 0,
+    endTotalMins: p.defaultEndTotalMins,
+  }
+}
+
 /** Every game-spoof catalog Application ID (official game identities). */
 export const GAME_APPLICATION_IDS: ReadonlySet<string> = new Set(
   Object.values(GAME_SPOOF).map(e => e.appId)

@@ -222,6 +222,9 @@ export interface GameListItem {
   custom?: boolean
   /** Discord Application ID (custom games added by App ID). */
   appId?: string | null
+  /** Row creation time (ms) — the rotation pool walks rows in creation
+   *  order, so the UI preview sorts by it (null = never configured). */
+  createdAtMs?: number | null
 }
 
 /** Task 95 — GAME Auto-Rotate settings (fully independent from the Normal

@@ -12,16 +12,25 @@
 //
 // Every field is OPTIONAL: missing fields keep their stored value (partial
 // updates are safe — the UI may send only the field the user just changed).
+//
+// INSTANT RECONCILE (bug fix): while rotation is ON every save re-derives
+// the rotation head (a stale head — excluded from the pool, deleted, or
+// pointing at a game nothing enables — is re-seated immediately) and ALWAYS
+// re-enforces the single-active invariant in the same request, so the saved
+// state, the database flags and the live Discord presence agree instantly
+// instead of waiting for the daemon's next tick.
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { syncPresence } from '@/lib/presence-sync'
 import { normalizeRotateOrder, normalizeRotateSecs, rotateSecsLabel, type RotateOrder } from '@/lib/rotation'
-import { buildGamePool } from '@/lib/game-rotation'
+import { buildGamePool, nextGameSlug } from '@/lib/game-rotation'
 import {
   gameRotateSettingsView,
   persistGameRotationState,
   loadGameRows,
+  materializePoolRows,
+  reconcileGameRotationNow,
 } from '@/lib/game-rotate-settings'
 import { findGame } from '@/lib/games'
 
@@ -32,7 +41,23 @@ export async function GET() {
   try {
     const session = await getSession()
     if (!session) return NextResponse.json({ ok: false, error: 'not_authenticated' }, { status: 401 })
-    const cfg = await db.globalConfig.findUnique({ where: { userId: session.userId } })
+    let cfg = await db.globalConfig.findUnique({ where: { userId: session.userId } })
+
+    // SELF-HEAL — the 24/7 daemon only passes Discord-linked sessions, so a
+    // rotation whose interval already elapsed (or carries pending manual
+    // skips) is re-derived right here. Same pure decision, same raw-SQL
+    // persistence, same watermark → fully idempotent with the daemon; the
+    // UI's 5s poll makes rotation advance for EVERY user, linked or not.
+    const view = gameRotateSettingsView(cfg)
+    if (view.enabled) {
+      const appliedSkip = Math.max(0, Math.min(1_000_000_000, Math.floor(Number(cfg?.gameRotateAppliedSkip) || 0)))
+      const elapsed = view.anchorAt ? Date.now() - view.anchorAt : Number.MAX_SAFE_INTEGER
+      if (!view.anchorAt || elapsed >= view.secs * 1000 || view.skip > appliedSkip) {
+        await reconcileGameRotationNow(session.userId).catch(() => {})
+        cfg = await db.globalConfig.findUnique({ where: { userId: session.userId } })
+      }
+    }
+
     return NextResponse.json({ ok: true, gameRotate: gameRotateSettingsView(cfg) })
   } catch (e: unknown) {
     console.error('Error reading game rotate settings:', e instanceof Error ? e.message : e)
@@ -82,6 +107,10 @@ export async function POST(req: Request) {
     const secs = body.secs === undefined ? prev.secs : normalizeRotateSecs(body.secs)
     const order: RotateOrder = body.order === undefined ? prev.order : normalizeRotateOrder(body.order)
     const slots = body.slots === undefined ? prev.slots : await sanitizeGameSlots(body.slots, userId)
+    // Enable transition — the moment the user turns rotation ON the clock
+    // must start from NOW (a full interval for the seated head), never
+    // inherit a stale anchor from a previous rotation run.
+    const enableTransition = enabled && !prev.enabled
 
     // Ensure a GlobalConfig row exists WITHOUT bumping updatedAt when it
     // already does (create-if-missing only, then raw-SQL update).
@@ -98,20 +127,31 @@ export async function POST(req: Request) {
           "gameRotateSlots" = ${slots ? JSON.stringify(slots) : null}
       WHERE "userId" = ${userId}`
 
-    // Enabling with no valid current → seat the rotation head NOW so the
-    // first switch happens a full interval from this moment. Disabling keeps
-    // every saved config exactly as it is (rotation is runtime-only over the
-    // enabled flag; saved game configs are 100% read-only to this route).
+    // Disabling keeps every saved config exactly as it is (rotation is
+    // runtime-only over the enabled flag; saved game configs are 100%
+    // read-only to this route).
     if (enabled) {
+      // Pool-real guarantee: every selected preset game gets a row (rows are
+      // what the pool is built from — without one a selected game would
+      // silently never rotate). Custom slugs always own a row already.
+      await materializePoolRows(userId, slots).catch(() => {})
+
       const [gameRows, refreshed] = await Promise.all([
         loadGameRows(userId),
         db.globalConfig.findUnique({ where: { userId } }),
       ])
       const view = gameRotateSettingsView(refreshed)
       const pool = buildGamePool(gameRows, view.slots)
-      const currentValid = !!view.current && gameRows.some(g => g.gameSlug === view.current)
-      if (!currentValid) {
-        const seat = pool[0] ?? null
+
+      // Re-derive the head: a valid head is IN the pool. Anything else
+      // (stale pointer, excluded game, deleted row, nothing enabled) is
+      // re-seated right now so the first switch happens a full interval
+      // from this moment.
+      const headValid = !!view.current && pool.includes(view.current)
+      if (!headValid) {
+        const seat = view.current
+          ? nextGameSlug(pool, view.current, view.order, session.userId) ?? pool[0] ?? null
+          : pool[0] ?? null
         await persistGameRotationState(userId, {
           current: seat,
           anchorMs: Date.now(),
@@ -126,6 +166,28 @@ export async function POST(req: Request) {
           await db.gameConfig.updateMany({
             where: { userId, gameSlug: seat },
             data: { enabled: true },
+          })
+        }
+      } else {
+        // Head is valid — still enforce single-active instantly (covers
+        // "rotation ON with a valid head but nothing enabled", e.g. after
+        // the user manually disabled every game while rotation was off).
+        await db.gameConfig.updateMany({
+          where: { userId, enabled: true, gameSlug: { not: view.current as string } },
+          data: { enabled: false },
+        })
+        await db.gameConfig.updateMany({
+          where: { userId, gameSlug: view.current as string },
+          data: { enabled: true },
+        })
+        // On the OFF→ON transition the seated head earns a FULL interval —
+        // re-anchor now so a stale anchor from a previous run doesn't make
+        // the first switch fire the instant rotation turns on.
+        if (enableTransition) {
+          await persistGameRotationState(userId, {
+            current: view.current as string,
+            anchorMs: Date.now(),
+            appliedSkip: view.skip,
           })
         }
       }

@@ -7,11 +7,18 @@
 //     rotates RPC slots only — see RpcSlotsManager)
 // Saving settings is runtime-only: saved game configurations are never
 // modified (only GameConfig.enabled flags flip to realize the active game).
+//
+// LIVE STATUS (this card is a viewer, not a clock): while rotation is ON the
+// card polls /api/games/rotate every 5s (the daemon is the clock — the DB is
+// the truth) and shows a countdown to the next switch computed from the
+// rotation anchor. When the countdown elapses it polls immediately, so the
+// NOW PLAYING strip, the order preview and the page's Active pills follow the
+// real rotation instead of drifting.
 'use client'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { api, type GameListItem, type GameRotateSettings } from '@/lib/api-client'
-import { ROTATE_SECS_OPTIONS } from '@/lib/rotation'
+import { ROTATE_SECS_OPTIONS, hashSeedStr, seededPermutation } from '@/lib/rotation'
 import { PurpleSwitch } from './ui'
 import { RefreshCcw, Radio, SkipForward, Info } from 'lucide-react'
 
@@ -33,6 +40,13 @@ const ORDERS: Array<{ value: 'forward' | 'reverse' | 'shuffle'; label: string }>
   { value: 'shuffle', label: 'SHUFFLE' },
 ]
 
+/** m:ss countdown label (e.g. 0:42, 2:05). */
+function countdownLabel(totalSecs: number): string {
+  const m = Math.floor(totalSecs / 60)
+  const s = totalSecs % 60
+  return `${m}:${String(s).padStart(2, '0')}`
+}
+
 export function GameRotateCard({
   games,
   onGamesChanged,
@@ -49,19 +63,69 @@ export function GameRotateCard({
   const [view, setView] = useState<GameRotateSettings | null>(null)
   const [saving, setSaving] = useState(false)
   const [skipping, setSkipping] = useState(false)
+  const [nowMs, setNowMs] = useState(() => Date.now())
+
+  // Refs mirror the latest state/callbacks so the polling intervals never
+  // need to re-arm when a callback identity changes between renders.
+  const viewRef = useRef<GameRotateSettings | null>(null)
+  const onGamesChangedRef = useRef(onGamesChanged)
+  const onRotateChangeRef = useRef(onRotateChange)
+  useEffect(() => {
+    onGamesChangedRef.current = onGamesChanged
+    onRotateChangeRef.current = onRotateChange
+  })
+  const pollingRef = useRef(false)
 
   useEffect(() => {
     api.gamesRotateGet()
       .then(r => {
+        viewRef.current = r.gameRotate
         setView(r.gameRotate)
-        onRotateChange?.(r.gameRotate)
+        onRotateChangeRef.current?.(r.gameRotate)
       })
       .catch(() => setView(null))
   }, [])
 
+  const enabled = !!view?.enabled
+
+  // Live viewer — poll the rotation truth every 5s while ON + tick the
+  // countdown every second (and poll immediately when it elapses).
+  useEffect(() => {
+    if (!enabled) return
+    const refreshNow = async () => {
+      if (pollingRef.current) return
+      pollingRef.current = true
+      try {
+        const r = await api.gamesRotateGet()
+        const prev = viewRef.current
+        const next = r.gameRotate
+        if (prev && (prev.current !== next.current || prev.anchorAt !== next.anchorAt)) {
+          // The rotation moved to another game — refresh the page's list so
+          // the Active/Live pills follow instantly.
+          onGamesChangedRef.current()
+        }
+        viewRef.current = next
+        setView(next)
+        onRotateChangeRef.current?.(next)
+      } catch {
+        // transient — the next poll retries
+      } finally {
+        pollingRef.current = false
+      }
+    }
+    const tick = setInterval(() => {
+      setNowMs(Date.now())
+      const v = viewRef.current
+      if (v?.enabled && v.anchorAt && Date.now() >= v.anchorAt + v.secs * 1000) {
+        void refreshNow()
+      }
+    }, 1000)
+    const poll = setInterval(() => { void refreshNow() }, 5000)
+    return () => { clearInterval(tick); clearInterval(poll) }
+  }, [enabled])
+
   if (!view) return null // settings not loaded yet — render nothing
 
-  const enabled = view.enabled
   const allSlugs = games.map(g => g.slug)
   // Effective pool — explicit selection, or every game when unset.
   const poolSlugs = view.slots ?? allSlugs
@@ -70,6 +134,7 @@ export function GameRotateCard({
 
   const apply = (v?: GameRotateSettings) => {
     if (v) {
+      viewRef.current = v
       setView(v)
       onRotateChange?.(v)
     }
@@ -133,6 +198,30 @@ export function GameRotateCard({
 
   const poolCount = poolSlugs.length
 
+  // Countdown to the next switch (daemon-owned clock; the poll keeps the
+  // anchor fresh so this never drifts from the real rotation).
+  const nextInSecs = view.anchorAt
+    ? Math.max(0, Math.ceil((view.anchorAt + view.secs * 1000 - nowMs) / 1000))
+    : null
+
+  // Order preview — the same walk the daemon runs (pool ordered by game
+  // creation time; shuffle renders its seeded permutation for this anchor).
+  const previewNames = (() => {
+    const poolGames = games.filter(g => poolSlugs.includes(g.slug))
+    const sorted = [...poolGames].sort(
+      (a, b) => (a.createdAtMs ?? Number.MAX_SAFE_INTEGER) - (b.createdAtMs ?? Number.MAX_SAFE_INTEGER)
+    )
+    if (view.order === 'reverse') sorted.reverse()
+    if (view.order === 'shuffle') {
+      const perm = seededPermutation(
+        sorted.length,
+        hashSeedStr(`game-rotate-preview:${view.anchorAt ?? 0}:${sorted.length}`)
+      )
+      return perm.map(i => sorted[i]?.name).filter((n): n is string => !!n)
+    }
+    return sorted.map(g => g.name)
+  })()
+
   return (
     <div className="relative overflow-hidden bg-gradient-to-b from-[#13111d]/95 via-[#0e0d14]/95 to-[#0a0a0f] border border-white/10 rounded-[28px] p-6 sm:p-7 shadow-2xl backdrop-blur-xl">
       <div className="absolute -top-16 left-1/4 -translate-x-1/2 w-56 h-40 bg-purple-600/10 rounded-full blur-3xl pointer-events-none" />
@@ -188,6 +277,13 @@ export function GameRotateCard({
             </button>
           </div>
           <p className="mt-2 text-sm font-bold text-white truncate">🎮 {currentGame.name}</p>
+          {nextInSecs !== null && (
+            <p className="mt-1 text-[11px] font-medium text-purple-200/70 tabular-nums" aria-label="Time until the next game">
+              {poolCount >= 2
+                ? <>Next game in <span className="text-purple-100 font-bold">{countdownLabel(nextInSecs)}</span>{nextInSecs === 0 ? ' — switching now…' : ''}</>
+                : 'Select at least 2 games to start cycling'}
+            </p>
+          )}
         </div>
       )}
 
@@ -235,9 +331,22 @@ export function GameRotateCard({
 
       {/* Pool selection — which games take turns */}
       <div className="relative z-10 mt-5">
-        <label className="text-xs font-bold tracking-wider text-purple-400 uppercase block mb-2">
-          ROTATION GAMES
-        </label>
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <label className="text-xs font-bold tracking-wider text-purple-400 uppercase">
+            ROTATION GAMES
+          </label>
+          {games.length > 0 && view.slots !== null && poolCount < games.length && (
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => save({ slots: null })}
+              className="text-[10px] font-bold uppercase tracking-widest text-purple-300 hover:text-white transition-colors cursor-pointer disabled:opacity-50"
+              aria-label="Include every game in the rotation"
+            >
+              Select all
+            </button>
+          )}
+        </div>
         {games.length === 0 ? (
           <p className="text-xs text-white/40 px-0.5">
             No games yet — add or configure games below, then pick the ones that should rotate.
@@ -271,6 +380,24 @@ export function GameRotateCard({
               )
             })}
           </div>
+        )}
+
+        {/* Live order preview — mirrors what the daemon actually walks */}
+        {enabled && previewNames.length >= 2 && (
+          <p
+            className="mt-3 flex items-start gap-1.5 text-[11px] leading-relaxed text-white/45 px-0.5"
+            aria-live="polite"
+            aria-label="Rotation order preview"
+          >
+            <RefreshCcw className="w-3.5 h-3.5 shrink-0 mt-0.5 text-purple-300/70" aria-hidden />
+            <span className="min-w-0 break-words">
+              Rotation order:{' '}
+              <span className="text-white/75 font-semibold">
+                {previewNames.join(' → ')}
+              </span>
+              {' '}→ repeats{view.order === 'shuffle' ? ' (reshuffles every cycle)' : ''}
+            </span>
+          </p>
         )}
       </div>
 

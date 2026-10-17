@@ -13,6 +13,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { toast } from 'sonner'
 import { api, type GameListItem, type DiscoveredApp } from '@/lib/api-client'
+import { findGameByAppId } from '@/lib/games'
 import { useRouter } from './useRouter'
 import { BackButton } from './ui'
 import { Gamepad2, Search, ChevronRight, ChevronDown, Plus, X, CheckCircle2, BadgeCheck, Loader2, Hash, TriangleAlert, Info, RefreshCcw } from 'lucide-react'
@@ -87,14 +88,25 @@ export function GamesPage() {
     return () => clearTimeout(t)
   }, [query])
 
+  /** An already-owned game for a discovered app — matches custom rows by
+   *  Application ID or name AND catalog presets (by preset identity or name).
+   *  Adding a game that already exists must NEVER create a same-name
+   *  duplicate (the historical "Counter-Strike 2 twice" rotation bug). */
+  const findExistingGame = (app: DiscoveredApp): GameListItem | undefined => {
+    const preset = findGameByAppId(app.appId)
+    return games.find(g =>
+      (g.appId && g.appId === app.appId) ||
+      (preset && g.slug === preset.slug) ||
+      g.name.toLowerCase() === app.name.toLowerCase()
+    )
+  }
+
   // One click on a Discord result = the FULL flow: auto-grab the official
   // Application ID, create the game and apply it live as Game RPC, then open
   // its RPC configuration.
   const handleAddDiscovered = async (app: DiscoveredApp) => {
     if (addingAppId) return
-    const existing = games.find(
-      g => g.custom && g.name.toLowerCase() === app.name.toLowerCase()
-    )
+    const existing = findExistingGame(app)
     if (existing) {
       navigate({ name: 'game', slug: existing.slug })
       return
@@ -102,14 +114,21 @@ export function GamesPage() {
     setAddingAppId(app.appId)
     try {
       // 1. Create the custom game — the official identity (App ID + name +
-      //    icon) is fetched from Discord automatically.
+      //    icon) is fetched from Discord automatically. The backend is
+      //    idempotent: a preset identity or an already-owned name maps onto
+      //    the existing row (existing: true) instead of duplicating it.
       const created = await api.gameCustomCreate({ appId: app.appId })
       // 2. Apply it as the live Game RPC — POST /api/games/[slug] with
       //    enabled=true flips the master flag + pushes the daemon. Only ONE
       //    game is live at a time (Task 95 single-active): enabling this one
       //    automatically pauses the previously active game.
       await api.gameSave(created.config.gameSlug, { enabled: true })
-      toast.success(`${created.config.gameName} added — Application ID auto-filled, set as Game RPC`, { duration: 3000 })
+      toast.success(
+        created.existing
+          ? `${created.config.gameName} is already in your games — set as Game RPC`
+          : `${created.config.gameName} added — Application ID auto-filled, set as Game RPC`,
+        { duration: 3000 }
+      )
       await refresh()
       navigate({ name: 'game', slug: created.config.gameSlug })
     } catch {
@@ -152,9 +171,7 @@ export function GamesPage() {
   /** Shared row for a discovered app — one click adds it with its official
    * Application ID (works for trending games and directory results alike). */
   const resultRow = (app: DiscoveredApp) => {
-    const already = games.some(
-      g => g.custom && g.name.toLowerCase() === app.name.toLowerCase()
-    )
+    const already = !!findExistingGame(app)
     const busy = addingAppId === app.appId
     return (
       <button
@@ -670,10 +687,15 @@ function AddGameDialog({
   const detectableResults = results.filter(r => r.source === 'detectable')
 
   /** Result row — one click runs the full add flow (App ID → create → live
-   * Game RPC) via the parent's handler. */
+   * Game RPC) via the parent's handler. Same-name/preset duplicates are
+   * caught by the parent's handler (it navigates instead of re-adding). */
   const resultRow = (app: DiscoveredApp) => {
+    const preset = findGameByAppId(app.appId)
     const already = games.some(
-      g => g.custom && g.name.toLowerCase() === app.name.toLowerCase()
+      g =>
+        (g.appId && g.appId === app.appId) ||
+        (preset && g.slug === preset.slug) ||
+        g.name.toLowerCase() === app.name.toLowerCase()
     )
     const busy = addingAppId === app.appId
     return (
