@@ -1,22 +1,31 @@
 # 10X RPC — automatic production deploy to Vercel.
 #
 # Runs on every push to main ONCE the repo secrets are configured. Until then
-# it exits gracefully with a setup reminder (no failed builds).
+# it marks the commit in red (context "deploy/vercel") and writes a setup guide
+# to the Actions run summary — production staying stale is impossible to miss.
 #
-# ONE-TIME SETUP (repo Settings → Secrets and variables → Actions):
-#   VERCEL_TOKEN      — Vercel account token (vercel.com → Settings → Tokens)
-#   VERCEL_ORG_ID     — Vercel dashboard → project Settings → General → "Vercel ID" (org)
-#   VERCEL_PROJECT_ID — Vercel dashboard → project Settings → General → Project ID
+# ONE-TIME SETUP (repo Settings → Secrets and variables → Actions → New repo secret):
+#   VERCEL_TOKEN      — vercel.com → top-right avatar → Settings → Tokens → Create
+#   VERCEL_ORG_ID     — vercel.com → <project> → Settings → General → "Vercel ID"
+#   VERCEL_PROJECT_ID — same page, right below: "Project ID"
 #
-# Alternative: connect the Vercel GitHub App (Vercel dashboard → project →
-# Settings → Git) — then Vercel deploys on push natively and this workflow
-# stays dormant (it only runs when VERCEL_TOKEN exists).
+# After adding the three secrets: Actions → "Deploy to Vercel" → Run workflow
+# (adding secrets alone does not re-trigger a push run). Every later push to
+# main then deploys automatically.
+#
+# Alternative (zero IDs needed): Vercel dashboard → project → Settings → Git →
+# connect this repo/branch — Vercel then deploys on push natively and this
+# workflow stays dormant.
 name: Deploy to Vercel
 
 on:
   push:
     branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: read
+  statuses: write
 
 concurrency:
   group: deploy-production
@@ -30,13 +39,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup reminder (secrets not configured)
+      - name: Mark commit red — production NOT updated (secrets missing)
+        if: env.HAS_VERCEL_SECRETS != 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/statuses/$SHA" \
+            -d '{
+              "state": "failure",
+              "context": "deploy/vercel",
+              "description": "Production NOT updated — add VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID repo secrets, then re-run this workflow",
+              "target_url": "https://github.com/'"$REPO"'/actions/workflows/deploy.yml"
+            }' > /dev/null
+
+      - name: Setup guide (secrets not configured)
         if: env.HAS_VERCEL_SECRETS != 'true'
         run: |
-          echo "VERCEL_TOKEN secret is not set — skipping deploy."
-          echo "To enable automatic deploys, add repo secrets:"
-          echo "  VERCEL_TOKEN, VERCEL_ORG_ID, VERCEL_PROJECT_ID"
-          echo "(or connect the Vercel GitHub App in the Vercel dashboard)."
+          {
+            echo "## ⚠️ Production was NOT deployed — Vercel secrets are missing"
+            echo ""
+            echo "The site at \`10x-rpc.vercel.app\` still runs an **old build** (profile page, RPC fixes etc. are all on \`main\` but not live)."
+            echo ""
+            echo "### Fastest fix — add 3 repo secrets (≈60 seconds)"
+            echo "1. Go to **vercel.com → your account → Settings → Tokens → Create Token** (scope: full account) and copy it."
+            echo "2. Go to **vercel.com → your project → Settings → General** and copy **Vercel ID** (org) and **Project ID**."
+            echo "3. In GitHub: this repo → **Settings → Secrets and variables → Actions → New repository secret** and add:"
+            echo "   - \`VERCEL_TOKEN\`"
+            echo "   - \`VERCEL_ORG_ID\`"
+            echo "   - \`VERCEL_PROJECT_ID\`"
+            echo "4. Come back here: **Actions → Deploy to Vercel → Run workflow** (branch: main)."
+            echo ""
+            echo "### Alternative — connect the Vercel GitHub App (no IDs needed)"
+            echo "Vercel dashboard → project → **Settings → Git → Connect** this repo + \`main\` branch. Vercel then deploys every push natively and this workflow stays dormant."
+            echo ""
+            echo "> After the first successful deploy, the red ✕ on this commit (context \`deploy/vercel\`) disappears and every push to \`main\` auto-deploys."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "VERCEL_TOKEN secret is not set — production not deployed. See the run summary for the 60-second setup."
 
       - uses: actions/setup-node@v4
         if: env.HAS_VERCEL_SECRETS == 'true'
@@ -73,3 +116,21 @@ jobs:
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
+
+      - name: Mark commit green — production updated
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/statuses/$SHA" \
+            -d '{
+              "state": "success",
+              "context": "deploy/vercel",
+              "description": "Production deployed from this commit",
+              "target_url": "https://10x-rpc.vercel.app"
+            }' > /dev/null
