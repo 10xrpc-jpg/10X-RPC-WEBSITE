@@ -92,3 +92,6 @@ scripts/boot-capture.*
 scripts/e2e-*
 upload/*.png
 .env.prod*
+
+# local ad-hoc tooling (never ship)
+.local-tools/
