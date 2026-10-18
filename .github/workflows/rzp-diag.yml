@@ -1,0 +1,133 @@
+# 10X RPC — Razorpay production env diagnostics (workflow_dispatch only).
+#
+# Uses the existing VERCEL_TOKEN repo secret to inspect the project's
+# PRODUCTION environment variables WITHOUT printing any secret value:
+#   1. vercel env ls production          → names + targets (values auto-masked)
+#   2. vercel pull --environment=production → fingerprints (sha256[:16] + length)
+#   3. live Razorpay API auth test with the pulled creds → HTTP status only
+#
+# Safe for a public repo: no secret value is ever echoed. Fingerprints let
+# you compare against a locally-computed sha256[:16] of the expected value.
+name: Razorpay env diagnostics
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Vercel CLI
+        run: npm i -g vercel@latest
+
+      - name: Link Vercel project
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          mkdir -p .vercel
+          printf '{"projectId":"%s","orgId":"%s"}' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
+
+      - name: List production env var names (values auto-masked)
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel env ls production --token="$VERCEL_TOKEN" || true
+
+      - name: Pull production env
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Fingerprint + live Razorpay API checks (no secret values printed)
+        run: |
+          python3 - <<'PY'
+          import json, hashlib, os, urllib.request, base64, sys
+
+          # --- parse the pulled env file (dotenv-ish, quote aware) ---
+          env = {}
+          try:
+              with open('.env.production.local', 'r', encoding='utf-8') as f:
+                  for line in f:
+                      line = line.strip()
+                      if not line or line.startswith('#') or '=' not in line:
+                          continue
+                      k, v = line.split('=', 1)
+                      v = v.strip()
+                      if len(v) >= 2 and v[0] == v[-1] and v[0] in ('"', "'"):
+                          v = v[1:-1]
+                      env[k.strip()] = v
+          except FileNotFoundError:
+              print('!! .env.production.local not found — vercel pull failed?')
+              sys.exit(1)
+
+          print('=== RAZORPAY_* fingerprints (sha256[:16], never the value) ===')
+          for name in ('RAZORPAY_KEY_ID', 'RAZORPAY_KEY_SECRET', 'RAZORPAY_WEBHOOK_SECRET'):
+              v = env.get(name)
+              if v is None:
+                  print(f'{name}: NOT PRESENT in production env file')
+              elif v == '':
+                  print(f'{name}: EMPTY')
+              else:
+                  h = hashlib.sha256(v.encode()).hexdigest()[:16]
+                  print(f'{name}: len={len(v)} sha256[:16]={h}')
+
+          kid = env.get('RAZORPAY_KEY_ID', '')
+          if kid.startswith('rzp_test_'):
+              print('key_id mode: TEST (rzp_test_*)')
+          elif kid.startswith('rzp_live_'):
+              print('key_id mode: LIVE (rzp_live_*)')
+          elif kid:
+              print(f'key_id mode: UNRECOGNIZED (starts with "{kid[:4]}…")')
+          ksec = env.get('RAZORPAY_KEY_SECRET', '')
+          if ksec:
+              print(f'key_secret shape: starts "{ksec[:3]}…" contains_newline={chr(10) in ksec}')
+
+          # --- live Razorpay API tests with the pulled creds ---
+          kid = env.get('RAZORPAY_KEY_ID', '')
+          ksec = env.get('RAZORPAY_KEY_SECRET', '')
+          auth = base64.b64encode(f'{kid}:{ksec}'.encode()).decode()
+
+          def rzp(method: str, path: str, body: dict | None = None):
+              req = urllib.request.Request(
+                  f'https://api.razorpay.com/v1{path}',
+                  data=json.dumps(body).encode() if body else None,
+                  method=method,
+                  headers={'Authorization': f'Basic {auth}', 'Content-Type': 'application/json'},
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=20) as r:
+                      return r.status, json.load(r)
+              except urllib.error.HTTPError as e:
+                  try:
+                      return e.code, json.load(e)
+                  except Exception:
+                      return e.code, {}
+              except Exception as e:
+                  return -1, {'error': {'description': str(e)}}
+
+          print('=== live auth test: GET /payments?count=1 ===')
+          status, data = rzp('GET', '/payments?count=1')
+          print(f'HTTP {status}')
+          if status != 200:
+              print('error:', (data.get('error') or {}).get('description', json.dumps(data)[:200]))
+
+          print('=== live order creation test: POST /orders (harmless — an order never charges anyone) ===')
+          status, data = rzp('POST', '/orders', {
+              'amount': 10000,
+              'currency': 'INR',
+              'receipt': f'diag-{os.environ.get("GITHUB_RUN_ID", "x")}',
+          })
+          print(f'HTTP {status}')
+          print('order id:', data.get('id', '(none)'))
+          if status != 201:
+              print('error:', (data.get('error') or {}).get('description', json.dumps(data)[:200]))
+          PY
