@@ -1,0 +1,96 @@
+# 10X RPC — sync Razorpay credentials from repo Actions secrets to the Vercel
+# project's PRODUCTION environment, then trigger a fresh production deploy so
+# the new values are picked up.
+#
+# Values never appear in this (public) repo or in logs: they live as repo
+# Actions secrets (RZP_KEY_ID / RZP_KEY_SECRET / RZP_WEBHOOK_SECRET) and are
+# piped straight into `vercel env add`. Only variable NAMES are printed.
+#
+# Each secret is OPTIONAL — missing ones are skipped (their Vercel value stays
+# untouched). After any sync the "Deploy to Vercel" workflow is dispatched so
+# the running site picks the values up.
+name: Sync Razorpay env to Vercel
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      HAS_KEY_ID: ${{ secrets.RZP_KEY_ID != '' }}
+      HAS_KEY_SECRET: ${{ secrets.RZP_KEY_SECRET != '' }}
+      HAS_WEBHOOK_SECRET: ${{ secrets.RZP_WEBHOOK_SECRET != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Vercel CLI
+        run: npm i -g vercel@latest
+
+      - name: Link Vercel project
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          mkdir -p .vercel
+          printf '{"projectId":"%s","orgId":"%s"}' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
+
+      - name: Sync RAZORPAY_KEY_ID
+        if: env.HAS_KEY_ID == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VALUE: ${{ secrets.RZP_KEY_ID }}
+        run: |
+          vercel env rm RAZORPAY_KEY_ID production --yes 2>/dev/null || true
+          printf '%s' "$VALUE" | vercel env add RAZORPAY_KEY_ID production --token="$VERCEL_TOKEN"
+          echo "RAZORPAY_KEY_ID updated on Vercel production"
+
+      - name: Sync RAZORPAY_KEY_SECRET
+        if: env.HAS_KEY_SECRET == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VALUE: ${{ secrets.RZP_KEY_SECRET }}
+        run: |
+          vercel env rm RAZORPAY_KEY_SECRET production --yes 2>/dev/null || true
+          printf '%s' "$VALUE" | vercel env add RAZORPAY_KEY_SECRET production --token="$VERCEL_TOKEN"
+          echo "RAZORPAY_KEY_SECRET updated on Vercel production"
+
+      - name: Sync RAZORPAY_WEBHOOK_SECRET
+        if: env.HAS_WEBHOOK_SECRET == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VALUE: ${{ secrets.RZP_WEBHOOK_SECRET }}
+        run: |
+          vercel env rm RAZORPAY_WEBHOOK_SECRET production --yes 2>/dev/null || true
+          printf '%s' "$VALUE" | vercel env add RAZORPAY_WEBHOOK_SECRET production --token="$VERCEL_TOKEN"
+          echo "RAZORPAY_WEBHOOK_SECRET updated on Vercel production"
+
+      - name: Nothing to sync
+        if: env.HAS_KEY_ID != 'true' && env.HAS_KEY_SECRET != 'true' && env.HAS_WEBHOOK_SECRET != 'true'
+        run: |
+          echo "No RZP_* repo secrets found — nothing synced."
+          exit 1
+
+      - name: Trigger production deploy
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          curl -s -o /dev/null -w "deploy dispatch: HTTP %{http_code}\n" \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/actions/workflows/deploy.yml/dispatches" \
+            -d '{"ref":"main"}'
