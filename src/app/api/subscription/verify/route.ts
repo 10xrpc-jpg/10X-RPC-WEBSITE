@@ -67,6 +67,12 @@ export async function POST(request: Request) {
   // the checkout-time snapshots — later plan edits cannot reprice or alter
   // what this payment grants.
   const order = await db.payment.findUnique({ where: { orderId } })
+  // Amount check against the checkout-time snapshot (server-fetched from
+  // Razorpay vs server-stored ledger) — a tampered/edited order can never
+  // buy a plan at the wrong price.
+  if (order && typeof order.amount === 'number' && typeof payment.amount === 'number' && payment.amount !== order.amount) {
+    return NextResponse.json({ error: 'amount_mismatch', message: 'Payment amount does not match this order — nothing was activated.' }, { status: 400 })
+  }
   const plan = (order?.plan || payment.notes?.plan || '') as string
   const orderUserId = order?.userId || payment.notes?.userId || ''
   const p = await resolvePaidPlan(plan)

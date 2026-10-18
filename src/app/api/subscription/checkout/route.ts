@@ -9,7 +9,7 @@ import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { CONFIG } from '@/lib/config'
-import { createSubscriptionOrder, razorpayConfigured } from '@/lib/razorpay'
+import { createSubscriptionOrder, fetchOrder, razorpayConfigured } from '@/lib/razorpay'
 import { resolvePaidPlan } from '@/lib/plans'
 
 export const dynamic = 'force-dynamic'
@@ -37,6 +37,36 @@ export async function POST(request: Request) {
   }
 
   try {
+    // Duplicate-order guard: retrying Buy Now (double-click, sheet dismissed,
+    // page reload) reuses the same still-open Razorpay order instead of
+    // stacking a fresh pending order per click. The order must still exist
+    // on Razorpay AND still be open — otherwise fall through and create new.
+    const pending = await db.payment.findFirst({
+      where: { userId: session.userId, plan: plan.slug, status: 'created', provider: 'razorpay' },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (pending) {
+      try {
+        const existing = await fetchOrder(pending.orderId)
+        if (existing.status === 'created') {
+          return NextResponse.json({
+            ok: true,
+            keyId: CONFIG.razorpay.keyId,
+            orderId: existing.id,
+            amount: existing.amount,
+            currency: existing.currency || CONFIG.razorpay.currency,
+            plan: plan.slug,
+            planLabel: pending.planLabel || plan.label,
+            periodDays: pending.periodDays ?? plan.durationDays,
+          })
+        }
+      } catch {
+        // Order vanished on Razorpay (rotated keys, test cleanup) — retire the
+        // stale ledger row so a fresh order can be created below.
+        await db.payment.update({ where: { id: pending.id }, data: { status: 'abandoned' } }).catch(() => {})
+      }
+    }
+
     const order = await createSubscriptionOrder(session.userId, plan.slug, plan.amount, plan.label, session.user.username || null)
     // Ledger row (status "created" → "paid" on verify/webhook). planLabel /
     // periodDays snapshot the purchased entitlement at checkout time.
@@ -57,6 +87,7 @@ export async function POST(request: Request) {
       currency: order.currency || CONFIG.razorpay.currency,
       plan: plan.slug,
       planLabel: plan.label,
+      periodDays: plan.durationDays,
     })
   } catch (err) {
     console.error('[subscription/checkout] razorpay order failed:', err)

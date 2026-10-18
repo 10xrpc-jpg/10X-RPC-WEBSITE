@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils'
 import { toast } from 'sonner'
 import { api, type Me } from '@/lib/api-client'
 import { DynamicPricing, PricingCard } from './DynamicPricing'
+import { startPlanCheckout, savePendingPlanCheckout } from './subscriptionCheckout'
 
 // Shared dark-pill button (Cobalt-style: quiet, bordered, brightens on hover)
 const PILL =
@@ -182,9 +183,49 @@ export function LandingPage() {
     return () => window.removeEventListener('scroll', onScroll, {})
   }, [])
 
+  // OAuth entry — full-page redirect out of the SPA (cookie handoff via
+  // /set-session); see consumePendingPlanCheckout for the purchase resume.
+  // eslint-disable-next-line @next/next/no-location-assign-relative-destination
+  const goToDiscordAuth = () => { window.location.href = '/auth/discord' }
+
   const onStart = () => {
     if (me?.authenticated) navigate({ name: 'dashboard' })
-    else window.location.href = '/auth/discord'
+    else goToDiscordAuth()
+  }
+
+  // Buy Now → the real Razorpay checkout for the selected plan (server-side
+  // price authority; nothing is created/paid/activated until verification).
+  // Logged-out visitors get Discord OAuth first and the purchase resumes on
+  // the dashboard afterwards (sessionStorage intent survives the redirect).
+  const [buyBusy, setBuyBusy] = useState(false)
+  const buyPlan = (slug: string) => {
+    if (buyBusy) return // one sheet at a time — no duplicate orders
+    if (!me?.authenticated) {
+      savePendingPlanCheckout(slug)
+      goToDiscordAuth()
+      return
+    }
+    setBuyBusy(true)
+    toast.loading('Opening payment…', { id: 'buy' })
+    void startPlanCheckout(slug, {
+      onSuccess: ({ planLabel, lifted }) => {
+        setBuyBusy(false)
+        toast.dismiss('buy')
+        toast.success(lifted
+          ? `${planLabel} activated — your subscription is live!`
+          : `${planLabel} payment received — your time was added to your subscription.`)
+      },
+      onError: (message) => {
+        setBuyBusy(false)
+        toast.dismiss('buy')
+        toast.error(message)
+      },
+      onDismiss: () => {
+        setBuyBusy(false)
+        toast.dismiss('buy')
+        toast('Payment cancelled — you were not charged.', { duration: 5000 })
+      },
+    })
   }
 
   const trialDays = me?.trialDays ?? 3
@@ -322,7 +363,7 @@ export function LandingPage() {
               sub="Every account starts with a free trial — no card needed. Pay with UPI, cards or netbanking via Razorpay."
             />
             <Reveal delay={0.08}>
-              <DynamicPricing onStart={onStart}>
+              <DynamicPricing onStart={onStart} onBuyPlan={buyPlan}>
                 {/* Static fallback — mirrors the current DB catalog, shown only
                     while /api/plans is loading or unreachable */}
                 <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 md:items-stretch">
@@ -345,7 +386,7 @@ export function LandingPage() {
                     cta="Buy Now"
                     ctaStyle="primary"
                     highlighted
-                    onCta={onStart}
+                    onCta={() => buyPlan('pro')}
                   />
                   <PricingCard
                     name="Plus (1 Month)"
@@ -355,7 +396,7 @@ export function LandingPage() {
                     features={['Full feature access', 'Standard Support', 'Basic discord role']}
                     cta="Buy Now"
                     ctaStyle="ghost"
-                    onCta={onStart}
+                    onCta={() => buyPlan('plus')}
                   />
                 </div>
               </DynamicPricing>

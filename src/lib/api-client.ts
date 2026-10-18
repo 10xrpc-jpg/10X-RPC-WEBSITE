@@ -18,7 +18,9 @@ export interface SubscriptionInfo {
   admin: boolean
 }
 
-/** Self-serve purchasable plans (Razorpay). */
+/** Self-serve purchasable plans (Razorpay). The launch catalog is plus/pro;
+ *  the admin-managed Plan table may add more slugs at any time, so checkout
+ *  APIs accept any plan slug string. */
 export type PaidPlanId = 'plus' | 'pro'
 
 /** POST /api/subscription/checkout response — everything Checkout.js needs. */
@@ -28,8 +30,10 @@ export interface SubscriptionCheckout {
   orderId: string
   amount: number
   currency: string
-  plan: PaidPlanId
+  plan: string
   planLabel: string
+  /** Entitlement duration from the checkout-time plan snapshot (days). */
+  periodDays?: number
   error?: string
   message?: string
 }
@@ -565,8 +569,10 @@ export const api = {
   me: () => fetchJson<Me>('/api/me'),
   /** Current user's subscription state (runs the lazy suspension sweep). */
   subscription: () => fetchJson<{ ok: boolean; subscription: SubscriptionInfo; transitioned: boolean; renewUrl: string; trialDays: number }>('/api/subscription'),
-  /** Create a Razorpay order for a paid plan (Checkout.js). */
-  subscriptionCheckout: (plan: PaidPlanId) =>
+  /** Create a Razorpay order for a paid plan (Checkout.js). Accepts any
+   *  plan slug from the pricing page — the server validates it against the
+   *  Plan table and prices it there; the browser never names a price. */
+  subscriptionCheckout: (plan: string) =>
     fetchJson<SubscriptionCheckout>('/api/subscription/checkout', { method: 'POST', body: JSON.stringify({ plan }) }),
   /** Verify a completed Razorpay payment → activate the subscription. */
   subscriptionVerify: (payload: RazorpayHandlerResponse) =>

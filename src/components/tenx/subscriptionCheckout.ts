@@ -9,7 +9,7 @@
 //     4. on success POST /api/subscription/verify → subscription activated
 //
 // Callbacks keep the calling component in charge of toasts/refresh.
-import { api, type PaidPlanId } from '@/lib/api-client'
+import { api } from '@/lib/api-client'
 
 interface RazorpayOptions {
   key: string
@@ -62,7 +62,51 @@ export interface CheckoutCallbacks {
   onDismiss?: () => void
 }
 
-export async function startPlanCheckout(plan: PaidPlanId, callbacks: CheckoutCallbacks = {}): Promise<void> {
+/** session storage key for a purchase started before Discord OAuth login —
+ *  consumed + cleared by consumePendingPlanCheckout after authentication. */
+const PENDING_PLAN_KEY = 'tenx:buy_plan'
+
+/** Remember a Buy Now click from a logged-out visitor so the checkout can
+ *  resume right after the Discord OAuth round-trip (sessionStorage survives
+ *  the redirect chain in the same tab). */
+export function savePendingPlanCheckout(plan: string): void {
+  if (typeof window === 'undefined') return
+  try {
+    window.sessionStorage.setItem(PENDING_PLAN_KEY, plan)
+  } catch {
+    // storage unavailable — user just logs in and clicks Buy again
+  }
+}
+
+/** If a logged-out visitor clicked Buy Now before OAuth, finish what they
+ *  started: clear the saved intent (always, to prevent loops) and open the
+ *  Razorpay sheet for it. Returns the plan being opened, or null. */
+export function consumePendingPlanCheckout(callbacks: CheckoutCallbacks = {}): string | null {
+  if (typeof window === 'undefined') return null
+  let plan: string | null = null
+  try {
+    plan = window.sessionStorage.getItem(PENDING_PLAN_KEY)
+    window.sessionStorage.removeItem(PENDING_PLAN_KEY)
+  } catch {
+    return null
+  }
+  if (!plan) return null
+  // Defer a tick — toasts fired during the first commit pass race the sonner
+  // portal mount and never render.
+  window.setTimeout(() => { void startPlanCheckout(plan as string, callbacks) }, 120)
+  return plan
+}
+
+function periodLabel(days?: number): string {
+  if (!days || days <= 0) return ''
+  if (days >= 28 && days % 28 === 0) {
+    const months = Math.round(days / 28)
+    return ` / ${months} month${months === 1 ? '' : 's'}`
+  }
+  return ` / ${days} day${days === 1 ? '' : 's'}`
+}
+
+export async function startPlanCheckout(plan: string, callbacks: CheckoutCallbacks = {}): Promise<void> {
   const fail = (message: string) => callbacks.onError?.(message)
 
   let checkout
@@ -83,14 +127,16 @@ export async function startPlanCheckout(plan: PaidPlanId, callbacks: CheckoutCal
     return
   }
 
-  const planLabel = checkout.planLabel || (plan === 'pro' ? 'Pro' : 'Plus')
+  const planLabel = checkout.planLabel || plan
+  const inr = `₹${(checkout.amount / 100).toLocaleString('en-IN')}`
+  const description = `${planLabel} — ${inr}${periodLabel(checkout.periodDays)}`
   const rzp = new window.Razorpay({
     key: checkout.keyId,
     order_id: checkout.orderId,
     amount: checkout.amount,
     currency: checkout.currency,
     name: '10X RPC',
-    description: `${planLabel} plan`,
+    description,
     prefill: callbacks.prefillName ? { name: callbacks.prefillName } : undefined,
     theme: { color: '#f59e0b' },
     handler: (response) => {

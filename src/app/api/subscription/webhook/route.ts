@@ -44,6 +44,20 @@ export async function POST(request: Request) {
   } catch {
     return NextResponse.json({ error: 'bad_request' }, { status: 400 })
   }
+
+  // Failed payments: mark the ledger row failed so dashboards show the
+  // truth — the subscription is NEVER touched here.
+  if (event.event === 'payment.failed') {
+    const failed = event.payload?.payment?.entity
+    if (failed?.order_id) {
+      await db.payment.updateMany({
+        where: { orderId: failed.order_id, status: 'created' },
+        data: { status: 'failed' },
+      }).catch(() => {})
+    }
+    return NextResponse.json({ ok: true, handled: 'payment.failed' })
+  }
+
   // Order paid / payment captured are the two success signals Razorpay sends.
   if (event.event !== 'payment.captured' && event.event !== 'order.paid') {
     return NextResponse.json({ ok: true, ignored: event.event || 'unknown' })

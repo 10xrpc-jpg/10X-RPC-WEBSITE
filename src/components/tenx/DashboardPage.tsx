@@ -12,7 +12,8 @@ import { SmartSleepTimerCard } from './SmartSleepTimerCard'
 import { RpcSlotsManager } from './RpcSlotsManager'
 import { ConfigBackupCard } from './ConfigBackupCard'
 import { ReconnectBanner } from './ReconnectBanner'
-import { startPlanCheckout } from './subscriptionCheckout'
+import { startPlanCheckout, consumePendingPlanCheckout } from './subscriptionCheckout'
+import { toast } from 'sonner'
 import { TriangleAlert, Zap, Check, Ban, Star, ArrowLeft, Hourglass } from 'lucide-react'
 
 export function DashboardPage() {
@@ -67,6 +68,34 @@ export function DashboardPage() {
     }, 10 * 60 * 1000)
     return () => { clearInterval(t); clearInterval(awake) }
   }, [refresh])
+
+  // Purchase resume: a visitor who clicked Buy Now on the landing page while
+  // logged out completes Discord OAuth → lands here → the saved intent opens
+  // the Razorpay checkout automatically. consume() clears the intent before
+  // starting, so this can never loop; StrictMode double-mount is safe (the
+  // second run finds nothing saved). Waits for the auth check so a logged-out
+  // dashboard visit keeps the intent for a future login instead of erroring.
+  useEffect(() => {
+    if (loading || !me?.authenticated) return
+    const pending = consumePendingPlanCheckout({
+      onSuccess: ({ planLabel, lifted }) => {
+        toast.dismiss('buy')
+        toast.success(lifted
+          ? `${planLabel} activated — your subscription is live!`
+          : `${planLabel} payment received — your time was added to your subscription.`)
+        refresh()
+      },
+      onError: (message) => {
+        toast.dismiss('buy')
+        toast.error(message)
+      },
+      onDismiss: () => {
+        toast.dismiss('buy')
+        toast('Payment cancelled — you were not charged.', { duration: 5000 })
+      },
+    })
+    if (pending) toast.loading('Opening payment…', { id: 'buy' })
+  }, [loading, me?.authenticated])
 
   if (loading) return <DashboardSkeleton />
 

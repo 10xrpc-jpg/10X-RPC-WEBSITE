@@ -13,7 +13,14 @@ function rupees(paise: number): string {
   return `₹${(paise / 100).toLocaleString('en-IN')}`
 }
 
-export function DynamicPricing({ onStart, children }: { onStart: () => void; children: ReactNode }) {
+export function DynamicPricing({ onStart, onBuyPlan, children }: {
+  onStart: () => void
+  /** Called with the plan slug when a paid plan's Buy Now is clicked —
+   *  opens the Razorpay checkout for that plan (falls back to onStart
+   *  when omitted so standalone usages keep working). */
+  onBuyPlan?: (slug: string) => void
+  children: ReactNode
+}) {
   const [data, setData] = useState<PublicPlans | null>(null)
   const [done, setDone] = useState(false)
 
@@ -74,7 +81,7 @@ export function DynamicPricing({ onStart, children }: { onStart: () => void; chi
             cta="Buy Now"
             ctaStyle={topPlan ? 'primary' : 'ghost'}
             highlighted={topPlan || !!p.badge}
-            onCta={onStart}
+            onCta={() => (onBuyPlan ? onBuyPlan(p.slug) : onStart())}
           />
         )
       })}
