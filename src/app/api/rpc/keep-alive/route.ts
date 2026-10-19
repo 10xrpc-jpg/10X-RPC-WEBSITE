@@ -58,6 +58,7 @@ export async function POST(req: Request) {
             sleepTimerActive: false,
             sleepTimerEndsAt: null,
             rpcEnabled: false,
+            statusEnabled: false,
             gatewayReady: false,
             vrStatusActive: false,
           },

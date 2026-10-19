@@ -30,10 +30,29 @@ import { getApplicationRpcDaemon } from '../src/lib/application-rpc-daemon'
 
 const ROLE = getDaemonRole()
 
-const HEARTBEAT_FILE = path.join(process.cwd(), '.daemon-heartbeat')
+// Task 118 — PILLAR FAILOVER: a node can run SEVERAL daemon children at once
+// (its own pillar + an adopted pillar whose node died). Every child gets its
+// own heartbeat file + loopback sync port from the supervisor, so the files
+// never cross-report health. Default stays the historic single-child path.
+const HEARTBEAT_FILE = process.env.DAEMON_HEARTBEAT_FILE
+  ? path.isAbsolute(process.env.DAEMON_HEARTBEAT_FILE)
+    ? process.env.DAEMON_HEARTBEAT_FILE
+    : path.join(process.cwd(), process.env.DAEMON_HEARTBEAT_FILE)
+  : path.join(process.cwd(), '.daemon-heartbeat')
 const SYNC_PORT = parseInt(process.env.DAEMON_SYNC_PORT || '3100', 10)
-const SYNC_SECRET = process.env.DAEMON_SYNC_SECRET || ''
+// SECRET-NAME ROBUSTNESS: the website sends ORIHOST_SYNC_SECRET while this
+// listener historically expected DAEMON_SYNC_SECRET — accept EITHER name so a
+// half-migrated deployment can never silently 403 every instant sync.
+const SYNC_SECRET = process.env.DAEMON_SYNC_SECRET || process.env.ORIHOST_SYNC_SECRET || ''
 const SYNC_MIN_INTERVAL_MS = 1500
+
+// Task 118 — Application RPC OWNERSHIP FIX: the Application RPC daemon used to
+// start on EVERY node (no role gate) — three daemons pushed the SAME activity
+// for the same user every 10s and Discord's last-write-wins merge made the
+// card flap. It belongs to the RPC pillar (the slot-session owner): exactly
+// one owner cluster-wide (the rpc node, or its failover adopter), 'all' keeps
+// the combined pre-split behavior.
+const RUNS_APPLICATION_DAEMON = ROLE === 'rpc' || ROLE === 'all'
 
 function writeHeartbeat(): void {
   try {
@@ -44,7 +63,7 @@ function writeHeartbeat(): void {
       pid: process.pid,
       role: ROLE,
       status: daemon.getStatus(),
-      application: getApplicationRpcDaemon().getStatus(),
+      application: RUNS_APPLICATION_DAEMON ? getApplicationRpcDaemon().getStatus() : null,
     }
     fs.writeFileSync(HEARTBEAT_FILE, JSON.stringify(payload))
   } catch (err) {
@@ -98,12 +117,15 @@ async function runSync(userId: string, mode: string): Promise<{ ok: boolean; app
       await daemon.stopUserRpc(userId)
       // Application RPC is INDEPENDENT: a Normal/Game 'stop' notification must
       // never stop it — syncUser re-evaluates ONLY the Application RPC's own
-      // enabled flag (kept running when its own row is enabled).
-      await getApplicationRpcDaemon().syncUser(userId)
+      // enabled flag (kept running when its own row is enabled). Gated to the
+      // pillar that OWNS Application RPC (see RUNS_APPLICATION_DAEMON).
+      if (RUNS_APPLICATION_DAEMON) await getApplicationRpcDaemon().syncUser(userId)
       return { ok: true, message: 'Presence stopped via instant sync' }
     }
     const result = await daemon.syncUser(userId)
-    const appResult = await getApplicationRpcDaemon().syncUser(userId)
+    const appResult = RUNS_APPLICATION_DAEMON
+      ? await getApplicationRpcDaemon().syncUser(userId)
+      : { ok: true, message: 'Application RPC owned by the rpc pillar' }
     const ok = !!result?.ok && appResult.ok
     // Task 99 — honest apply confirmation: `applied` is true only when the
     // daemon verified the running state now MATCHES the saved configuration
@@ -196,7 +218,7 @@ const syncServer = http.createServer((req, res) => {
       uptime: Math.floor(process.uptime()),
       timestamp: new Date().toISOString(),
       daemon: daemon.getStatus(),
-      application: getApplicationRpcDaemon().getStatus(),
+      application: RUNS_APPLICATION_DAEMON ? getApplicationRpcDaemon().getStatus() : null,
     })
     return
   }
@@ -223,20 +245,26 @@ daemon.start().then(() => {
 // Task 90 — the Application RPC daemon runs INDEPENDENTLY alongside the main
 // daemon: own tick, own sessions, own config table. A failure here never
 // affects the Normal/Game presence loop (and vice versa).
-getApplicationRpcDaemon().start().catch(err => {
-  console.error('[10X RPC Standalone Daemon] Application RPC daemon failed to start (main daemon unaffected):', err)
-})
+// Task 118 — OWNERSHIP: started ONLY on the pillar that owns Application RPC
+// (rpc / all) so exactly ONE daemon cluster-wide pushes each Application RPC.
+if (RUNS_APPLICATION_DAEMON) {
+  getApplicationRpcDaemon().start().catch(err => {
+    console.error('[10X RPC Standalone Daemon] Application RPC daemon failed to start (main daemon unaffected):', err)
+  })
+} else {
+  console.log(`[10X RPC Standalone Daemon] Application RPC daemon not started (role=${ROLE.toUpperCase()} — owned by the rpc pillar).`)
+}
 
 process.on('SIGINT', () => {
   console.log('[10X RPC Standalone Daemon] SIGINT received, stopping daemon...')
   daemon.stop()
-  getApplicationRpcDaemon().stop()
+  if (RUNS_APPLICATION_DAEMON) getApplicationRpcDaemon().stop()
   process.exit(0)
 })
 
 process.on('SIGTERM', () => {
   console.log('[10X RPC Standalone Daemon] SIGTERM received, stopping daemon...')
   daemon.stop()
-  getApplicationRpcDaemon().stop()
+  if (RUNS_APPLICATION_DAEMON) getApplicationRpcDaemon().stop()
   process.exit(0)
 })

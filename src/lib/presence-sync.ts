@@ -78,15 +78,29 @@ export async function notifyOrihostSyncDetailed(
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          ...(process.env.ORIHOST_SYNC_SECRET
-            ? { 'x-sync-secret': process.env.ORIHOST_SYNC_SECRET }
+          // SECRET-NAME ROBUSTNESS (Task 118): the node historically expected
+          // DAEMON_SYNC_SECRET while this side sent ORIHOST_SYNC_SECRET — a
+          // name mismatch silently 403'd every instant sync. Send whichever is
+          // configured (node side accepts either name too).
+          ...(process.env.ORIHOST_SYNC_SECRET || process.env.DAEMON_SYNC_SECRET
+            ? { 'x-sync-secret': process.env.ORIHOST_SYNC_SECRET || process.env.DAEMON_SYNC_SECRET }
             : {}),
         },
         body: JSON.stringify({ userId, mode }),
         signal: controller.signal,
       })
         .then(async (res) => {
-          if (!res.ok) return false
+          if (!res.ok) {
+            // 403 here almost always means the node's DAEMON_SYNC_SECRET and
+            // this deployment's ORIHOST_SYNC_SECRET hold DIFFERENT values —
+            // say so loudly instead of dying silently (Task 118 diagnostics).
+            if (res.status === 403) {
+              console.error(`[presence-sync] ${base}/sync → 403 invalid_secret — the node's DAEMON_SYNC_SECRET does not match this deployment's ORIHOST_SYNC_SECRET. Instant sync for user ${userId} was REJECTED; the 10s daemon tick still applies it.`)
+            } else {
+              console.error(`[presence-sync] ${base}/sync → HTTP ${res.status} for user ${userId}`)
+            }
+            return false
+          }
           // Best-effort parse of { ok, applied, queued } — older daemons
           // without the applied field just yield undefined (treated as
           // "dispatched, confirmation pending").
@@ -97,8 +111,9 @@ export async function notifyOrihostSyncDetailed(
             return true
           }
         })
-        .catch(() => {
+        .catch((err) => {
           hardFailures++
+          console.error(`[presence-sync] ${base}/sync unreachable for user ${userId}: ${err instanceof Error ? err.message : err} — the daemon's tick will self-heal; check the node at ${base}/status if this persists.`)
           return false
         })
 

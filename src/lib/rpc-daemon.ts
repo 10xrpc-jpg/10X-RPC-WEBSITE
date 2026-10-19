@@ -966,6 +966,15 @@ export class RpcDaemon {
               rpcEnabled: false,
               statusEnabled: false,
               gatewayReady: false,
+              // Task 118 — VR/state consistency: the runtime VR flag MUST die
+              // with the session. planRolePresencePlatforms keys the Quest
+              // badge off `vrStatusActive || statusPlatform === 'meta_quest'`,
+              // so a stale true here kept the VR badge alive after the sleep
+              // timer expired even with statusEnabled=false flipping back on
+              // later. The user's PLATFORM preference (statusPlatform) stays
+              // — it is re-derived into vrStatusActive on the next explicit
+              // toggle, matching the site-side expiry paths.
+              vrStatusActive: false,
             },
           })
           // Sleep timer = full RPC stop: disable BOTH modes' enabled flags

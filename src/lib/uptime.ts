@@ -25,7 +25,20 @@ export interface DaemonReport extends UptimeProbe {
   platforms?: Record<string, number>
   /** Task 107 — per-node detail when ORIHOST_DAEMON_URL lists several nodes
    *  (the 3-node Orihost split: status / rpc / game). */
-  nodes?: Array<{ url: string; ok: boolean; latencyMs: number | null; error?: string; running?: boolean }>
+  nodes?: Array<{
+    url: string
+    ok: boolean
+    latencyMs: number | null
+    error?: string
+    running?: boolean
+    /** Task 118 — pillar visibility: which DAEMON_ROLE the node runs and
+     *  which pillars it ADOPTED (failover for a dead peer). */
+    role?: string
+    adopted?: string[]
+    /** Per-child detail (base + adopted pillars) when the supervisor runs a
+     *  failover child. Additive — old nodes omit it. */
+    children?: Array<{ role: string; isBase?: boolean; heartbeatAgeSec?: number | null; connected?: number | null; trackedUsers?: number | null }>
+  }>
 }
 
 export interface NodeReport extends UptimeProbe {
@@ -118,12 +131,29 @@ function orihostDaemonBases(): string[] {
 }
 
 interface DaemonStatusBody {
-  heartbeatAgeSec?: number
-  daemon?: { status?: Record<string, unknown>; iso?: string }
+  heartbeatAgeSec?: number | null
+  daemon?: { status?: Record<string, unknown>; iso?: string; role?: string } | null
   status?: Record<string, unknown>
+  /** Task 118 — supervisor multi-child payload (additive). */
+  role?: string
+  adopted?: string[]
+  children?: Array<{ role?: string; isBase?: boolean; heartbeatAgeSec?: number | null; status?: Record<string, unknown> }>
+  lease?: { nodeId?: string; baseRole?: string; adopted?: string[]; db?: string }
 }
 
-function parseDaemonStatus(body: string): { running?: boolean; uptimeSeconds?: number; heartbeatAgeSec?: number | null; lastTickAt?: string | null; activeConnections?: number; totalTrackedUsers?: number; authFailedUsers?: number; platforms: Record<string, number> } | null {
+function parseDaemonStatus(body: string): {
+  running?: boolean
+  uptimeSeconds?: number
+  heartbeatAgeSec?: number | null
+  lastTickAt?: string | null
+  activeConnections?: number
+  totalTrackedUsers?: number
+  authFailedUsers?: number
+  platforms: Record<string, number>
+  role?: string
+  adopted?: string[]
+  children?: Array<{ role: string; isBase?: boolean; heartbeatAgeSec?: number | null; connected?: number | null; trackedUsers?: number | null }>
+} | null {
   try {
     const parsed = JSON.parse(body) as DaemonStatusBody
     const st = (parsed.daemon?.status ?? parsed.status ?? {}) as {
@@ -140,15 +170,46 @@ function parseDaemonStatus(body: string): { running?: boolean; uptimeSeconds?: n
       const p = u.platform || 'unknown'
       platforms[p] = (platforms[p] ?? 0) + 1
     }
+
+    // Task 118 — adopted/failover children: aggregate their live counters ON
+    // TOP of the base child so a node carrying a dead peer's pillar reports
+    // the truth. Old single-child payloads have no children[] → unchanged.
+    let activeConnections = st.activeConnections
+    let totalTrackedUsers = st.totalTrackedUsers
+    let authFailedUsers = st.authFailedUsers
+    const kids = (parsed.children ?? []).map(c => ({
+      role: String(c.role || 'unknown'),
+      isBase: c.isBase === true,
+      heartbeatAgeSec: typeof c.heartbeatAgeSec === 'number' ? c.heartbeatAgeSec : null,
+      connected: (c.status as { activeConnections?: number } | undefined)?.activeConnections ?? null,
+      trackedUsers: (c.status as { totalTrackedUsers?: number } | undefined)?.totalTrackedUsers ?? null,
+    }))
+    if (kids.length > 0) {
+      const sumField = (pick: (c: (typeof kids)[number]) => number | null) =>
+        kids.reduce<number>((acc, c) => { const v = pick(c); return typeof v === 'number' ? acc + v : acc }, 0)
+      activeConnections = sumField(c => c.connected)
+      totalTrackedUsers = sumField(c => c.trackedUsers)
+      for (const c of kids) {
+        const cStatus = (parsed.children ?? []).find(x => String(x.role) === c.role)?.status as { users?: { platform?: string }[] } | undefined
+        for (const u of cStatus?.users ?? []) {
+          const p = u.platform || 'unknown'
+          platforms[p] = (platforms[p] ?? 0) + 1
+        }
+      }
+    }
+
     return {
       running: st.running,
       uptimeSeconds: st.uptimeSeconds,
       heartbeatAgeSec: typeof parsed.heartbeatAgeSec === 'number' ? parsed.heartbeatAgeSec : null,
       lastTickAt: st.lastTickAt ?? null,
-      activeConnections: st.activeConnections,
-      totalTrackedUsers: st.totalTrackedUsers,
-      authFailedUsers: st.authFailedUsers,
+      activeConnections,
+      totalTrackedUsers,
+      authFailedUsers,
       platforms,
+      role: parsed.daemon?.role ?? parsed.role,
+      adopted: Array.isArray(parsed.adopted) ? parsed.adopted.map(String) : undefined,
+      children: kids.length > 0 ? kids : undefined,
     }
   } catch {
     return null
@@ -205,7 +266,19 @@ async function probeDaemon(): Promise<DaemonReport> {
     totalTrackedUsers: sum(s => s.totalTrackedUsers),
     authFailedUsers: sum(s => s.authFailedUsers),
     platforms,
-    nodes: results.map(({ url, ok: nodeOk, latencyMs: l, error, running }) => ({ url, ok: nodeOk, latencyMs: l, error, running })),
+    nodes: results.map(({ url, ok: nodeOk, latencyMs: l, error, running, st }) => ({
+      url,
+      ok: nodeOk,
+      latencyMs: l,
+      error,
+      running,
+      // Task 118 — pillar visibility (additive): role, adopted pillars and
+      // per-child detail so the status page can show WHICH pillar a dead node
+      // took down and who is covering it.
+      role: st?.role,
+      adopted: st?.adopted,
+      children: st?.children,
+    })),
   }
 }
 
