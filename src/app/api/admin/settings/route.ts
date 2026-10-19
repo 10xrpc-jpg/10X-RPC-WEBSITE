@@ -4,6 +4,7 @@
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { CONFIG } from '@/lib/config'
+import { getRazorpayKeys } from '@/lib/razorpay-config'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,6 +26,7 @@ export async function GET() {
     return NextResponse.json({ error: 'forbidden', message: 'Admin access required' }, { status: 403 })
   }
 
+  const rzp = await getRazorpayKeys()
   return NextResponse.json({
     ok: true,
     app: {
@@ -50,8 +52,10 @@ export async function GET() {
       panelHost: hostOf(process.env.PTERODACTYL_URL),
     },
     payments: {
-      razorpayConfigured: !!CONFIG.razorpay.keyId && !!CONFIG.razorpay.keySecret,
-      webhookConfigured: !!CONFIG.razorpay.webhookSecret,
+      razorpayConfigured: !!rzp.keyId && !!rzp.keySecret,
+      webhookConfigured: !!rzp.webhookSecret,
+      keyMode: rzp.keyId.startsWith('rzp_test_') ? 'test' : rzp.keyId.startsWith('rzp_live_') ? 'live' : rzp.keyId ? 'unknown' : 'none',
+      keySource: rzp.source.keyId,
       currency: CONFIG.razorpay.currency,
       webhookPath: '/api/subscription/webhook',
       plans: (['plus', 'pro'] as const).map(id => {

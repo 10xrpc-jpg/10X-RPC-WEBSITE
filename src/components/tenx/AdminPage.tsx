@@ -8,7 +8,8 @@
 //   Users     — subscription management (server-side search / filters /
 //               sorting / pagination) → per-user subscription modal.
 //   Payments  — Razorpay ledger: revenue summary, plan split, latest
-//               payments, filter + CSV export.
+//               payments, filter + CSV export + Payment Gateway Setup
+//               (self-serve credentials + live connection test).
 //   Trials    — trial policy (DB-backed) + live trial roster.
 //   Analytics — subscription analytics from the live DB (conversion, plan
 //               popularity, revenue, 14-day trends).
@@ -39,6 +40,7 @@ import { UsersTab } from './admin/UsersTab'
 import { TrialsTab } from './admin/TrialsTab'
 import { AnalyticsTab } from './admin/AnalyticsTab'
 import { AuditTab } from './admin/AuditTab'
+import { PaymentsSetupCard } from './admin/PaymentsSetupCard'
 
 type AdminTab = 'overview' | 'plans' | 'users' | 'payments' | 'trials' | 'analytics' | 'sessions' | 'control' | 'audit' | 'settings'
 
@@ -356,6 +358,8 @@ export function AdminPage() {
           const filteredPayments = paymentsFilter === 'all' ? payments : payments.filter(p => p.status === paymentsFilter)
           return (
             <div className="space-y-4">
+              <PaymentsSetupCard />
+
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <StatCard label="Revenue ₹" value={ps ? Math.round(ps.revenueTotalPaise / 100) : 0} color="text-amber-300" />
                 <StatCard label="Revenue 30d ₹" value={ps ? Math.round(ps.revenue30dPaise / 100) : 0} color="text-emerald-400" />

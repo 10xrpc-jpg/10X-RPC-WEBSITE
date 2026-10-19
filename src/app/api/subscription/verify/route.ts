@@ -17,7 +17,7 @@ export async function POST(request: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
 
-  if (!razorpayConfigured()) {
+  if (!(await razorpayConfigured())) {
     return NextResponse.json({ error: 'payments_unavailable' }, { status: 503 })
   }
 
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
 
   // 1) Signature check — proves Razorpay's checkout really completed this
   //    order/payment pair (the key secret never left the server).
-  if (!verifyPaymentSignature(orderId, paymentId, signature)) {
+  if (!(await verifyPaymentSignature(orderId, paymentId, signature))) {
     return NextResponse.json({ error: 'bad_signature', message: 'Payment signature check failed — nothing was activated.' }, { status: 400 })
   }
 

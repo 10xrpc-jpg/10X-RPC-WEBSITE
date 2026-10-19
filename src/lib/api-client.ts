@@ -483,6 +483,31 @@ export interface AdminPaymentsResponse {
   checkedAt: string
 }
 
+/** Admin → Payment Gateway setup: resolved Razorpay credentials (masked). */
+export interface AdminRazorpayConfig {
+  ok: boolean
+  configured: boolean
+  keyId: string
+  keyMode: 'test' | 'live' | 'unknown' | 'none'
+  keySecretMasked: string
+  webhookSecretMasked: string
+  source: { keyId: 'db' | 'env'; keySecret: 'db' | 'env'; webhookSecret: 'db' | 'env' }
+  overrideUpdatedAt: string | null
+  webhookPath: string
+  checkedAt: string
+}
+
+/** Admin → Payment Gateway "Test connection" probe result. */
+export interface AdminRazorpayTestResult {
+  ok: boolean
+  keyMode: string
+  keyIdSource?: 'db' | 'env'
+  auth: { ok: boolean; status: number; error?: string }
+  order?: { ok: boolean; status: number; id: string | null; error?: string }
+  hint?: string
+  testedAt: string
+}
+
 export interface AdminUser {
   id: string
   discordId: string
@@ -810,6 +835,13 @@ export const api = {
 
   /** Admin Payments tab — Razorpay ledger + revenue summary. */
   adminPayments: () => fetchJson<AdminPaymentsResponse>('/api/admin/payments'),
+
+  // ---------- Admin: payment gateway (Razorpay) credentials ----------
+  adminRazorpayGet: () => fetchJson<AdminRazorpayConfig>('/api/admin/razorpay'),
+  adminRazorpaySave: (data: { keyId?: string; keySecret?: string; webhookSecret?: string }) =>
+    fetchJson<AdminRazorpayConfig>('/api/admin/razorpay', { method: 'PUT', body: JSON.stringify(data) }),
+  adminRazorpayReset: () => fetchJson<AdminRazorpayConfig>('/api/admin/razorpay', { method: 'DELETE' }),
+  adminRazorpayTest: () => fetchJson<AdminRazorpayTestResult>('/api/admin/razorpay/test', { method: 'POST', body: '{}' }),
 
   adminForceRpc: (enable: boolean) => fetchJson<{
     ok: boolean

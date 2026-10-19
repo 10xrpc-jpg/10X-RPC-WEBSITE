@@ -34,7 +34,7 @@ interface WebhookPayload {
 export async function POST(request: Request) {
   const raw = await request.text()
   const signature = request.headers.get('x-razorpay-signature') || ''
-  if (!verifyWebhookSignature(raw, signature)) {
+  if (!(await verifyWebhookSignature(raw, signature))) {
     return NextResponse.json({ error: 'bad_signature' }, { status: 400 })
   }
 

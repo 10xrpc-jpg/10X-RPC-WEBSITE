@@ -5,11 +5,14 @@
 // what. Price/duration come from the admin-managed Plan table (CONFIG is
 // only a fallback) and are snapshotted onto the Payment ledger row, so
 // later plan edits never reprice an in-flight or historical purchase.
+// Credentials resolve through the admin-managed resolver (env + DB override)
+// and the returned keyId always matches the key that created the order.
 import { NextResponse } from 'next/server'
 import { getSession } from '@/lib/session'
 import { db } from '@/lib/db'
 import { CONFIG } from '@/lib/config'
 import { createSubscriptionOrder, fetchOrder, razorpayConfigured } from '@/lib/razorpay'
+import { getRazorpayKeys } from '@/lib/razorpay-config'
 import { resolvePaidPlan } from '@/lib/plans'
 
 export const dynamic = 'force-dynamic'
@@ -18,9 +21,10 @@ export async function POST(request: Request) {
   const session = await getSession()
   if (!session) return NextResponse.json({ error: 'not_authenticated' }, { status: 401 })
 
-  if (!razorpayConfigured()) {
+  if (!(await razorpayConfigured())) {
     return NextResponse.json({ error: 'payments_unavailable', message: 'Payments are temporarily unavailable — renew on Discord.' }, { status: 503 })
   }
+  const keys = await getRazorpayKeys()
 
   let body: { plan?: string } = {}
   try {
@@ -51,7 +55,7 @@ export async function POST(request: Request) {
         if (existing.status === 'created') {
           return NextResponse.json({
             ok: true,
-            keyId: CONFIG.razorpay.keyId,
+            keyId: keys.keyId,
             orderId: existing.id,
             amount: existing.amount,
             currency: existing.currency || CONFIG.razorpay.currency,
@@ -81,7 +85,7 @@ export async function POST(request: Request) {
     })
     return NextResponse.json({
       ok: true,
-      keyId: CONFIG.razorpay.keyId,
+      keyId: keys.keyId,
       orderId: order.id,
       amount: order.amount,
       currency: order.currency || CONFIG.razorpay.currency,
@@ -90,7 +94,12 @@ export async function POST(request: Request) {
       periodDays: plan.durationDays,
     })
   } catch (err) {
-    console.error('[subscription/checkout] razorpay order failed:', err)
+    // Log the EXACT Razorpay failure (status + description) — this is the
+    // only place the real reason for "Could not start the payment" shows up.
+    const status = (err as { status?: number })?.status ?? 0
+    console.error('[subscription/checkout] razorpay order failed:', status, err instanceof Error ? err.message : err)
+    // Structured line for log-based dashboards.
+    console.error(JSON.stringify({ tag: 'checkout_failed', status, message: err instanceof Error ? err.message : String(err), userId: session.userId, plan: plan.slug, at: new Date().toISOString() }))
     return NextResponse.json({ error: 'order_failed', message: 'Could not start the payment — try again or renew on Discord.' }, { status: 502 })
   }
 }
