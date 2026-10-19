@@ -47,6 +47,7 @@ local-*
 dev.log
 dev.out.log
 test
+!src/app/api/**/test/
 prompt
 
 server.log
