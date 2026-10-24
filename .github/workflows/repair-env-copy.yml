@@ -1,0 +1,93 @@
+# 10X RPC — Manual repair: copy missing production env vars from other Vercel
+# projects on the same account, then redeploy.
+#
+# This is the manual version of the auto-repair that deploy.yml runs whenever
+# critical env names are missing (see .github/scripts/repair-env.sh).
+#
+# Run: Actions → "Repair production env (copy from old Vercel project)" → Run.
+# Values move secret→secret inside the runner and are NEVER printed.
+name: Repair production env (copy from old Vercel project) + redeploy
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-latest
+    env:
+      HAS_VERCEL_SECRETS: ${{ secrets.VERCEL_TOKEN != '' }}
+    steps:
+      - name: Setup guide (Vercel secrets missing)
+        if: env.HAS_VERCEL_SECRETS != 'true'
+        run: |
+          echo "## ⚠️ VERCEL_TOKEN secret is not set — nothing to do here." >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/checkout@v4
+        if: env.HAS_VERCEL_SECRETS == 'true'
+
+      - uses: actions/setup-node@v4
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        with:
+          node-version: 22
+
+      - name: Install Vercel CLI
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        run: npm i -g vercel@latest
+
+      - name: Copy missing env vars from sibling projects
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          chmod +x .github/scripts/repair-env.sh
+          SUMMARY_FILE="$GITHUB_STEP_SUMMARY" .github/scripts/repair-env.sh
+
+      - name: Also set domain-correct values (unconditional refresh)
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: |
+          set -u
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+          upsert() {
+            local name="$1" value="$2"
+            vercel env rm "$name" production --yes --token="$VERCEL_TOKEN" >/dev/null 2>&1 || true
+            if printf '%s' "$value" | vercel env add "$name" production --token="$VERCEL_TOKEN" >/dev/null 2>&1; then
+              echo "- \`$name\` ✅ set (value never printed)" >> "$SUMMARY"
+            else
+              echo "- \`$name\` ❌ failed to set" >> "$SUMMARY"
+            fi
+          }
+          echo "### Domain-correct values (always refreshed)" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+          upsert NEXT_PUBLIC_APP_URL "https://www.10xrpc.shop"
+          upsert DISCORD_REDIRECT_URI "https://www.10xrpc.shop/auth/callback"
+          if ! grep -qE "^SESSION_SECRET=" .env.local 2>/dev/null; then
+            upsert SESSION_SECRET "$(openssl rand -base64 48 | tr -d '\n')"
+          else
+            echo "- \`SESSION_SECRET\` ⏭ already present — left untouched (rotation logs everyone out)" >> "$SUMMARY"
+          fi
+          echo "" >> "$SUMMARY"
+
+      - name: Trigger production deploy
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          curl -s -o /dev/null -w "deploy dispatch: HTTP %{http_code}\n" \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/actions/workflows/deploy.yml/dispatches" \
+            -d '{"ref":"main"}'
