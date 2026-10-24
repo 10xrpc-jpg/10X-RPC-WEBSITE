@@ -117,6 +117,84 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
 
+      - name: Attach custom domains (10xrpc.shop + www) + print DNS records
+        if: always() && env.HAS_VERCEL_SECRETS == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          APEX: 10xrpc.shop
+        run: |
+          set -u
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+
+          # api <method> <path> [json-body] — tries with teamId first, then personal-account fallback
+          api() {
+            local method="$1" path="$2" body="${3:-}" url try code bodyout resp
+            for try in 1 2; do
+              if [ "$try" = 1 ] && [ -n "$VERCEL_ORG_ID" ]; then
+                url="https://api.vercel.com${path}?teamId=$VERCEL_ORG_ID"
+              else
+                url="https://api.vercel.com${path}"
+              fi
+              if [ -n "$body" ]; then
+                RESP=$(curl -sS -X "$method" -H "Authorization: Bearer $VERCEL_TOKEN" -H "Content-Type: application/json" -d "$body" -w $'\n%{http_code}' "$url" 2>&1)
+              else
+                RESP=$(curl -sS -X "$method" -H "Authorization: Bearer $VERCEL_TOKEN" -w $'\n%{http_code}' "$url" 2>&1)
+              fi
+              CODE=$(printf '%s' "$RESP" | tail -n1)
+              BODYOUT=$(printf '%s' "$RESP" | sed '$d')
+              if [ "$CODE" = 403 ] || [ "$CODE" = 404 ]; then continue; fi
+              printf '%s\n%s' "$CODE" "$BODYOUT"
+              return 0
+            done
+            printf '%s\n%s' "$CODE" "$BODYOUT"
+          }
+
+          attach() {
+            local name="$1" redirect="$2" body out code
+            if [ -n "$redirect" ]; then
+              body="{\"name\":\"$name\",\"redirect\":\"$redirect\"}"
+            else
+              body="{\"name\":\"$name\"}"
+            fi
+            out=$(api POST "/v9/projects/$VERCEL_PROJECT_ID/domains" "$body")
+            code=$(printf '%s' "$out" | head -n1)
+            echo "attach $name → HTTP $code $(printf '%s' "$out" | tail -n +2 | head -c 300)"
+          }
+
+          echo "## Custom domain: $APEX" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+          attach "$APEX" ""
+          attach "www.$APEX" "$APEX"
+
+          echo "" >> "$SUMMARY"
+          echo "### DNS records to add at your registrar (BigRock)" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+          echo "| Type | Name | Value |" >> "$SUMMARY"
+          echo "|---|---|---|" >> "$SUMMARY"
+          echo "| A | \`@\` (10xrpc.shop) | \`216.198.79.195\` (or legacy \`76.76.21.21\`) |" >> "$SUMMARY"
+          echo "| CNAME | \`www\` | \`cname.vercel-dns.com\` |" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+
+          for d in "$APEX" "www.$APEX"; do
+            out=$(api GET "/v4/domains/$d")
+            code=$(printf '%s' "$out" | head -n1)
+            json=$(printf '%s' "$out" | tail -n +2)
+            if [ "$code" = 200 ]; then
+              verified=$(printf '%s' "$json" | grep -o '"verified":[a-z]*' | head -n1 | cut -d: -f2)
+              misconf=$(printf '%s' "$json" | grep -o '"misconfigured":[a-z]*' | head -n1 | cut -d: -f2)
+              echo "- \`$d\` → verified: **${verified:-?}**, misconfigured: **${misconf:-?}**" >> "$SUMMARY"
+            else
+              echo "- \`$d\` → lookup HTTP $code: $(printf '%s' "$json" | head -c 200)" >> "$SUMMARY"
+            fi
+          done
+          echo "" >> "$SUMMARY"
+          echo "After adding the records above, wait for DNS (minutes–48h) and run **Actions → Check DNS for 10xrpc.shop** to verify." >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+          echo "> Also update Vercel env \`NEXT_PUBLIC_APP_URL=https://$APEX\` and the Discord OAuth redirect URI once the domain verifies." >> "$SUMMARY"
+          echo "domain attach step finished"
+
       - name: Mark commit green — production updated
         if: env.HAS_VERCEL_SECRETS == 'true'
         env:

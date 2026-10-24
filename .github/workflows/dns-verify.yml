@@ -1,0 +1,88 @@
+# 10X RPC — DNS verification for the custom domain 10xrpc.shop.
+#
+# Run manually: Actions → "Check DNS for 10xrpc.shop" → Run workflow.
+# It resolves the domain from GitHub's runners (neutral vantage point, not the
+# admin's laptop/ISP cache) and probes the live HTTPS endpoints, then writes a
+# pass/fail table to the run summary.
+#
+# Expected records (set at the registrar — BigRock → manage.bigrock.in):
+#   A      @     216.198.79.195   (legacy alternative: 76.76.21.21)
+#   CNAME  www   cname.vercel-dns.com
+name: Check DNS for 10xrpc.shop
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dns-check
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve + probe 10xrpc.shop
+        env:
+          APEX: 10xrpc.shop
+        run: |
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+          VERCEL_A_OK=0
+          WWW_OK=0
+          APEX_HTTP=000
+          WWW_HTTP=000
+
+          echo "## DNS check — $APEX ($(date -u '+%Y-%m-%d %H:%M UTC'))" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+
+          NS=$(dig +short "$APEX" NS | sort | tr '\n' ' ')
+          echo "- **Nameservers:** \`${NS:-none}\`" >> "$SUMMARY"
+
+          APEX_A=$(dig +short "$APEX" A | sort | tr '\n' ' ')
+          if echo "$APEX_A" | grep -Eq '216\.198\.79\.195|76\.76\.21\.21|64\.29\.17\.195'; then
+            VERCEL_A_OK=1
+          fi
+          echo "- **$APEX A records:** \`${APEX_A:-none}\` $( [ "$VERCEL_A_OK" = 1 ] && echo '✅ points to Vercel' || echo '❌ not pointing to Vercel yet')" >> "$SUMMARY"
+
+          WWW_CNAME=$(dig +short "www.$APEX" CNAME | tr -d '\n')
+          WWW_A=$(dig +short "www.$APEX" A | sort | tr '\n' ' ')
+          if [ -n "$WWW_CNAME" ]; then
+            echo "- **www CNAME:** \`$WWW_CNAME\`" >> "$SUMMARY"
+            echo "$WWW_CNAME" | grep -q 'cname.vercel-dns.com' && WWW_OK=1
+          fi
+          if echo "$WWW_A" | grep -Eq '216\.198\.79\.195|76\.76\.21\.21|64\.29\.17\.195'; then
+            WWW_OK=1
+          fi
+          [ -n "$WWW_A" ] && echo "- **www A records:** \`$WWW_A\`" >> "$SUMMARY"
+
+          APEX_HTTP=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "https://$APEX/" || true)
+          WWW_HTTP=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "https://www.$APEX/" || true)
+          APP_HTTP=$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "https://10x-rpc.vercel.app/" || true)
+
+          echo "- **https://$APEX** → HTTP $APEX_HTTP $( [ "$APEX_HTTP" = 200 ] || [ "$APEX_HTTP" = 308 ] && echo '✅' || echo '⏳ (not live yet)')" >> "$SUMMARY"
+          echo "- **https://www.$APEX** → HTTP $WWW_HTTP $( [ "$WWW_HTTP" = 200 ] || [ "$WWW_HTTP" = 308 ] && echo '✅' || echo '⏳ (not live yet)')" >> "$SUMMARY"
+          echo "- **https://10x-rpc.vercel.app** (baseline) → HTTP $APP_HTTP" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+
+          if [ "$VERCEL_A_OK" = 1 ] && [ "$WWW_OK" = 1 ]; then
+            echo "### ✅ DNS records are correct" >> "$SUMMARY"
+            echo "" >> "$SUMMARY"
+            if [ "$APEX_HTTP" = 200 ] || [ "$WWW_HTTP" = 200 ]; then
+              echo "The site is being served on the custom domain." >> "$SUMMARY"
+            else
+              echo "Records resolve to Vercel. TLS cert issuance can take a few minutes — re-run this workflow in ~10 minutes if HTTPS still fails." >> "$SUMMARY"
+            fi
+          else
+            echo "### ❌ Records missing or wrong" >> "$SUMMARY"
+            echo "" >> "$SUMMARY"
+            echo "Add these at **BigRock → manage.bigrock.in → Domains → $APEX → DNS Management** (see \`DNS-SETUP-10xrpc.shop.md\`):" >> "$SUMMARY"
+            echo "" >> "$SUMMARY"
+            echo "| Type | Name | Value |" >> "$SUMMARY"
+            echo "|---|---|---|" >> "$SUMMARY"
+            echo "| A | @ | \`216.198\.79\.195\` |" >> "$SUMMARY"
+            echo "| CNAME | www | \`cname.vercel-dns.com\` |" >> "$SUMMARY"
+          fi
+          echo "" >> "$SUMMARY"
+          echo "DNS propagation can take minutes to 48h; BigRock defaults TTL to 1–2h for new records." >> "$SUMMARY"
