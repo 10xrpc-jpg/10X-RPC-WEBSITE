@@ -105,6 +105,7 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
           VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          MAIN_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
         run: |
           chmod +x .github/scripts/repair-env.sh
           SUMMARY_FILE="$GITHUB_STEP_SUMMARY" .github/scripts/repair-env.sh || echo "::warning::env auto-repair exited nonzero — deploy continues anyway"

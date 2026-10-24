@@ -9,7 +9,7 @@
 # Required env:
 #   VERCEL_TOKEN      — Vercel API token (repo secret)
 #   VERCEL_ORG_ID     — team/user id
-#   MAIN_PROJECT_ID   — current project id
+#   MAIN_PROJECT_ID   — current project id (VERCEL_PROJECT_ID accepted too)
 #   SUMMARY_FILE      — where to append markdown (usually $GITHUB_STEP_SUMMARY)
 # Optional env:
 #   CRITICAL_VARS     — space-separated names to ensure (default below)
@@ -28,7 +28,9 @@ set +e
 SUMMARY="${SUMMARY_FILE:?SUMMARY_FILE required}"
 TOKEN="${VERCEL_TOKEN:?VERCEL_TOKEN required}"
 ORG="${VERCEL_ORG_ID:?VERCEL_ORG_ID required}"
-MAIN_PROJECT_ID="${MAIN_PROJECT_ID:?MAIN_PROJECT_ID required}"
+# Accept MAIN_PROJECT_ID or VERCEL_PROJECT_ID (workflows pass the latter).
+MAIN_PROJECT_ID="${MAIN_PROJECT_ID:-${VERCEL_PROJECT_ID:-}}"
+[ -n "$MAIN_PROJECT_ID" ] || { echo "::error::repair-env.sh: neither MAIN_PROJECT_ID nor VERCEL_PROJECT_ID is set"; exit 1; }
 CRITICAL_VARS="${CRITICAL_VARS:-DATABASE_URL DATABASE_URL_UNPOOLED SESSION_SECRET DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET DISCORD_BOT_TOKEN}"
 
 # Diagnostic EXIT trap — if the script dies unexpectedly (fatal expansion,
