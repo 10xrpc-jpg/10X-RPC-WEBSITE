@@ -39,9 +39,23 @@ CRITICAL_VARS="${CRITICAL_VARS:-DATABASE_URL DATABASE_URL_UNPOOLED SESSION_SECRE
 trap 'rc=$?; if [ "$rc" -ne 0 ]; then { echo ""; echo "> ⚠️ repair-env.sh exited early: rc=$rc near line ${LINENO:-?}"; } >> "$SUMMARY" 2>/dev/null; echo "::error::repair-env.sh exited rc=$rc near line ${LINENO:-?}" || true; fi; exit $rc' EXIT
 
 missing_names() {
-  local missing=""
+  local missing="" out code body
+  out=$(env_api GET "/v9/projects/${MAIN_PROJECT_ID}/env?")
+  code=$(printf '%s' "$out" | tail -n1)
+  if [ "$code" != 200 ]; then
+    echo "::error::repair: env list failed (HTTP $code) — falling back to pulled-file presence" || true
+    for v in $CRITICAL_VARS; do
+      grep -qE "^${v}=" .env.local 2>/dev/null || missing="$missing $v"
+    done
+    echo "$missing"
+    return 0
+  fi
+  body=$(printf '%s' "$out" | sed '$d')
   for v in $CRITICAL_VARS; do
-    grep -qE "^${v}=" .env.local 2>/dev/null || missing="$missing $v"
+    printf '%s' "$body" | python3 -c "
+import json,sys
+d = json.load(sys.stdin)
+sys.exit(0 if any(e.get('key') == '$v' and 'production' in (e.get('target') or []) for e in d.get('envs', [])) else 1)" || missing="$missing $v"
   done
   echo "$missing"
 }
@@ -61,6 +75,73 @@ pull_current() {
 link_main() {
   mkdir -p .vercel
   printf '{"projectId":"%s","orgId":"%s"}' "$MAIN_PROJECT_ID" "$ORG" > .vercel/project.json
+}
+
+# ─── REST-based env upsert (no CLI-version roulette) ────────────────────
+# env_api <method> <path> [json] → "code\nbody"
+env_api() {
+  local method="$1" path="$2" json="${3:-}"
+  if [ -n "$json" ]; then
+    curl -sS -X "$method" -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+      -d "$json" -w $'\n%{http_code}' "https://api.vercel.com${path}teamId=${ORG}" 2>/dev/null
+  else
+    curl -sS -X "$method" -H "Authorization: Bearer $TOKEN" \
+      -w $'\n%{http_code}' "https://api.vercel.com${path}teamId=${ORG}" 2>/dev/null
+  fi
+}
+
+# env_upsert NAME VALUE → sets/creates the var for production only.
+env_upsert() {
+  local name="$1" value="$2" out code body id
+  out=$(env_api GET "/v9/projects/${MAIN_PROJECT_ID}/env?")
+  code=$(printf '%s' "$out" | tail -n1)
+  body=$(printf '%s' "$out" | sed '$d')
+  if [ "$code" != 200 ]; then
+    echo "::error::repair: env list failed (HTTP $code) — cannot upsert $name" || true
+    return 1
+  fi
+  id=$(printf '%s' "$body" | python3 -c "
+import json,sys
+try:
+    d = json.load(sys.stdin)
+    for e in d.get('envs', []):
+        if e.get('key') == '$name' and 'production' in (e.get('target') or []):
+            print(e['id']); break
+except Exception:
+    pass")
+  if [ -n "$id" ]; then
+    out=$(env_api DELETE "/v9/projects/${MAIN_PROJECT_ID}/env/${id}?")
+    code=$(printf '%s' "$out" | tail -n1)
+    if [ "$code" != 200 ]; then
+      echo "::error::repair: env delete failed for $name (HTTP $code)" || true
+      return 1
+    fi
+  fi
+  out=$(env_api POST "/v10/projects/${MAIN_PROJECT_ID}/env?" "{\"key\":\"$name\",\"value\":$(python3 -c "import json,sys;print(json.dumps(sys.argv[1]))" "$value"),\"type\":\"encrypted\",\"target\":[\"production\"]}")
+  code=$(printf '%s' "$out" | tail -n1)
+  if [ "$code" = 200 ]; then
+    echo "::notice::repair: $name set ✅ (REST)" || true
+    return 0
+  fi
+  body=$(printf '%s' "$out" | sed '$d')
+  echo "::error::repair: env add failed for $name (HTTP $code) $(printf '%s' "$body" | head -c 160)" || true
+  return 1
+}
+
+# env_exists NAME → 0/1 via the REST list (values are never returned by the API)
+env_exists() {
+  local name="$1" out code body
+  out=$(env_api GET "/v9/projects/${MAIN_PROJECT_ID}/env?")
+  code=$(printf '%s' "$out" | tail -n1)
+  [ "$code" = 200 ] || return 1
+  body=$(printf '%s' "$out" | sed '$d')
+  printf '%s' "$body" | python3 -c "
+import json,sys
+try:
+    d = json.load(sys.stdin)
+    sys.exit(0 if any(e.get('key') == '$name' and 'production' in (e.get('target') or []) for e in d.get('envs', [])) else 1)
+except Exception:
+    sys.exit(1)" && return 0 || return 1
 }
 
 link_main
@@ -121,8 +202,7 @@ while IFS="$(printf '\t')" read -r PID PNAME; do
       VALUE=$(grep -E "^${v}=" /tmp/sibling.env | head -1 | cut -d= -f2- | sed -e 's/^"//' -e 's/"$//')
       if [ -n "$VALUE" ]; then
         link_main
-        vercel env rm "$v" production --yes --token="$TOKEN" >/dev/null 2>&1 || true
-        if printf '%s' "$VALUE" | vercel env add "$v" production --token="$TOKEN" >/dev/null 2>&1; then
+        if env_upsert "$v" "$VALUE"; then
           echo "  - copied \`$v\` ✅" >> "$SUMMARY"
           COPIED="$COPIED $v"
         else
@@ -148,14 +228,14 @@ pull_current
 
 echo "" >> "$SUMMARY"
 if [ -n "$COPIED" ]; then
-  echo "Copied from siblings: $(echo "$COPIED" | tr ' ' '\n' | sed 's/^/`/;s/$/`/' | tr '\n' ' ')" >> "$SUMMARY"
+  echo "Copied from siblings: $(echo "${COPIED# }" | tr ' ' '\n' | sed 's/^/`/;s/$/`/' | tr '\n' ' ')" >> "$SUMMARY"
 else
   echo "No sibling project had the missing values." >> "$SUMMARY"
 fi
 REMAINING=$(missing_names | xargs)
 if [ -n "$REMAINING" ]; then
   echo "" >> "$SUMMARY"
-  echo "**Still missing:** $(echo "$REMAINING" | tr ' ' '\n' | sed 's/^/`/;s/$/`/' | tr '\n' ' ')" >> "$SUMMARY"
+  echo "**Still missing:** $(echo "${REMAINING# }" | tr ' ' '\n' | sed 's/^/`/;s/$/`/' | tr '\n' ' ')" >> "$SUMMARY"
   echo "" >> "$SUMMARY"
   echo "Add these values as GitHub repo secrets (SAME names) and run **Fix production env (set missing vars + redeploy)**." >> "$SUMMARY"
 fi
@@ -166,9 +246,8 @@ fi
 # would log every existing session out).
 if echo "$MISSING" | grep -qw "SESSION_SECRET"; then
   GEN=$(openssl rand -base64 48 | tr -d '\n')
-  if [ -n "$GEN" ] && printf '%s' "$GEN" | vercel env add SESSION_SECRET production --token="$TOKEN" >/dev/null 2>&1; then
+  if [ -n "$GEN" ] && env_upsert SESSION_SECRET "$GEN"; then
     echo "- \`SESSION_SECRET\` ✅ generated fresh (48-byte random)" >> "$SUMMARY"
-    echo "::notice::repair: SESSION_SECRET generated" || true
     MISSING=$(echo "$MISSING" | tr ' ' '\n' | grep -vx "SESSION_SECRET" | tr '\n' ' ' | xargs)
     COPIED="$COPIED SESSION_SECRET"
   else
@@ -191,8 +270,7 @@ if [ "$need_url" = 1 ] || [ "$need_redirect" = 1 ]; then
   for pair in "NEXT_PUBLIC_APP_URL:$CANONICAL_URL:$need_url" "DISCORD_REDIRECT_URI:$CANONICAL_REDIRECT:$need_redirect"; do
     name="${pair%%:*}"; rest="${pair#*:}"; value="${rest%:*}"; need="${rest##*:}"
     if [ "$need" = 1 ]; then
-      vercel env rm "$name" production --yes --token="$TOKEN" >/dev/null 2>&1
-      if printf '%s' "$value" | vercel env add "$name" production --token="$TOKEN" >/dev/null 2>&1; then
+      if env_upsert "$name" "$value"; then
         echo "- \`$name\` ✅ aligned to $value" >> "$SUMMARY"
       else
         echo "- \`$name\` ❌ failed to align (set it manually to \`$value\`)" >> "$SUMMARY"
