@@ -1,0 +1,162 @@
+# 10X RPC — Fix production environment on Vercel + redeploy.
+#
+# Repairs a production deployment whose env vars are missing (symptoms:
+# /auth/discord 500, /api/plans → {ok:false,plans:[]}, "database unreachable").
+#
+# What it does:
+#   1. Pulls the current Production env and reports which critical NAMES exist
+#      (values are never read or printed).
+#   2. Upserts known-correct values unconditionally:
+#        NEXT_PUBLIC_APP_URL     = https://www.10xrpc.shop
+#        DISCORD_REDIRECT_URI    = https://www.10xrpc.shop/auth/callback
+#   3. Generates a fresh SESSION_SECRET (openssl rand -base64 48) — ONLY if
+#      one is not already set (regenerating would log everyone out).
+#   4. Upserts any of these from GitHub repo secrets WHEN the secret exists
+#      (add them with the SAME name as the env var):
+#        DATABASE_URL, DATABASE_URL_UNPOOLED,
+#        DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET, DISCORD_BOT_TOKEN
+#   5. Triggers "Deploy to Vercel" so the running site picks everything up.
+#
+# Run: Actions → "Fix production env (set missing vars + redeploy)" → Run workflow.
+name: Fix production env (set missing vars + redeploy)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    env:
+      HAS_VERCEL_SECRETS: ${{ secrets.VERCEL_TOKEN != '' }}
+      HAS_DATABASE_URL: ${{ secrets.DATABASE_URL != '' }}
+      HAS_DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED != '' }}
+      HAS_DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID != '' }}
+      HAS_DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET != '' }}
+      HAS_DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup guide (Vercel secrets missing)
+        if: env.HAS_VERCEL_SECRETS != 'true'
+        run: |
+          echo "## ⚠️ VERCEL_TOKEN secret is not set — nothing to do here." >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v4
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        with:
+          node-version: 22
+
+      - name: Install Vercel CLI
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        run: npm i -g vercel@latest
+
+      - name: Link Vercel project
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+        run: |
+          mkdir -p .vercel
+          printf '{"projectId":"%s","orgId":"%s"}' "$VERCEL_PROJECT_ID" "$VERCEL_ORG_ID" > .vercel/project.json
+
+      - name: Pull current production env (to detect existing names)
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+        run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - name: Upsert missing/correct env vars into Vercel Production
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          HAS_DATABASE_URL: ${{ secrets.DATABASE_URL != '' }}
+          HAS_DATABASE_URL_UNPOOLED: ${{ secrets.DATABASE_URL_UNPOOLED != '' }}
+          HAS_DISCORD_CLIENT_ID: ${{ secrets.DISCORD_CLIENT_ID != '' }}
+          HAS_DISCORD_CLIENT_SECRET: ${{ secrets.DISCORD_CLIENT_SECRET != '' }}
+          HAS_DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN != '' }}
+        run: |
+          set -u
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+
+          upsert() {
+            local name="$1" value="$2"
+            # Remove only if it exists (ignore the not-found error), then add.
+            vercel env rm "$name" production --yes --token="$VERCEL_TOKEN" >/dev/null 2>&1 || true
+            if printf '%s' "$value" | vercel env add "$name" production --token="$VERCEL_TOKEN" >/dev/null 2>&1; then
+              echo "- \`$name\` ✅ set (value never printed)" >> "$SUMMARY"
+            else
+              echo "- \`$name\` ❌ **failed to set** — check the workflow log" >> "$SUMMARY"
+            fi
+          }
+
+          existing() { grep -qE "^$1=" .env.local 2>/dev/null; }
+
+          echo "## Fix production env — $(date -u '+%Y-%m-%d %H:%M UTC')" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+          echo "### Set this run" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+
+          # 1. Known-correct values for the new domain — always refreshed.
+          upsert NEXT_PUBLIC_APP_URL "https://www.10xrpc.shop"
+          upsert DISCORD_REDIRECT_URI "https://www.10xrpc.shop/auth/callback"
+
+          # 2. SESSION_SECRET — only generate when absent (a rotation logs
+          #    every existing session out).
+          if ! existing SESSION_SECRET; then
+            upsert SESSION_SECRET "$(openssl rand -base64 48 | tr -d '\n')"
+          else
+            echo "- \`SESSION_SECRET\` ⏭ already present — left untouched" >> "$SUMMARY"
+          fi
+
+          # 3. Secrets the user added to GitHub repo Actions secrets
+          #    (same names as the env vars). Values flow secret → Vercel env
+          #    without ever being printed.
+          if [ "$HAS_DATABASE_URL" = "true" ]; then upsert DATABASE_URL "${{ secrets.DATABASE_URL }}"; else echo "- \`DATABASE_URL\` ⚠️ no repo secret \`DATABASE_URL\` found" >> "$SUMMARY"; fi
+          if [ "$HAS_DATABASE_URL_UNPOOLED" = "true" ]; then upsert DATABASE_URL_UNPOOLED "${{ secrets.DATABASE_URL_UNPOOLED }}"; else echo "- \`DATABASE_URL_UNPOOLED\` ⏭ no repo secret (optional)" >> "$SUMMARY"; fi
+          if [ "$HAS_DISCORD_CLIENT_ID" = "true" ]; then upsert DISCORD_CLIENT_ID "${{ secrets.DISCORD_CLIENT_ID }}"; else echo "- \`DISCORD_CLIENT_ID\` ⚠️ no repo secret found" >> "$SUMMARY"; fi
+          if [ "$HAS_DISCORD_CLIENT_SECRET" = "true" ]; then upsert DISCORD_CLIENT_SECRET "${{ secrets.DISCORD_CLIENT_SECRET }}"; else echo "- \`DISCORD_CLIENT_SECRET\` ⚠️ no repo secret found" >> "$SUMMARY"; fi
+          if [ "$HAS_DISCORD_BOT_TOKEN" = "true" ]; then upsert DISCORD_BOT_TOKEN "${{ secrets.DISCORD_BOT_TOKEN }}"; else echo "- \`DISCORD_BOT_TOKEN\` ⏭ no repo secret (optional)" >> "$SUMMARY"; fi
+
+          echo "" >> "$SUMMARY"
+          echo "### Final presence check" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+          # Re-pull to reflect what production will get on the next build.
+          vercel pull --yes --environment=production --token="$VERCEL_TOKEN" >/dev/null 2>&1 || true
+          STILL=""
+          for v in DATABASE_URL SESSION_SECRET DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET DISCORD_BOT_TOKEN DISCORD_REDIRECT_URI NEXT_PUBLIC_APP_URL; do
+            if grep -qE "^${v}=" .env.local 2>/dev/null; then
+              echo "- \`$v\` ✅" >> "$SUMMARY"
+            else
+              echo "- \`$v\` ❌ still missing" >> "$SUMMARY"
+              STILL="$STILL \`$v\`"
+            fi
+          done
+          echo "" >> "$SUMMARY"
+          if [ -n "$STILL" ]; then
+            echo "### ⚠️ Still missing:$STILL" >> "$SUMMARY"
+            echo "" >> "$SUMMARY"
+            echo "Add the value as a GitHub repo secret with the SAME name (Settings → Secrets and variables → Actions → New repository secret), then re-run this workflow. Login/plans/payments stay broken until \`DATABASE_URL\` exists." >> "$SUMMARY"
+          else
+            echo "All critical env vars present — redeploying now." >> "$SUMMARY"
+          fi
+
+      - name: Trigger production deploy
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          curl -s -o /dev/null -w "deploy dispatch: HTTP %{http_code}\n" \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$REPO/actions/workflows/deploy.yml/dispatches" \
+            -d '{"ref":"main"}'

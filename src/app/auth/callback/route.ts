@@ -23,9 +23,22 @@ export async function GET(req: Request) {
   }
 
   // Look up the PKCE verifier from the database by state
-  const oauthState = await db.oAuthState.findUnique({
-    where: { state },
-  })
+  let oauthState
+  try {
+    oauthState = await db.oAuthState.findUnique({
+      where: { state },
+    })
+  } catch (err) {
+    // DB unreachable — bounce back to the landing page with a clear error flag
+    // instead of an unhandled 500.
+    console.error(JSON.stringify({
+      tag: 'auth_callback_db_unavailable',
+      message: err instanceof Error ? err.message : String(err),
+      hasDatabaseUrl: Boolean(process.env.DATABASE_URL),
+      at: new Date().toISOString(),
+    }))
+    return NextResponse.redirect(`${CONFIG.app.url}/?error=db_unavailable`)
+  }
 
   if (!oauthState) {
     return NextResponse.redirect(`${CONFIG.app.url}/?error=invalid_state`)

@@ -105,6 +105,36 @@ jobs:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
         run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
 
+      - name: Report production env presence (names only — values never read)
+        if: env.HAS_VERCEL_SECRETS == 'true'
+        run: |
+          SUMMARY="$GITHUB_STEP_SUMMARY"
+          CRITICAL="DATABASE_URL SESSION_SECRET DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET DISCORD_BOT_TOKEN DISCORD_REDIRECT_URI NEXT_PUBLIC_APP_URL"
+          echo "## Production env check" >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+          echo "Variable **names** only — values are never read or printed." >> "$SUMMARY"
+          echo "" >> "$SUMMARY"
+          MISSING=""
+          for v in $CRITICAL; do
+            if grep -qE "^${v}=" .env.local 2>/dev/null; then
+              echo "- \`$v\` ✅ present" >> "$SUMMARY"
+            else
+              echo "- \`$v\` ❌ **missing**" >> "$SUMMARY"
+              MISSING="$MISSING \`$v\`"
+            fi
+          done
+          echo "" >> "$SUMMARY"
+          if [ -n "$MISSING" ]; then
+            echo "### ⚠️ Missing critical env vars:$MISSING" >> "$SUMMARY"
+            echo "" >> "$SUMMARY"
+            echo "DB-backed features (login, plans, payments) **will fail** until these exist." >> "$SUMMARY"
+            echo "" >> "$SUMMARY"
+            echo "**Fix (no dashboard needed):** add each missing value as a GitHub repo secret with the **same name** (Settings → Secrets and variables → Actions), then run **Actions → Fix production env (set missing vars + redeploy)** — it pushes the values into Vercel Production and triggers this deploy again." >> "$SUMMARY"
+          else
+            echo "All critical env vars present ✅" >> "$SUMMARY"
+          fi
+          echo "" >> "$SUMMARY"
+
       - name: Build (production, with project env)
         if: env.HAS_VERCEL_SECRETS == 'true'
         env:
