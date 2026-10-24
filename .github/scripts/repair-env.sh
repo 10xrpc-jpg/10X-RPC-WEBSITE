@@ -32,9 +32,9 @@ MAIN_PROJECT_ID="${MAIN_PROJECT_ID:?MAIN_PROJECT_ID required}"
 CRITICAL_VARS="${CRITICAL_VARS:-DATABASE_URL DATABASE_URL_UNPOOLED SESSION_SECRET DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET DISCORD_BOT_TOKEN}"
 
 # Diagnostic EXIT trap — if the script dies unexpectedly (fatal expansion,
-# set -u kill, CLI crash), the run summary records WHERE, so the next run can
-# be fixed precisely instead of guessed at. Registered after SUMMARY exists.
-trap 'rc=$?; if [ "$rc" -ne 0 ]; then { echo ""; echo "> ⚠️ repair-env.sh exited early: rc=$rc near line ${LINENO:-?}"; } >> "$SUMMARY" 2>/dev/null; fi; exit $rc' EXIT
+# set -u kill, CLI crash), record WHERE in the run summary AND as a workflow
+# annotation (::error:: lines are visible on the run page even without auth).
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then { echo ""; echo "> ⚠️ repair-env.sh exited early: rc=$rc near line ${LINENO:-?}"; } >> "$SUMMARY" 2>/dev/null; echo "::error::repair-env.sh exited rc=$rc near line ${LINENO:-?}" || true; fi; exit $rc' EXIT
 
 missing_names() {
   local missing=""
@@ -66,6 +66,8 @@ pull_current
 
 MISSING=$(missing_names | xargs)
 COPIED=""
+
+echo "::notice::repair: missing=[${MISSING:-none}]" || true
 
 if [ -z "$MISSING" ]; then
   {
@@ -137,6 +139,8 @@ while IFS="$(printf '\t')" read -r PID PNAME; do
   rm -f /tmp/sibling.env
 done < /tmp/siblings.tsv
 
+echo "::notice::repair: copied=[${COPIED:-none}] remaining=[${MISSING:-none}]" || true
+
 link_main
 pull_current
 
@@ -178,6 +182,8 @@ if [ "$need_url" = 1 ] || [ "$need_redirect" = 1 ]; then
     fi
   done
 fi
+
+echo "::notice::repair: alignment done (url=$need_url redirect=$need_redirect)" || true
 
 echo "" >> "$SUMMARY"
 exit 0
