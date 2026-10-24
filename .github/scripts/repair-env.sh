@@ -16,8 +16,14 @@
 #
 # Guarantees: values are copied file→env inside the runner and are NEVER
 # printed — neither in logs nor in the summary. Existing env vars are never
-# overwritten — only MISSING ones get filled.
+# overwritten — only MISSING ones get filled (except the two domain-correct
+# vars in the alignment section at the end).
+#
+# NOTE: GitHub Actions runs steps with `bash -e`; we deliberately switch that
+# OFF below — a repair glitch must never fail the whole deploy. The script
+# always exits 0 and reports its outcome in the run summary.
 set -u
+set +e
 
 SUMMARY="${SUMMARY_FILE:?SUMMARY_FILE required}"
 TOKEN="${VERCEL_TOKEN:?VERCEL_TOKEN required}"
@@ -142,5 +148,31 @@ if [ -n "$REMAINING" ]; then
   echo "" >> "$SUMMARY"
   echo "Add these values as GitHub repo secrets (SAME names) and run **Fix production env (set missing vars + redeploy)**." >> "$SUMMARY"
 fi
+
+# ─── Domain alignment ────────────────────────────────────────────────────
+# These two MUST match the live custom domain or OAuth lands users on a dead
+# host. Safe to refresh on every repair: the values are derived, not secret.
+CANONICAL_URL="https://www.10xrpc.shop"
+CANONICAL_REDIRECT="https://www.10xrpc.shop/auth/callback"
+need_url=1
+need_redirect=1
+grep -qE "^NEXT_PUBLIC_APP_URL=\"?${CANONICAL_URL}\"?" .env.local 2>/dev/null && need_url=0
+grep -qE "^DISCORD_REDIRECT_URI=\"?${CANONICAL_REDIRECT}\"?" .env.local 2>/dev/null && need_redirect=0
+if [ "$need_url" = 1 ] || [ "$need_redirect" = 1 ]; then
+  echo "" >> "$SUMMARY"
+  echo "Domain alignment:" >> "$SUMMARY"
+  for pair in "NEXT_PUBLIC_APP_URL:$CANONICAL_URL:$need_url" "DISCORD_REDIRECT_URI:$CANONICAL_REDIRECT:$need_redirect"; do
+    name="${pair%%:*}"; rest="${pair#*:}"; value="${rest%:*}"; need="${rest##*:}"
+    if [ "$need" = 1 ]; then
+      vercel env rm "$name" production --yes --token="$TOKEN" >/dev/null 2>&1
+      if printf '%s' "$value" | vercel env add "$name" production --token="$TOKEN" >/dev/null 2>&1; then
+        echo "- \`$name\` ✅ aligned to $value" >> "$SUMMARY"
+      else
+        echo "- \`$name\` ❌ failed to align (set it manually to \`$value\`)" >> "$SUMMARY"
+      fi
+    fi
+  done
+fi
+
 echo "" >> "$SUMMARY"
 exit 0
