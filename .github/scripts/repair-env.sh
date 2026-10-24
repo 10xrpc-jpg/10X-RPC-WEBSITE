@@ -31,6 +31,11 @@ ORG="${VERCEL_ORG_ID:?VERCEL_ORG_ID required}"
 MAIN_PROJECT_ID="${MAIN_PROJECT_ID:?MAIN_PROJECT_ID required}"
 CRITICAL_VARS="${CRITICAL_VARS:-DATABASE_URL DATABASE_URL_UNPOOLED SESSION_SECRET DISCORD_CLIENT_ID DISCORD_CLIENT_SECRET DISCORD_BOT_TOKEN}"
 
+# Diagnostic EXIT trap — if the script dies unexpectedly (fatal expansion,
+# set -u kill, CLI crash), the run summary records WHERE, so the next run can
+# be fixed precisely instead of guessed at. Registered after SUMMARY exists.
+trap 'rc=$?; if [ "$rc" -ne 0 ]; then { echo ""; echo "> ⚠️ repair-env.sh exited early: rc=$rc near line ${LINENO:-?}"; } >> "$SUMMARY" 2>/dev/null; fi; exit $rc' EXIT
+
 missing_names() {
   local missing=""
   for v in $CRITICAL_VARS; do
