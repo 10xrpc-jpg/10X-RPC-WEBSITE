@@ -160,6 +160,22 @@ if [ -n "$REMAINING" ]; then
   echo "Add these values as GitHub repo secrets (SAME names) and run **Fix production env (set missing vars + redeploy)**." >> "$SUMMARY"
 fi
 
+# ─── SESSION_SECRET self-service ─────────────────────────────────────────
+# If it's still missing (no sibling had it), generate a fresh one right here —
+# the user never needs to supply it. Only generated when absent (a rotation
+# would log every existing session out).
+if echo "$MISSING" | grep -qw "SESSION_SECRET"; then
+  GEN=$(openssl rand -base64 48 | tr -d '\n')
+  if [ -n "$GEN" ] && printf '%s' "$GEN" | vercel env add SESSION_SECRET production --token="$TOKEN" >/dev/null 2>&1; then
+    echo "- \`SESSION_SECRET\` ✅ generated fresh (48-byte random)" >> "$SUMMARY"
+    echo "::notice::repair: SESSION_SECRET generated" || true
+    MISSING=$(echo "$MISSING" | tr ' ' '\n' | grep -vx "SESSION_SECRET" | tr '\n' ' ' | xargs)
+    COPIED="$COPIED SESSION_SECRET"
+  else
+    echo "- \`SESSION_SECRET\` ❌ generation failed — set it manually" >> "$SUMMARY"
+  fi
+fi
+
 # ─── Domain alignment ────────────────────────────────────────────────────
 # These two MUST match the live custom domain or OAuth lands users on a dead
 # host. Safe to refresh on every repair: the values are derived, not secret.
