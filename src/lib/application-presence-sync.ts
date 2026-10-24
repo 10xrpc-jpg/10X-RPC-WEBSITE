@@ -19,7 +19,7 @@ export interface ApplicationSyncResult {
 }
 
 export async function syncApplicationPresence(userId: string): Promise<ApplicationSyncResult> {
-  if (orihostDaemonConfigured()) {
+  if (await orihostDaemonConfigured()) {
     const ok = await notifyOrihostSync(userId, 'sync')
     return {
       ok,

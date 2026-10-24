@@ -13,7 +13,7 @@ export async function GET() {
     {
       status: 'ok',
       service: '10x-rpc-backend',
-      presenceBackend: presenceBackend(),
+      presenceBackend: await presenceBackend(),
       timestamp: new Date().toISOString(),
       uptime: process.uptime(),
       daemon: daemonStatus,

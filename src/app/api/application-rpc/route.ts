@@ -31,7 +31,7 @@ export async function GET() {
     ok: true,
     config: serializeApplicationRpcRow(row),
     /** Where execution actually runs — lets the UI be honest about the backend. */
-    backend: presenceBackend(),
+    backend: await presenceBackend(),
   })
 }
 

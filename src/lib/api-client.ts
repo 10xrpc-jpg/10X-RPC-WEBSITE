@@ -508,6 +508,18 @@ export interface AdminRazorpayTestResult {
   testedAt: string
 }
 
+/** Admin → Backend Nodes (24/7 daemon fleet) config. */
+export interface AdminDaemonNodes {
+  ok: boolean
+  envBases: string[]
+  effectiveBases: string[]
+  override: { urls: string[]; mode: 'append' | 'replace'; updatedAt?: string } | null
+  syncSecret: string
+  syncSecretMasked: string
+  syncSecretSource: 'db' | 'env' | 'none'
+  checkedAt?: string
+}
+
 export interface AdminUser {
   id: string
   discordId: string
@@ -842,6 +854,14 @@ export const api = {
     fetchJson<AdminRazorpayConfig>('/api/admin/razorpay', { method: 'PUT', body: JSON.stringify(data) }),
   adminRazorpayReset: () => fetchJson<AdminRazorpayConfig>('/api/admin/razorpay', { method: 'DELETE' }),
   adminRazorpayTest: () => fetchJson<AdminRazorpayTestResult>('/api/admin/razorpay/test', { method: 'POST', body: '{}' }),
+
+  // ---------- Admin: 24/7 backend nodes ----------
+  adminDaemonNodesGet: () => fetchJson<AdminDaemonNodes>('/api/admin/daemon-nodes'),
+  adminDaemonNodesSave: (data: { urls?: string; mode?: 'append' | 'replace'; syncSecret?: string }) =>
+    fetchJson<AdminDaemonNodes>('/api/admin/daemon-nodes', { method: 'PUT', body: JSON.stringify(data) }),
+  adminDaemonNodesReset: () => fetchJson<AdminDaemonNodes>('/api/admin/daemon-nodes', { method: 'DELETE' }),
+  adminDaemonNodesTest: (url: string) =>
+    fetchJson<{ ok: boolean; url: string; status: number; latencyMs: number; error?: string; hint?: string; health?: Record<string, unknown> | null }>('/api/admin/daemon-nodes/test', { method: 'POST', body: JSON.stringify({ url }) }),
 
   adminForceRpc: (enable: boolean) => fetchJson<{
     ok: boolean

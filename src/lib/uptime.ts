@@ -123,11 +123,9 @@ async function probeDiscord(): Promise<UptimeProbe> {
  *  probe used to treat the whole env var as ONE URL → "Failed to parse URL
  *  from http://…,http://…,http://…/status" → the uptime page reported the
  *  daemon down (operational:false) even with all three nodes healthy. */
-function orihostDaemonBases(): string[] {
-  return (process.env.ORIHOST_DAEMON_URL || '')
-    .split(',')
-    .map(s => s.trim().replace(/\/+$/, ''))
-    .filter(Boolean)
+async function orihostDaemonBases(): Promise<string[]> {
+  const { getDaemonNodes } = await import('./daemon-nodes')
+  return (await getDaemonNodes()).effectiveBases
 }
 
 interface DaemonStatusBody {
@@ -217,7 +215,7 @@ function parseDaemonStatus(body: string): {
 }
 
 async function probeDaemon(): Promise<DaemonReport> {
-  const bases = orihostDaemonBases()
+  const bases = await orihostDaemonBases()
   if (bases.length === 0) return { configured: false, ok: false, latencyMs: null, error: 'ORIHOST_DAEMON_URL not set' }
 
   // Probe EVERY node in parallel (3-node split: status / rpc / game roles).

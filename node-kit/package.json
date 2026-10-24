@@ -1,0 +1,20 @@
+{
+  "name": "10x-rpc-node",
+  "version": "1.0.0",
+  "private": true,
+  "description": "10X RPC 24/7 daemon node — runtime dependencies only (no Next.js frontend).",
+  "engines": {
+    "node": ">=18.18"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.11.1",
+    "dotenv": "^16.6.1",
+    "prisma": "^6.11.1",
+    "tsx": "^4.23.13",
+    "ws": "^8.21.3"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "generate": "prisma generate --schema prisma/schema.prisma"
+  }
+}

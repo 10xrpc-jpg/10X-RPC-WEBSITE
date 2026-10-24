@@ -41,6 +41,7 @@ import { TrialsTab } from './admin/TrialsTab'
 import { AnalyticsTab } from './admin/AnalyticsTab'
 import { AuditTab } from './admin/AuditTab'
 import { PaymentsSetupCard } from './admin/PaymentsSetupCard'
+import { BackendNodesCard } from './admin/BackendNodesCard'
 
 type AdminTab = 'overview' | 'plans' | 'users' | 'payments' | 'trials' | 'analytics' | 'sessions' | 'control' | 'audit' | 'settings'
 
@@ -535,6 +536,7 @@ export function AdminPage() {
 
         {tab === 'settings' && (
           <div className="space-y-4">
+            <BackendNodesCard />
             <Card>
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-bold text-white">Platform Settings</h3>

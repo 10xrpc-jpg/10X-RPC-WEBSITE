@@ -1,0 +1,69 @@
+# 10X RPC — build the 24/7 node kit as a downloadable artifact.
+#
+# Run: Actions → "Build node kit" → Run workflow → download
+#      10x-node-kit (zip/tar.gz) from the run page → upload to the panel
+#      server → Extract → rename env.example to .env → edit → Start.
+#
+# The kit is self-provisioning: first boot on the panel runs npm install +
+# prisma generate automatically (see index.js ensureDeps()).
+name: Build node kit
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  kit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Assemble kit staging dir
+        run: |
+          set -euo pipefail
+          STAGE=$(mktemp -d)
+          # Supervisor + runtime config
+          cp index.js "$STAGE/"
+          cp node-kit/package.json "$STAGE/package.json"
+          cp node-kit/tsconfig.json "$STAGE/tsconfig.json"
+          cp node-kit/env.example "$STAGE/env.example"
+          cp node-kit/README.md "$STAGE/README-NODE-KIT.md"
+          # Database schema
+          mkdir -p "$STAGE/prisma"
+          cp prisma/schema.prisma "$STAGE/prisma/"
+          # Daemon scripts
+          mkdir -p "$STAGE/scripts"
+          cp scripts/rpc-daemon-standalone.ts "$STAGE/scripts/"
+          cp scripts/failover-decisions.js "$STAGE/scripts/"
+          # Runtime lib graph (scripts/rpc-daemon-standalone.ts imports)
+          mkdir -p "$STAGE/src/lib"
+          for f in api-client application-rpc-daemon application-rpc config constants \
+                   daemon-roles db discord-assets discord-auth discord-settings \
+                   game-rotation games gateway-platform placeholders rotation \
+                   rpc-configured rpc-daemon rpc-manager rpc-rotation-lifecycle weather; do
+            cp "src/lib/$f.ts" "$STAGE/src/lib/"
+          done
+          echo "kit files:" && (cd "$STAGE" && find . -type f | sort)
+          echo "STAGE=$STAGE" >> "$GITHUB_ENV"
+
+      - name: Create zip + tar.gz
+        run: |
+          set -euo pipefail
+          cd "$STAGE"
+          zip -qr "$GITHUB_WORKSPACE/10x-node-kit.zip" .
+          tar -czf "$GITHUB_WORKSPACE/10x-node-kit.tar.gz" .
+          ls -la "$GITHUB_WORKSPACE"/10x-node-kit.*
+
+      - name: Upload artifact (zip)
+        uses: actions/upload-artifact@v4
+        with:
+          name: 10x-node-kit-zip
+          path: 10x-node-kit.zip
+
+      - name: Upload artifact (tar.gz)
+        uses: actions/upload-artifact@v4
+        with:
+          name: 10x-node-kit-targz
+          path: 10x-node-kit.tar.gz

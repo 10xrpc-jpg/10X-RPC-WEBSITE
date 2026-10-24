@@ -55,6 +55,54 @@ process.on('exit', (code) => {
 })
 blog('node is alive')
 
+// ─── SELF-PROVISIONING (panel servers start from a bare kit upload) ───
+// A freshly uploaded node kit has NO node_modules: `require('dotenv')` below
+// would crash-loop forever with an invisible error. Before ANY external
+// require(), make sure the runtime dependency set exists — installing it and
+// generating the Prisma client on first boot (skipped on every later boot;
+// existing Orihost nodes with a full node_modules never enter these paths).
+function depsPresent() {
+  const has = (p) => { try { return fs.existsSync(path.join(__dirname, p)) } catch { return false } }
+  return has('node_modules/dotenv') && has('node_modules/ws') && has('node_modules/@prisma/client') && has('node_modules/tsx') && has('node_modules/.bin/tsx')
+}
+function prismaClientGenerated() {
+  try { return fs.existsSync(path.join(__dirname, 'node_modules', '.prisma', 'client')) } catch { return false }
+}
+function ensureDeps() {
+  const { execSync } = require('child_process')
+  if (!depsPresent()) {
+    blog('stage: deps-missing → npm install (first boot, may take a few minutes)')
+    console.log('[10X RPC Server] First boot detected — installing runtime dependencies (npm install)…')
+    try {
+      execSync('npm install --no-audit --no-fund --loglevel=error', {
+        cwd: __dirname, stdio: ['ignore', 'pipe', 'pipe'], timeout: 15 * 60 * 1000, env: process.env,
+      })
+      blog('stage: npm-install-ok')
+      console.log('[10X RPC Server] npm install finished.')
+    } catch (err) {
+      blog(`stage: npm-install-FAILED ${String(err && err.message).slice(0, 300)}`)
+      console.error('[10X RPC Server] npm install FAILED — children may not start until it succeeds:', err.message)
+      // Keep going: the supervisor's restart loop retries children, and a
+      // partial install often still provides dotenv + ws.
+    }
+  }
+  if (!prismaClientGenerated()) {
+    blog('stage: prisma-generate-start')
+    console.log('[10X RPC Server] Generating Prisma client (npx prisma generate)…')
+    try {
+      execSync('npx prisma generate --schema prisma/schema.prisma', {
+        cwd: __dirname, stdio: ['ignore', 'pipe', 'pipe'], timeout: 5 * 60 * 1000, env: process.env,
+      })
+      blog('stage: prisma-generate-ok')
+      console.log('[10X RPC Server] Prisma client generated.')
+    } catch (err) {
+      blog(`stage: prisma-generate-FAILED ${String(err && err.message).slice(0, 300)}`)
+      console.error('[10X RPC Server] prisma generate FAILED — daemon children will error until it succeeds:', err.message)
+    }
+  }
+}
+ensureDeps()
+
 for (const level of ['log', 'error', 'warn', 'info']) {
   const orig = console[level].bind(console)
   console[level] = (...args) => {
@@ -465,7 +513,9 @@ startChild(BASE_ROLE, true)
 const LEASE_BEAT_MS = 15_000
 const LEASE_TTL_SEC = 75
 const LEASE_TABLE = 'DaemonNodeLease'
-const NODE_ID = `${os.hostname()}:${PORT}`
+// DAEMON_NODE_ID (optional): stable lease identity across hostname changes.
+// Defaults to hostname:port — already unique per server.
+const NODE_ID = process.env.DAEMON_NODE_ID || `${os.hostname()}:${PORT}`
 let leaseDb = null
 let leaseReady = false
 let lastAdoptedSummary = ''

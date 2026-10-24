@@ -21,23 +21,22 @@ import type { PresenceResult } from '@/lib/rpc-manager'
 export type SyncMode = 'sync' | 'stop'
 
 /**
- * The 24/7 daemon base URLs (production). Supports a COMMA-SEPARATED list —
- * one per Orihost node, one product pillar each:
- *   NODE 1 = STATUS, NODE 2 = RPC, NODE 3 = GAME RPC.
+ * The 24/7 daemon base URLs (production). Env list ORIHOST_DAEMON_URL
+ * (comma-separated — one per node, one product pillar each:
+ *   NODE 1 = STATUS, NODE 2 = RPC, NODE 3 = GAME RPC), extended or replaced
+ * by the admin-managed dashboard override (daemon-nodes resolver).
  * Every save/toggle is broadcast to ALL nodes; each node's daemon applies
  * only its own pillar (role-gated) and ignores the rest, so a single
  * notification reaches whichever pillar the change touches.
  */
-function orihostDaemonBases(): string[] {
-  const raw = process.env.ORIHOST_DAEMON_URL || ''
-  return raw
-    .split(',')
-    .map(s => s.trim().replace(/\/+$/, ''))
-    .filter(Boolean)
+async function orihostDaemonBases(): Promise<string[]> {
+  const { getDaemonNodes } = await import('./daemon-nodes')
+  const nodes = await getDaemonNodes()
+  return nodes.effectiveBases
 }
 
-export function orihostDaemonConfigured(): boolean {
-  return orihostDaemonBases().length > 0
+export async function orihostDaemonConfigured(): Promise<boolean> {
+  return (await orihostDaemonBases()).length > 0
 }
 
 /**
@@ -67,8 +66,11 @@ export async function notifyOrihostSyncDetailed(
   userId: string,
   mode: SyncMode = 'sync'
 ): Promise<{ dispatched: boolean; applied?: boolean }> {
-  const bases = orihostDaemonBases()
+  const bases = await orihostDaemonBases()
   if (bases.length === 0) return { dispatched: false }
+  const { getDaemonNodes } = await import('./daemon-nodes')
+  const nodes = await getDaemonNodes()
+  const secret = nodes.syncSecret
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), 8000)
   try {
@@ -81,10 +83,9 @@ export async function notifyOrihostSyncDetailed(
           // SECRET-NAME ROBUSTNESS (Task 118): the node historically expected
           // DAEMON_SYNC_SECRET while this side sent ORIHOST_SYNC_SECRET — a
           // name mismatch silently 403'd every instant sync. Send whichever is
-          // configured (node side accepts either name too).
-          ...(process.env.ORIHOST_SYNC_SECRET || process.env.DAEMON_SYNC_SECRET
-            ? { 'x-sync-secret': process.env.ORIHOST_SYNC_SECRET || process.env.DAEMON_SYNC_SECRET }
-            : {}),
+          // configured (node side accepts either name too). The value comes
+          // from the daemon-nodes resolver (env or the admin dashboard save).
+          ...(secret ? { 'x-sync-secret': secret } : {}),
         },
         body: JSON.stringify({ userId, mode }),
         signal: controller.signal,
@@ -161,7 +162,7 @@ export async function notifyOrihostSyncDetailed(
  * Local dev (no ORIHOST_DAEMON_URL): classic in-process daemon syncUser.
  */
 export async function syncPresence(userId: string): Promise<PresenceResult> {
-  if (orihostDaemonConfigured()) {
+  if (await orihostDaemonConfigured()) {
     const ok = await notifyOrihostSync(userId, 'sync')
     return {
       ok,
@@ -182,7 +183,7 @@ export async function syncPresence(userId: string): Promise<PresenceResult> {
  * in flight) and its verify-retry chain will land it automatically.
  */
 export async function syncPresenceVerified(userId: string): Promise<PresenceResult & { applied?: boolean }> {
-  if (orihostDaemonConfigured()) {
+  if (await orihostDaemonConfigured()) {
     const result = await notifyOrihostSyncDetailed(userId, 'sync')
     return {
       ok: result.dispatched,
@@ -205,7 +206,7 @@ export async function syncPresenceVerified(userId: string): Promise<PresenceResu
  * Same backend selection rules as syncPresence.
  */
 export async function stopPresence(userId: string): Promise<PresenceResult> {
-  if (orihostDaemonConfigured()) {
+  if (await orihostDaemonConfigured()) {
     const ok = await notifyOrihostSync(userId, 'stop')
     return {
       ok,
@@ -236,8 +237,8 @@ export function syncPresenceDetached(userId: string, mode: SyncMode = 'sync'): v
 }
 
 /** Health/telemetry helper for status endpoints. */
-export function presenceBackend(): 'orihost-daemon' | 'in-process' {
-  return orihostDaemonConfigured() ? 'orihost-daemon' : 'in-process'
+export async function presenceBackend(): Promise<'orihost-daemon' | 'in-process'> {
+  return (await orihostDaemonConfigured()) ? 'orihost-daemon' : 'in-process'
 }
 
 // Keep getRpcDaemon referenced so tree-shaking never drops the module that
